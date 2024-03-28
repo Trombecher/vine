@@ -20,7 +20,6 @@ Markup elements start `<`. The token before `<` must be one of the following:
 - `=`
 - `==`
 - `=>`
-- `!=`
 - `<`
 - `<=`
 - `<<`
@@ -35,4 +34,27 @@ Markup elements start `<`. The token before `<` must be one of the following:
 - `-=`
 - `*`
 - `*=`
-- `*=`
+- `**`
+- `**=`
+- `/`
+- `/=`
+- Line comment `//`
+- Doc comment `///`
+- `%`
+- `%=`
+- `|`
+- `|=`
+- `||`
+- `||=`
+- `&`
+- `&=`
+- `&&`
+- `&&=`
+- `^`
+- `^=`
+- `[`
+- `{`
+- `,`
+- `;`
+- `:`
+- `!=`

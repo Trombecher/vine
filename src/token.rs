@@ -9,13 +9,9 @@ pub struct WithSpan<T> where T: Debug {
     pub end: usize,
 }
 
-pub enum IdentifierOrKeyword {
-    Identifier(String),
-    Keyword(Keyword)
-}
-
 #[derive(Debug)]
 pub enum Token {
+    Char(char),
     Identifier(String),
     Number(f64),
     DocComment(String),
@@ -52,7 +48,7 @@ pub enum Keyword {
     Use,
 }
 
-static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
+pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "as" => Keyword::As,
     "await" => Keyword::Await,
     "async" => Keyword::Async,
@@ -75,14 +71,6 @@ static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "while" => Keyword::While,
     "use" => Keyword::Use,
 };
-
-impl<'a> TryFrom<&'a str> for Keyword {
-    type Error = ();
-
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        KEYWORDS.get(value).copied().ok_or(())
-    }
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum Symbol {

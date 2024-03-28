@@ -11,5 +11,5 @@ pub enum Child {
 pub struct Element {
     pub children: Vec<WithSpan<Child>>,
     pub identifier: WithSpan<String>,
-    pub attributes: Vec<WithSpan<(String, Vec<Token>)>>,
+    pub attributes: Vec<(WithSpan<String>, WithSpan<Vec<Token>>)>,
 }
