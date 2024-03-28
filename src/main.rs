@@ -1,6 +1,6 @@
 use std::fs::read_to_string;
 use crate::lexer::Lexer;
-use crate::token::TokenKind;
+use crate::token::Token;
 
 mod ion;
 mod lexer;
@@ -14,7 +14,7 @@ fn main() -> Result<(), ion::Error> {
     let mut lexer = Lexer::new(input.chars());
     loop {
         let token = lexer.next()?;
-        if let TokenKind::EndOfInput = token.kind {
+        if let Token::EndOfInput = token.value {
             break;
         }
         

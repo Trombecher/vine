@@ -1,16 +1,15 @@
-use std::collections::HashMap;
-use crate::token::Token;
+use crate::token::{Token, WithSpan};
 
 #[derive(Debug)]
 pub enum Child {
     Element(Element),
     Text(String),
-    Tokens(Vec<Token>)
+    Insert(Vec<Token>)
 }
 
 #[derive(Debug)]
 pub struct Element {
-    children: Vec<Child>,
-    identifier: String,
-    attributes: HashMap<String, Vec<Token>>,
+    pub children: Vec<WithSpan<Child>>,
+    pub identifier: WithSpan<String>,
+    pub attributes: Vec<WithSpan<(String, Vec<Token>)>>,
 }

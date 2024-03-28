@@ -8,9 +8,31 @@
 - `nil`
 - `bool`
 - `object`
-- `array`
 
 ## Composite Types
 
 - `String`
-- 
+
+## Markup
+
+Markup elements start `<`. The token before `<` must be one of the following:
+
+- `=`
+- `==`
+- `=>`
+- `!=`
+- `<`
+- `<=`
+- `<<`
+- `<<=`
+- `>`
+- `>=`
+- `>>`
+- `>>=`
+- `+`
+- `+=`
+- `-`
+- `-=`
+- `*`
+- `*=`
+- `*=`

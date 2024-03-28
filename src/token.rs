@@ -1,15 +1,21 @@
+use std::fmt::Debug;
 use phf::phf_map;
 use crate::markup;
 
 #[derive(Debug)]
-pub struct Token {
+pub struct WithSpan<T> where T: Debug {
+    pub value: T,
     pub start: usize,
     pub end: usize,
-    pub kind: TokenKind,
+}
+
+pub enum IdentifierOrKeyword {
+    Identifier(String),
+    Keyword(Keyword)
 }
 
 #[derive(Debug)]
-pub enum TokenKind {
+pub enum Token {
     Identifier(String),
     Number(f64),
     DocComment(String),
@@ -34,6 +40,7 @@ pub enum Keyword {
     Fn,
     For,
     If,
+    In,
     Mut,
     Match,
     Nil,
@@ -57,6 +64,7 @@ static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "fn" => Keyword::Fn,
     "for" => Keyword::For,
     "if" => Keyword::If,
+    "in" => Keyword::In,
     "mut" => Keyword::Mut,
     "match" => Keyword::Match,
     "nil" => Keyword::Nil,
@@ -114,8 +122,8 @@ pub enum Symbol {
     AmpersandAmpersand,
     AmpersandAmpersandEquals,
     Dot,
+    QuestionMark,
     QuestionMarkDot,
-    QuestionMarkColon,
     Comma,
     Colon,
     Semicolon,

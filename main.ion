@@ -1,4 +1,3 @@
-pub fn counter() {
-    let mut counter = Box(0);
-    <button onclick={fn() counter.value += 1}>{counter}</button>
+fn app() {
+    2 <div/>
 }
