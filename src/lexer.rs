@@ -354,7 +354,13 @@ impl<'a> Lexer<'a> {
             let start = self.index;
 
             let (token, pot) = match self.next_char() {
-                None => (Token::EndOfInput, false),
+                None => (
+                    {
+                        self.rollback(None);
+                        Token::EndOfInput
+                    },
+                    false
+                ),
                 Some('0') => (
                     match self.next_char() {
                         Some('x') => self.parse_number::<16>(0.)?,

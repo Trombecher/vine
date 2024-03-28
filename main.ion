@@ -1,6 +1,1 @@
-fn app() {
-    <main>
-        <h1>Welcome to my app</h1>
-        <p>Lorem ipsum...</p>
-    </main>
-}
+10 + 20 * 435 - 3 % 10 ** 1
