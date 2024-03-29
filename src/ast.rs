@@ -45,14 +45,15 @@ pub enum Expression {
     Number(f64),
     String(String),
     Block(Vec<WithSpan<Expression>>),
-    Markup(MarkupElement)
+    Markup(MarkupElement),
+    Identifier(String)
 }
 
 #[derive(Debug)]
 pub struct MarkupElement {
-    pub identifier: WithSpan<String>,
-    pub attributes: Vec<(WithSpan<String>, WithSpan<Expression>)>,
-    pub children: Vec<WithSpan<MarkupChild>>,
+    pub identifier: String,
+    pub attributes: Vec<(String, Expression)>,
+    pub children: Vec<MarkupChild>,
 }
 
 #[derive(Debug)]

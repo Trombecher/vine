@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 use std::fs::read_to_string;
+use std::time::Instant;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::token::Token;
@@ -16,8 +17,8 @@ mod chars;
 fn main() -> Result<(), ion::Error> {
     let input = read_to_string("main.qk")
         .map_err(|error| ion::Error::IO(error)).unwrap();
-    lex(input)?;
-    // parse(input);
+    // lex(input)?;
+    parse(input);
     
     Ok(())
 }
@@ -38,10 +39,15 @@ fn lex(input: String) -> Result<(), ion::Error> {
 }
 
 fn parse(input: String) {
+    let now = Instant::now();
+    
     let mut parser = Parser::new(Lexer::new(input.chars())).unwrap();
     
-    match parser.parse_expression(0) {
-        Ok(expressions) => println!("{:?}", expressions),
+    match parser.parse_module() {
+        Ok(expressions) => {
+            println!("delta: {:?}", now.elapsed());
+            println!("{:#?}", expressions)
+        },
         Err(error) => println!("error: {:?}, last_token: {:?}", error, parser.last_token),
     }
 }
