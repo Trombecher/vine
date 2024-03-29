@@ -1,3 +1,3 @@
-# The Ion Programming Language
+# The Quark Programming Language
 
-Ion is a small programming language with focus on simplicity and type safety.
+Quark is a small programming language with focus on simplicity and type safety.
