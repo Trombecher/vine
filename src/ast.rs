@@ -2,6 +2,13 @@ use crate::token::WithSpan;
 
 #[derive(Debug)]
 pub enum Expression {
+    Equals(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    NotEquals(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    LessThan(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    LessThanOrEqual(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    GreaterThan(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    GreaterThanOrEqual(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+
     Addition(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     Subtraction(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     Multiplication(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
@@ -13,6 +20,8 @@ pub enum Expression {
     BitwiseExclusiveOr(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     LogicalOr(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     LogicalAnd(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    ShiftLeft(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    ShiftRight(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
 
     AdditionAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     SubtractionAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
@@ -25,7 +34,9 @@ pub enum Expression {
     BitwiseExclusiveOrAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     LogicalOrAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     LogicalAndAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    
+    ShiftLeftAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    ShiftRightAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+
     Function {
         is_async: bool,
         parameters: Vec<Parameter>,
@@ -33,7 +44,22 @@ pub enum Expression {
     },
     Number(f64),
     String(String),
-    Block(Vec<WithSpan<Expression>>)
+    Block(Vec<WithSpan<Expression>>),
+    Markup(MarkupElement)
+}
+
+#[derive(Debug)]
+pub struct MarkupElement {
+    pub identifier: WithSpan<String>,
+    pub attributes: Vec<(WithSpan<String>, WithSpan<Expression>)>,
+    pub children: Vec<WithSpan<MarkupChild>>,
+}
+
+#[derive(Debug)]
+pub enum MarkupChild {
+    Element(MarkupElement),
+    Text(String),
+    Insert(Expression),
 }
 
 #[derive(Debug)]

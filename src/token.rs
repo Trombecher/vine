@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use phf::phf_map;
-use crate::markup;
 
 #[derive(Debug)]
 pub struct WithSpan<T> where T: Debug {
@@ -20,7 +19,12 @@ pub enum Token {
     Keyword(Keyword),
     String(String),
     EndOfInput,
-    MarkupElement(markup::Element),
+    MarkupStartTag(String),
+    MarkupKey(String),
+    MarkupStartTagEnd,
+    MarkupClose,
+    MarkupText(String),
+    MarkupEndTag(String),
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -37,6 +41,7 @@ pub enum Keyword {
     For,
     If,
     In,
+    Let,
     Mut,
     Match,
     Nil,
@@ -61,6 +66,7 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "for" => Keyword::For,
     "if" => Keyword::If,
     "in" => Keyword::In,
+    "let" => Keyword::Let,
     "mut" => Keyword::Mut,
     "match" => Keyword::Match,
     "nil" => Keyword::Nil,
