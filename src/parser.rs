@@ -5,7 +5,12 @@ use crate::{bp, ion};
 
 #[derive(Debug)]
 pub enum Error {
-    UnexpectedToken,
+    UnexpectedToken(UnexpectedTokenError)
+}
+
+#[derive(Debug)]
+pub enum UnexpectedTokenError {
+    ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock,
 }
 
 pub struct Parser<'a> {
@@ -34,8 +39,10 @@ impl<'a> Parser<'a> {
 
             match &self.last_token.value {
                 Token::Symbol(Symbol::Semicolon) => self.next_token()?,
-                Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => return Ok(expressions),
-                _ => return Err(ion::Error::Parser(Error::UnexpectedToken)),
+                Token::Symbol(Symbol::RightBrace) => return Ok(expressions),
+                _ => return Err(ion::Error::Parser(Error::UnexpectedToken(
+                    UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock
+                ))),
             }
         }
     }
@@ -65,11 +72,6 @@ impl<'a> Parser<'a> {
             Token::Symbol(Symbol::LeftBrace) => {
                 self.next_token()?;
                 let block = self.parse_block()?;
-
-                match &self.last_token.value {
-                    Token::Symbol(Symbol::RightBrace) => {}
-                    _ => return Err(ion::Error::Parser(Error::UnexpectedToken)),
-                }
 
                 let block = WithSpan {
                     value: Expression::Block(block),

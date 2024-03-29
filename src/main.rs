@@ -40,7 +40,7 @@ fn lex(input: String) -> Result<(), ion::Error> {
 fn parse(input: String) {
     let mut parser = Parser::new(Lexer::new(input.chars())).unwrap();
     
-    match parser.parse_block() {
+    match parser.parse_expression(0) {
         Ok(expressions) => println!("{:?}", expressions),
         Err(error) => println!("error: {:?}, last_token: {:?}", error, parser.last_token),
     }

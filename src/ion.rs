@@ -5,5 +5,5 @@ use crate::{lexer, parser};
 pub enum Error {
     IO(io::Error),
     Lexer(lexer::Error),
-    Parser(parser::Error)
+    Parser(parser::Error),
 }

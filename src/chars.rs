@@ -1,6 +1,5 @@
 use std::str::Chars;
-use crate::ion;
-use crate::lexer::Error;
+use crate::{ion, lexer};
 
 pub struct CharsIterator<'a> {
     chars: Chars<'a>,
@@ -31,7 +30,7 @@ impl<'a> CharsIterator<'a> {
             '"' => Ok('"'),
             '\'' => Ok('\''),
             '[' => Ok('\u{1B}'), // Escape
-            _ => Err(ion::Error::Lexer(Error::UnknownEscapeCharacter)),
+            char => Err(ion::Error::Lexer(lexer::Error::UnknownEscapeCharacter(char))),
         }
     }
 

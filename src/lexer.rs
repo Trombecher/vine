@@ -1,8 +1,8 @@
+use crate::chars::CharsIterator;
 use crate::ion;
 use crate::token::{Symbol, Token, WithSpan, KEYWORDS};
 use std::fmt::Debug;
 use std::str::Chars;
-use crate::chars::CharsIterator;
 
 fn is_line_terminator(char: char) -> bool {
     match char {
@@ -10,6 +10,24 @@ fn is_line_terminator(char: char) -> bool {
         '\r' => true,
         _ => false,
     }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    UnexpectedCharacter(char, UnexpectedCharacterError),
+    UnexpectedEndOfInput,
+    CannotUseKeywordAsTagNameForMarkupElement(String),
+    UnknownEscapeCharacter(char)
+}
+
+#[derive(Debug)]
+pub enum UnexpectedCharacterError {
+    AsStartOfNewToken,
+    InvalidAlphanumericCharacterWhileParsingNumber,
+    ExpectedRightAngleWhileSelfClosingStartTag,
+    ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
+    ExpectedEqualsWhileLexingMarkupValue,
+    ExpectedQuoteOrLeftBraceWhileLexingMarkupValue
 }
 
 #[derive(Copy, Clone)]
@@ -29,19 +47,6 @@ pub enum MarkupContext {
     InsertValue(usize),
     TextOrInsert,
     Insert(usize),
-}
-
-#[derive(Debug)]
-pub enum Error {
-    UnclosedChar,
-    UnclosedString,
-    UnknownEscapeCharacter,
-    UnexpectedCharacter,
-    ExpectedIdentifierFoundKeyword,
-    UnclosedMarkupElement,
-    CannotUseKeywordAsTagName,
-    CannotUseKeywordAsKey,
-    TagNamesDoNotMatch,
 }
 
 pub struct Lexer<'a> {
@@ -74,7 +79,10 @@ impl<'a> Lexer<'a> {
                 number = self.parse_number_tail::<BASE>(number)?;
                 break;
             } else if next.is_alphanumeric() {
-                return Err(ion::Error::Lexer(Error::UnexpectedCharacter));
+                return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                    next,
+                    UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
+                )));
             } else if next != '_' {
                 self.chars.rollback(Some(next));
                 break;
@@ -101,7 +109,10 @@ impl<'a> Lexer<'a> {
                 multiplier *= multiplier_multiplier;
                 number += to_add as f64 * multiplier;
             } else if next.is_alphanumeric() {
-                return Err(ion::Error::Lexer(Error::UnexpectedCharacter));
+                return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                    next,
+                    UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
+                )));
             } else if next != '_' {
                 self.chars.rollback(Some(next));
                 break;
@@ -146,12 +157,13 @@ impl<'a> Lexer<'a> {
 
         loop {
             match self.chars.next() {
-                None => return Err(ion::Error::Lexer(Error::UnclosedString)),
+                None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
                 Some('"') => break,
                 Some('\\') => s.push({
-                    let next_char = self.chars
+                    let next_char = self
+                        .chars
                         .next()
-                        .ok_or(ion::Error::Lexer(Error::UnclosedString))?;
+                        .ok_or(ion::Error::Lexer(Error::UnexpectedEndOfInput))?;
                     self.chars.unescape_char(next_char)?
                 }),
                 Some(char) => s.push(char),
@@ -168,79 +180,89 @@ impl<'a> Lexer<'a> {
             Context::Markup {
                 context,
                 element_depth,
-            } => {
-                match context {
-                    MarkupContext::Attributes => {
-                        self.chars.skip_white_space();
-                        
-                        let start = self.chars.index();
-                        
-                        let token = match self.chars.next() {
-                            None => return Err(ion::Error::Lexer(Error::UnclosedMarkupElement)),
-                            Some('>') => Token::MarkupStartTagEnd,
-                            Some('/') => {
-                                self.chars.skip_white_space();
-                                
-                                match self.chars.next() {
-                                    Some('>') => {
-                                        if *element_depth == 0 {
-                                            self.context = Context::Default;
-                                        }
-                                        Token::MarkupClose
-                                    },
-                                    None => return Err(ion::Error::Lexer(Error::UnclosedMarkupElement)),
-                                    _ => return Err(ion::Error::Lexer(Error::UnexpectedCharacter))
-                                }
-                            },
-                            Some(char) if char.is_alphabetic() => {
-                                self.chars.rollback(Some(char));
-                                *context = MarkupContext::Value;
-                                Token::MarkupKey(self.parse_identifier())
-                            }
-                            _ => return Err(ion::Error::Lexer(Error::UnexpectedCharacter))
-                        };
-                        
-                        return Ok(WithSpan {
-                            start,
-                            end: self.chars.index(),
-                            value: token,
-                        });
-                    },
-                    MarkupContext::Value => {
-                        self.chars.skip_white_space();
-                        
-                        match self.chars.next() {
-                            Some('=') => {}
-                            None => return Err(ion::Error::Lexer(Error::UnclosedMarkupElement)),
-                            _ => return Err(ion::Error::Lexer(Error::UnexpectedCharacter))
-                        }
-                        
-                        self.chars.skip_white_space();
-                        
-                        *context = MarkupContext::Attributes;
+            } => match context {
+                MarkupContext::Attributes => {
+                    self.chars.skip_white_space();
 
-                        Ok(WithSpan {
-                            start: self.chars.index(),
-                            value: match self.chars.next() {
-                                None => return Err(ion::Error::Lexer(Error::UnclosedMarkupElement)),
-                                Some('"') => Token::String(self.parse_string()?),
-                                Some('{') => todo!("insert values"),
-                                _ => return Err(ion::Error::Lexer(Error::UnexpectedCharacter))
-                            },
-                            end: self.chars.index(),
-                        })
-                    },
-                    MarkupContext::InsertValue(_) => todo!(),
-                    MarkupContext::TextOrInsert => todo!(),
-                    MarkupContext::Insert(_) => todo!(),
+                    let start = self.chars.index();
+
+                    let token = match self.chars.next() {
+                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        Some('>') => Token::MarkupStartTagEnd,
+                        Some('/') => {
+                            self.chars.skip_white_space();
+
+                            match self.chars.next() {
+                                Some('>') => {
+                                    if *element_depth == 0 {
+                                        self.context = Context::Default;
+                                    }
+                                    Token::MarkupClose
+                                }
+                                None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                                    char,
+                                    UnexpectedCharacterError::ExpectedRightAngleWhileSelfClosingStartTag
+                                ))),
+                            }
+                        }
+                        Some(char) if char.is_alphabetic() => {
+                            self.chars.rollback(Some(char));
+                            *context = MarkupContext::Value;
+                            Token::MarkupKey(self.parse_identifier())
+                        }
+                        Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                            char,
+                            UnexpectedCharacterError::ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes
+                        ))),
+                    };
+
+                    return Ok(WithSpan {
+                        start,
+                        end: self.chars.index(),
+                        value: token,
+                    });
                 }
-            }
+                MarkupContext::Value => {
+                    self.chars.skip_white_space();
+
+                    match self.chars.next() {
+                        Some('=') => {}
+                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                            char,
+                            UnexpectedCharacterError::ExpectedEqualsWhileLexingMarkupValue
+                        ))),
+                    }
+
+                    self.chars.skip_white_space();
+
+                    *context = MarkupContext::Attributes;
+
+                    Ok(WithSpan {
+                        start: self.chars.index(),
+                        value: match self.chars.next() {
+                            Some('"') => Token::String(self.parse_string()?),
+                            Some('{') => todo!("insert values"),
+                            None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                            Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                                char,
+                                UnexpectedCharacterError::ExpectedQuoteOrLeftBraceWhileLexingMarkupValue
+                            ))),
+                        },
+                        end: self.chars.index(),
+                    })
+                }
+                MarkupContext::InsertValue(_) => todo!(),
+                MarkupContext::TextOrInsert => todo!(),
+                MarkupContext::Insert(_) => todo!(),
+            },
         }
     }
 
     fn next_potential_markup(&mut self) -> Result<WithSpan<Token>, ion::Error> {
         self.chars.skip_white_space();
-        
+
         return Ok(match self.chars.next() {
             None => WithSpan {
                 start: self.chars.index(),
@@ -251,10 +273,10 @@ impl<'a> Lexer<'a> {
                 self.chars.skip_white_space();
 
                 let start = self.chars.index();
-                
+
                 let identifier = self.parse_identifier();
                 if KEYWORDS.contains_key(identifier.as_str()) {
-                    return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagName));
+                    return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(identifier)));
                 }
 
                 self.context = Context::Markup {
@@ -408,7 +430,7 @@ impl<'a> Lexer<'a> {
                 Some('%') => {
                     self.context = Context::PotentialMarkup;
                     Token::Symbol(opt_eq!(Symbol::Percent, Symbol::PercentEquals))
-                },
+                }
                 Some('|') => {
                     self.context = Context::PotentialMarkup;
                     Token::Symbol(match self.chars.next() {
@@ -422,7 +444,7 @@ impl<'a> Lexer<'a> {
                 }
                 Some('&') => {
                     self.context = Context::PotentialMarkup;
-                    
+
                     Token::Symbol(match self.chars.next() {
                         Some('=') => Symbol::AmpersandEquals,
                         Some('&') => {
@@ -437,7 +459,7 @@ impl<'a> Lexer<'a> {
                 Some('^') => {
                     self.context = Context::PotentialMarkup;
                     Token::Symbol(opt_eq!(Symbol::Caret, Symbol::CaretEquals))
-                },
+                }
                 Some('(') => {
                     self.context = Context::PotentialMarkup;
                     Token::Symbol(Symbol::LeftParenthesis)
@@ -475,11 +497,12 @@ impl<'a> Lexer<'a> {
                     }
                 }),
                 Some('\'') => Token::Char(match self.chars.next() {
-                    None => return Err(ion::Error::Lexer(Error::UnclosedChar)),
+                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
                     Some('\\') => {
-                        let next_char = self.chars
+                        let next_char = self
+                            .chars
                             .next()
-                            .ok_or(ion::Error::Lexer(Error::UnclosedString))?;
+                            .ok_or(ion::Error::Lexer(Error::UnexpectedEndOfInput))?;
                         self.chars.unescape_char(next_char)?
                     }
                     Some(char) => char,
@@ -487,9 +510,9 @@ impl<'a> Lexer<'a> {
                 Some('"') => Token::String(self.parse_string()?),
                 Some(char) if char.is_alphabetic() || char == '_' => {
                     self.chars.rollback(Some(char));
-                    
+
                     let identifier = self.parse_identifier();
-                    
+
                     if let Ok(keyword) = KEYWORDS.get(identifier.as_str()).copied().ok_or(()) {
                         Token::Keyword(keyword)
                     } else {
@@ -497,7 +520,12 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some(char) if char.is_whitespace() => continue,
-                _ => return Err(ion::Error::Lexer(Error::UnexpectedCharacter)),
+                Some(char) => {
+                    return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                        char,
+                        UnexpectedCharacterError::AsStartOfNewToken,
+                    )))
+                }
             };
 
             return Ok(WithSpan {
