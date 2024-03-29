@@ -1,1 +1,18 @@
-<div (
+fn filterableProductTable({products}) {
+    let [filterText, setFilterText] = useState("");
+    let [inStockOnly, setInStockOnly] = useState(false);
+
+    <div>
+        <searchBar
+            filterText={filterText}
+            inStockOnly={inStockOnly}
+            onFilterTextChange={setFilterText}
+            onInStockOnlyChange={setInStockOnly}
+        />
+        <productTable
+            products={products}
+            filterText={filterText}
+            inStockOnly={inStockOnly}
+        />
+    </div>
+}

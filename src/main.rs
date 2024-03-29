@@ -16,8 +16,8 @@ mod chars;
 fn main() -> Result<(), ion::Error> {
     let input = read_to_string("main.qk")
         .map_err(|error| ion::Error::IO(error)).unwrap();
-    // lex(input)?;
-    parse(input);
+    lex(input)?;
+    // parse(input);
     
     Ok(())
 }

@@ -17,7 +17,7 @@ pub enum Error {
     UnexpectedCharacter(char, UnexpectedCharacterError),
     UnexpectedEndOfInput,
     CannotUseKeywordAsTagNameForMarkupElement(String),
-    UnknownEscapeCharacter(char)
+    UnknownEscapeCharacter(char),
 }
 
 #[derive(Debug)]
@@ -27,39 +27,35 @@ pub enum UnexpectedCharacterError {
     ExpectedRightAngleWhileSelfClosingStartTag,
     ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
     ExpectedEqualsWhileLexingMarkupValue,
-    ExpectedQuoteOrLeftBraceWhileLexingMarkupValue
+    ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
+    ExpectedRightAngleWhileClosingEndTag,
+    ExpectedSingleQuote
 }
 
-#[derive(Copy, Clone)]
-pub enum Context {
-    Default,
-    PotentialMarkup,
-    Markup {
-        element_depth: usize,
-        context: MarkupContext,
-    },
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum MarkupContext {
-    Attributes,
+/// This enum describes the possibilities of the next token generated.
+#[derive(Debug)]
+pub enum Layer {
+    KeyOrStartTagEndOrSelfClose,
     Value,
-    InsertValue(usize),
     TextOrInsert,
-    Insert(usize),
+    Insert,
+    EndTag,
+    StartTag
 }
 
 pub struct Lexer<'a> {
     chars: CharsIterator<'a>,
     /// This is needed for proper detection of markup
-    context: Context,
+    layers: Vec<Layer>,
+    potential_markup: bool
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(chars: Chars<'a>) -> Self {
         Self {
             chars: CharsIterator::new(chars),
-            context: Context::PotentialMarkup,
+            layers: Vec::new(),
+            potential_markup: true,
         }
     }
 
@@ -173,132 +169,274 @@ impl<'a> Lexer<'a> {
         Ok(s)
     }
 
+    /// Expects whitespace and then the first char of the identifier.
+    fn parse_end_tag(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+        let start = self.chars.index();
+
+        self.chars.skip_white_space();
+
+        let tag_name = self.parse_identifier();
+        if KEYWORDS.contains_key(tag_name.as_str()) {
+            return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(tag_name)));
+        }
+
+        self.chars.skip_white_space();
+
+        match self.chars.next() {
+            None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+            Some('>') => {}
+            Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                char,
+                UnexpectedCharacterError::ExpectedRightAngleWhileClosingEndTag,
+            )))
+        }
+
+        Ok(WithSpan {
+            start,
+            value: Token::MarkupEndTag(tag_name),
+            end: self.chars.index(),
+        })
+    }
+    
+    fn parse_start_tag(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+        let start = self.chars.index();
+        
+        self.chars.skip_white_space();
+
+        let identifier = self.parse_identifier();
+        if KEYWORDS.contains_key(identifier.as_str()) {
+            return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(identifier)));
+        }
+
+        self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
+
+        Ok(WithSpan {
+            start,
+            value: Token::MarkupStartTag(identifier),
+            end: self.chars.index(),
+        })
+    }
+    
     pub fn next(&mut self) -> Result<WithSpan<Token>, ion::Error> {
-        match &mut self.context {
-            Context::Default => self.next_default_context(),
-            Context::PotentialMarkup => self.next_potential_markup(),
-            Context::Markup {
-                context,
-                element_depth,
-            } => match context {
-                MarkupContext::Attributes => {
-                    self.chars.skip_white_space();
+        // println!("\nLAYERS: {:?}\nPOT_M: {}\n", self.layers, self.potential_markup);
+        
+        // Pop the current layer to be analyzed.
+        match self.layers.pop() {
+            None => self.next_default_context(),
+            Some(Layer::KeyOrStartTagEndOrSelfClose) => {
+                self.chars.skip_white_space();
 
-                    let start = self.chars.index();
+                Ok(WithSpan {
+                    start: self.chars.index(),
+                    value: match self.chars.next() {
+                        // Start collecting children
+                        Some('>') => {
+                            self.layers.push(Layer::TextOrInsert);
+                            Token::MarkupStartTagEnd
+                        }
 
-                    let token = match self.chars.next() {
-                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
-                        Some('>') => Token::MarkupStartTagEnd,
+                        // Self closing tag
                         Some('/') => {
                             self.chars.skip_white_space();
 
                             match self.chars.next() {
-                                Some('>') => {
-                                    if *element_depth == 0 {
-                                        self.context = Context::Default;
-                                    }
-                                    Token::MarkupClose
-                                }
+                                Some('>') => Token::MarkupClose,
                                 None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
                                 Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
                                     char,
-                                    UnexpectedCharacterError::ExpectedRightAngleWhileSelfClosingStartTag
+                                    UnexpectedCharacterError::ExpectedRightAngleWhileSelfClosingStartTag,
                                 ))),
                             }
                         }
+                        
+                        // Key
                         Some(char) if char.is_alphabetic() => {
                             self.chars.rollback(Some(char));
-                            *context = MarkupContext::Value;
+                            self.layers.push(Layer::Value);
                             Token::MarkupKey(self.parse_identifier())
                         }
+                        
+                        // Reject other characters
                         Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
                             char,
-                            UnexpectedCharacterError::ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes
+                            UnexpectedCharacterError::ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
                         ))),
-                    };
-
-                    return Ok(WithSpan {
-                        start,
-                        end: self.chars.index(),
-                        value: token,
-                    });
-                }
-                MarkupContext::Value => {
-                    self.chars.skip_white_space();
-
-                    match self.chars.next() {
-                        Some('=') => {}
                         None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    },
+                    end: self.chars.index(),
+                })
+            }
+            Some(Layer::Value) => {
+                self.chars.skip_white_space();
+
+                match self.chars.next() {
+                    Some('=') => {}
+                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                        char,
+                        UnexpectedCharacterError::ExpectedEqualsWhileLexingMarkupValue,
+                    ))),
+                }
+
+                self.chars.skip_white_space();
+                self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
+
+                Ok(WithSpan {
+                    start: self.chars.index(),
+                    value: match self.chars.next() {
+                        // HTML style attribute value
+                        Some('"') => Token::String(self.parse_string()?),
+
+                        // JSX style attribute value
+                        Some('{') => {
+                            self.layers.push(Layer::Insert);
+                            self.potential_markup = true;
+
+                            // Generate normal token
+                            Token::Symbol(Symbol::LeftBrace)
+                        },
+
+                        // Reject other chars
                         Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
                             char,
-                            UnexpectedCharacterError::ExpectedEqualsWhileLexingMarkupValue
+                            UnexpectedCharacterError::ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
                         ))),
-                    }
-
-                    self.chars.skip_white_space();
-
-                    *context = MarkupContext::Attributes;
-
-                    Ok(WithSpan {
-                        start: self.chars.index(),
-                        value: match self.chars.next() {
-                            Some('"') => Token::String(self.parse_string()?),
-                            Some('{') => todo!("insert values"),
-                            None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
-                            Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
-                                char,
-                                UnexpectedCharacterError::ExpectedQuoteOrLeftBraceWhileLexingMarkupValue
-                            ))),
-                        },
-                        end: self.chars.index(),
-                    })
+                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    },
+                    end: self.chars.index(),
+                })
+            }
+            Some(Layer::Insert) => {
+                self.layers.push(Layer::Insert);
+                
+                // Generate normal token
+                let token = self.next_default_context()?;
+                
+                match &token.value {
+                    Token::Symbol(Symbol::LeftBrace) => {
+                        // Push new.
+                        self.layers.push(Layer::Insert);
+                    },
+                    Token::Symbol(Symbol::RightBrace) => {
+                        self.layers.pop();
+                    },
+                    _ => {}
                 }
-                MarkupContext::InsertValue(_) => todo!(),
-                MarkupContext::TextOrInsert => todo!(),
-                MarkupContext::Insert(_) => todo!(),
+                
+                Ok(token)
             },
+            Some(Layer::TextOrInsert) => {
+                self.chars.skip_white_space();
+                
+                Ok(WithSpan {
+                    start: self.chars.index(),
+                    value: match self.chars.next() {
+                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        Some('<') => {
+                            self.chars.skip_white_space();
+
+                            match self.chars.next() {
+                                None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+
+                                // End tag
+                                Some('/') => self.parse_end_tag()?.value,
+
+                                // Nested element
+                                option => {
+                                    self.layers.push(Layer::TextOrInsert);
+                                    self.chars.rollback(option);
+                                    self.parse_start_tag()?.value
+                                },
+                            }
+                        },
+                        Some('{') => {
+                            self.layers.push(Layer::TextOrInsert);
+                            self.layers.push(Layer::Insert);
+                            self.potential_markup = true;
+                            
+                            Token::Symbol(Symbol::LeftBrace)
+                        }
+                        Some(char) => {
+                            self.layers.push(Layer::TextOrInsert);
+                            let mut text = String::from(char);
+
+                            loop {
+                                match self.chars.next() {
+                                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                    Some('<') => {
+                                        self.chars.skip_white_space();
+
+                                        match self.chars.next() {
+                                            None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                            
+                                            // End tag
+                                            Some('/') => {
+                                                // Switch context
+                                                self.layers.pop();
+                                                self.layers.push(Layer::EndTag);
+                                            },
+
+                                            // Nested element
+                                            option => {
+                                                self.chars.rollback(option);
+                                                
+                                                // Add context
+                                                self.layers.push(Layer::StartTag);
+                                            }
+                                        }
+
+                                        // Text may contain a trailing space.
+                                        match text.pop() {
+                                            None => unreachable!("Text \"{text}\" should not be empty!"),
+                                            Some(' ') => {}
+                                            Some(char) => text.push(char),
+                                        }
+
+                                        break;
+                                    }
+                                    Some(char) if char.is_whitespace() => {
+                                        self.chars.skip_white_space();
+                                        text.push(' ');
+                                    }
+                                    Some('{') => {
+                                        self.chars.rollback(Some('{'));
+                                        break;
+                                    }
+                                    Some(char) => text.push(char),
+                                }
+                            }
+
+                            Token::MarkupText(text)
+                        }
+                    },
+                    end: self.chars.index(),
+                })
+            },
+            Some(Layer::EndTag) => self.parse_end_tag(),
+            Some(Layer::StartTag) => self.parse_start_tag(),
         }
     }
 
-    fn next_potential_markup(&mut self) -> Result<WithSpan<Token>, ion::Error> {
-        self.chars.skip_white_space();
-
-        return Ok(match self.chars.next() {
-            None => WithSpan {
-                start: self.chars.index(),
-                value: Token::EndOfInput,
-                end: self.chars.index(),
-            },
-            Some('<') => {
-                self.chars.skip_white_space();
-
-                let start = self.chars.index();
-
-                let identifier = self.parse_identifier();
-                if KEYWORDS.contains_key(identifier.as_str()) {
-                    return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(identifier)));
-                }
-
-                self.context = Context::Markup {
-                    element_depth: 0,
-                    context: MarkupContext::Attributes,
-                };
-
-                WithSpan {
-                    start,
-                    value: Token::MarkupStartTag(identifier),
-                    end: self.chars.index(),
-                }
-            }
-            option => {
-                self.chars.rollback(option);
-                self.context = Context::Default;
-                return self.next_default_context();
-            }
-        });
-    }
-
     fn next_default_context(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+        self.chars.skip_white_space();
+        
+        if self.potential_markup {
+            self.potential_markup = false;
+            
+            return match self.chars.next() {
+                None => Ok(WithSpan {
+                    start: self.chars.index(),
+                    value: Token::EndOfInput,
+                    end: self.chars.index(),
+                }),
+                Some('<') => self.parse_start_tag(),
+                option => {
+                    self.chars.rollback(option);
+                    self.next_default_context()
+                }
+            }
+        }
+        
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {
                 match self.chars.next() {
@@ -311,35 +449,20 @@ impl<'a> Lexer<'a> {
             };
         }
 
-        loop {
-            let start = self.chars.index();
-
-            let token = match self.chars.next() {
-                None => {
-                    self.chars.rollback(None);
-                    Token::EndOfInput
-                }
-                Some('0') => match self.chars.next() {
-                    Some('x') => self.parse_number::<16>(0.)?,
-                    Some('o') => self.parse_number::<8>(0.)?,
-                    Some('b') => self.parse_number::<2>(0.)?,
-                    Some('_') => self.parse_number::<10>(0.)?,
-                    Some('.') => Token::Number(self.parse_number_tail::<10>(0.)?),
-                    Some('0') => self.parse_number::<10>(0.)?,
-                    Some('1') => self.parse_number::<10>(1.)?,
-                    Some('2') => self.parse_number::<10>(2.)?,
-                    Some('3') => self.parse_number::<10>(3.)?,
-                    Some('4') => self.parse_number::<10>(4.)?,
-                    Some('5') => self.parse_number::<10>(5.)?,
-                    Some('6') => self.parse_number::<10>(6.)?,
-                    Some('7') => self.parse_number::<10>(7.)?,
-                    Some('8') => self.parse_number::<10>(8.)?,
-                    Some('9') => self.parse_number::<10>(9.)?,
-                    option => {
-                        self.chars.rollback(option);
-                        Token::Number(0.)
-                    }
-                },
+        let start = self.chars.index();
+        
+        let token = match self.chars.next() {
+            None => {
+                self.chars.rollback(None);
+                Token::EndOfInput
+            }
+            Some('0') => match self.chars.next() {
+                Some('x') => self.parse_number::<16>(0.)?,
+                Some('o') => self.parse_number::<8>(0.)?,
+                Some('b') => self.parse_number::<2>(0.)?,
+                Some('_') => self.parse_number::<10>(0.)?,
+                Some('.') => Token::Number(self.parse_number_tail::<10>(0.)?),
+                Some('0') => self.parse_number::<10>(0.)?,
                 Some('1') => self.parse_number::<10>(1.)?,
                 Some('2') => self.parse_number::<10>(2.)?,
                 Some('3') => self.parse_number::<10>(3.)?,
@@ -349,154 +472,178 @@ impl<'a> Lexer<'a> {
                 Some('7') => self.parse_number::<10>(7.)?,
                 Some('8') => self.parse_number::<10>(8.)?,
                 Some('9') => self.parse_number::<10>(9.)?,
+                option => {
+                    self.chars.rollback(option);
+                    Token::Number(0.)
+                }
+            },
+            Some('1') => self.parse_number::<10>(1.)?,
+            Some('2') => self.parse_number::<10>(2.)?,
+            Some('3') => self.parse_number::<10>(3.)?,
+            Some('4') => self.parse_number::<10>(4.)?,
+            Some('5') => self.parse_number::<10>(5.)?,
+            Some('6') => self.parse_number::<10>(6.)?,
+            Some('7') => self.parse_number::<10>(7.)?,
+            Some('8') => self.parse_number::<10>(8.)?,
+            Some('9') => self.parse_number::<10>(9.)?,
+            Some('=') => {
+                self.potential_markup = true;
+
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::EqualsEquals,
+                    Some('>') => Symbol::EqualsRightAngle,
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::Equals
+                    }
+                })
+            }
+            Some('<') => {
+                self.potential_markup = true;
+
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::LeftAngleEquals,
+                    Some('<') => {
+                        opt_eq!(Symbol::LeftAngleLeftAngle, Symbol::LeftAngleLeftAngleEquals)
+                    }
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::LeftAngle
+                    }
+                })
+            }
+            Some('>') => {
+                self.potential_markup = true;
+
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::RightAngleEquals,
+                    Some('<') => opt_eq!(
+                        Symbol::RightAngleRightAngle,
+                        Symbol::RightAngleRightAngleEquals
+                    ),
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::RightAngle
+                    }
+                })
+            }
+            Some('+') => {
+                self.potential_markup = true;
+                Token::Symbol(opt_eq!(Symbol::Plus, Symbol::PlusEquals))
+            }
+            Some('-') => {
+                self.potential_markup = true;
+                Token::Symbol(opt_eq!(Symbol::Minus, Symbol::MinusEquals))
+            }
+            Some('*') => {
+                self.potential_markup = true;
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::StarEquals,
+                    Some('*') => opt_eq!(Symbol::StarStar, Symbol::StarStarEquals),
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::Star
+                    }
+                })
+            }
+            Some('/') => {
+                self.potential_markup = true;
+
+                match self.chars.next() {
+                    Some('=') => Token::Symbol(Symbol::SlashEquals),
+                    Some('/') => match self.chars.next() {
+                        Some('/') => Token::DocComment(self.parse_comment()?),
+                        option => {
+                            self.chars.rollback(option);
+                            Token::LineComment(self.parse_comment()?)
+                        }
+                    },
+                    option => {
+                        self.chars.rollback(option);
+                        Token::Symbol(Symbol::Slash)
+                    }
+                }
+            }
+            Some('%') => {
+                self.potential_markup = true;
+                Token::Symbol(opt_eq!(Symbol::Percent, Symbol::PercentEquals))
+            }
+            Some('|') => {
+                self.potential_markup = true;
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::PipeEquals,
+                    Some('|') => opt_eq!(Symbol::PipePipe, Symbol::PipePipeEquals),
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::Pipe
+                    }
+                })
+            }
+            Some('&') => {
+                self.potential_markup = true;
+
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::AmpersandEquals,
+                    Some('&') => {
+                        opt_eq!(Symbol::AmpersandAmpersand, Symbol::AmpersandAmpersandEquals)
+                    }
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::Ampersand
+                    }
+                })
+            }
+            Some('^') => {
+                self.potential_markup = true;
+                Token::Symbol(opt_eq!(Symbol::Caret, Symbol::CaretEquals))
+            }
+            Some('(') => {
+                self.potential_markup = true;
+                Token::Symbol(Symbol::LeftParenthesis)
+            }
+            Some(')') => Token::Symbol(Symbol::RightParenthesis),
+            Some('[') => {
+                self.potential_markup = true;
+                Token::Symbol(Symbol::LeftBracket)
+            }
+            Some(']') => Token::Symbol(Symbol::RightBracket),
+            Some('{') => {
+                self.potential_markup = true;
+                Token::Symbol(Symbol::LeftBrace)
+            }
+            Some('}') => Token::Symbol(Symbol::RightBrace),
+            Some('.') => Token::Symbol(Symbol::Dot),
+            Some(',') => {
+                self.potential_markup = true;
+                Token::Symbol(Symbol::Comma)
+            },
+            Some(';') => {
+                self.potential_markup = true;
+                Token::Symbol(Symbol::Semicolon)
+            }
+            Some(':') => {
+                self.potential_markup = true;
+                Token::Symbol(Symbol::Colon)
+            }
+            Some('!') => match self.chars.next() {
                 Some('=') => {
-                    self.context = Context::PotentialMarkup;
-
-                    Token::Symbol(match self.chars.next() {
-                        Some('=') => Symbol::EqualsEquals,
-                        Some('>') => Symbol::EqualsRightAngle,
-                        option => {
-                            self.chars.rollback(option);
-                            Symbol::Equals
-                        }
-                    })
+                    self.potential_markup = true;
+                    Token::Symbol(Symbol::CaretEquals)
                 }
-                Some('<') => {
-                    self.context = Context::PotentialMarkup;
-
-                    Token::Symbol(match self.chars.next() {
-                        Some('=') => Symbol::LeftAngleEquals,
-                        Some('<') => {
-                            opt_eq!(Symbol::LeftAngleLeftAngle, Symbol::LeftAngleLeftAngleEquals)
-                        }
-                        option => {
-                            self.chars.rollback(option);
-                            Symbol::LeftAngle
-                        }
-                    })
+                option => {
+                    self.chars.rollback(option);
+                    Token::Symbol(Symbol::Caret)
                 }
-                Some('>') => {
-                    self.context = Context::PotentialMarkup;
-
-                    Token::Symbol(match self.chars.next() {
-                        Some('=') => Symbol::RightAngleEquals,
-                        Some('<') => opt_eq!(
-                            Symbol::RightAngleRightAngle,
-                            Symbol::RightAngleRightAngleEquals
-                        ),
-                        option => {
-                            self.chars.rollback(option);
-                            Symbol::RightAngle
-                        }
-                    })
+            },
+            Some('?') => Token::Symbol(match self.chars.next() {
+                Some('.') => Symbol::QuestionMarkDot,
+                option => {
+                    self.chars.rollback(option);
+                    Symbol::QuestionMark
                 }
-                Some('+') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(opt_eq!(Symbol::Plus, Symbol::PlusEquals))
-                }
-                Some('-') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(opt_eq!(Symbol::Minus, Symbol::MinusEquals))
-                }
-                Some('*') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(match self.chars.next() {
-                        Some('=') => Symbol::StarEquals,
-                        Some('*') => opt_eq!(Symbol::StarStar, Symbol::StarStarEquals),
-                        option => {
-                            self.chars.rollback(option);
-                            Symbol::Star
-                        }
-                    })
-                }
-                Some('/') => {
-                    self.context = Context::PotentialMarkup;
-
-                    match self.chars.next() {
-                        Some('=') => Token::Symbol(Symbol::SlashEquals),
-                        Some('/') => match self.chars.next() {
-                            Some('/') => Token::DocComment(self.parse_comment()?),
-                            option => {
-                                self.chars.rollback(option);
-                                Token::LineComment(self.parse_comment()?)
-                            }
-                        },
-                        option => {
-                            self.chars.rollback(option);
-                            Token::Symbol(Symbol::Slash)
-                        }
-                    }
-                }
-                Some('%') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(opt_eq!(Symbol::Percent, Symbol::PercentEquals))
-                }
-                Some('|') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(match self.chars.next() {
-                        Some('=') => Symbol::PipeEquals,
-                        Some('|') => opt_eq!(Symbol::PipePipe, Symbol::PipePipeEquals),
-                        option => {
-                            self.chars.rollback(option);
-                            Symbol::Pipe
-                        }
-                    })
-                }
-                Some('&') => {
-                    self.context = Context::PotentialMarkup;
-
-                    Token::Symbol(match self.chars.next() {
-                        Some('=') => Symbol::AmpersandEquals,
-                        Some('&') => {
-                            opt_eq!(Symbol::AmpersandAmpersand, Symbol::AmpersandAmpersandEquals)
-                        }
-                        option => {
-                            self.chars.rollback(option);
-                            Symbol::Ampersand
-                        }
-                    })
-                }
-                Some('^') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(opt_eq!(Symbol::Caret, Symbol::CaretEquals))
-                }
-                Some('(') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(Symbol::LeftParenthesis)
-                }
-                Some(')') => Token::Symbol(Symbol::RightParenthesis),
-                Some('[') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(Symbol::LeftBracket)
-                }
-                Some(']') => Token::Symbol(Symbol::RightBracket),
-                Some('{') => {
-                    self.context = Context::PotentialMarkup;
-                    Token::Symbol(Symbol::LeftBrace)
-                }
-                Some('}') => Token::Symbol(Symbol::RightBrace),
-                Some('.') => Token::Symbol(Symbol::Dot),
-                Some(',') => Token::Symbol(Symbol::Colon),
-                Some(';') => Token::Symbol(Symbol::Semicolon),
-                Some(':') => Token::Symbol(Symbol::Colon),
-                Some('!') => match self.chars.next() {
-                    Some('=') => {
-                        self.context = Context::PotentialMarkup;
-                        Token::Symbol(Symbol::CaretEquals)
-                    }
-                    option => {
-                        self.chars.rollback(option);
-                        Token::Symbol(Symbol::Caret)
-                    }
-                },
-                Some('?') => Token::Symbol(match self.chars.next() {
-                    Some('.') => Symbol::QuestionMarkDot,
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::QuestionMark
-                    }
-                }),
-                Some('\'') => Token::Char(match self.chars.next() {
+            }),
+            Some('\'') => Token::Char({
+                let char = match self.chars.next() {
                     None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
                     Some('\\') => {
                         let next_char = self
@@ -506,33 +653,43 @@ impl<'a> Lexer<'a> {
                         self.chars.unescape_char(next_char)?
                     }
                     Some(char) => char,
-                }),
-                Some('"') => Token::String(self.parse_string()?),
-                Some(char) if char.is_alphabetic() || char == '_' => {
-                    self.chars.rollback(Some(char));
-
-                    let identifier = self.parse_identifier();
-
-                    if let Ok(keyword) = KEYWORDS.get(identifier.as_str()).copied().ok_or(()) {
-                        Token::Keyword(keyword)
-                    } else {
-                        Token::Identifier(identifier)
-                    }
-                }
-                Some(char) if char.is_whitespace() => continue,
-                Some(char) => {
-                    return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                };
+                
+                match self.chars.next() {
+                    Some('\'') => {}
+                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
                         char,
-                        UnexpectedCharacterError::AsStartOfNewToken,
+                        UnexpectedCharacterError::ExpectedSingleQuote
                     )))
                 }
-            };
+                
+                char
+            }),
+            Some('"') => Token::String(self.parse_string()?),
+            Some(char) if char.is_alphabetic() || char == '_' => {
+                self.chars.rollback(Some(char));
 
-            return Ok(WithSpan {
-                start,
-                end: self.chars.index(),
-                value: token,
-            });
-        }
+                let identifier = self.parse_identifier();
+
+                if let Ok(keyword) = KEYWORDS.get(identifier.as_str()).copied().ok_or(()) {
+                    Token::Keyword(keyword)
+                } else {
+                    Token::Identifier(identifier)
+                }
+            }
+            Some(char) => {
+                return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                    char,
+                    UnexpectedCharacterError::AsStartOfNewToken,
+                )));
+            }
+        };
+
+        Ok(WithSpan {
+            start,
+            end: self.chars.index(),
+            value: token,
+        })
     }
 }
