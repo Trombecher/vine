@@ -1,5 +1,5 @@
 use crate::chars::CharsIterator;
-use crate::ion;
+use crate::quark;
 use crate::token::{Symbol, Token, WithSpan, KEYWORDS};
 use std::fmt::Debug;
 use std::str::Chars;
@@ -59,7 +59,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn parse_number<const BASE: u32>(&mut self, mut number: f64) -> Result<Token, ion::Error> {
+    fn parse_number<const BASE: u32>(&mut self, mut number: f64) -> Result<Token, quark::Error> {
         loop {
             let next = match self.chars.next() {
                 Some(next) => next,
@@ -75,7 +75,7 @@ impl<'a> Lexer<'a> {
                 number = self.parse_number_tail::<BASE>(number)?;
                 break;
             } else if next.is_alphanumeric() {
-                return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                     next,
                     UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
                 )));
@@ -88,7 +88,7 @@ impl<'a> Lexer<'a> {
         Ok(Token::Number(number))
     }
 
-    fn parse_number_tail<const BASE: u32>(&mut self, mut number: f64) -> Result<f64, ion::Error> {
+    fn parse_number_tail<const BASE: u32>(&mut self, mut number: f64) -> Result<f64, quark::Error> {
         let mut multiplier = 1_f64;
         let multiplier_multiplier = 1_f64 / BASE as f64;
 
@@ -105,7 +105,7 @@ impl<'a> Lexer<'a> {
                 multiplier *= multiplier_multiplier;
                 number += to_add as f64 * multiplier;
             } else if next.is_alphanumeric() {
-                return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                     next,
                     UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
                 )));
@@ -118,7 +118,7 @@ impl<'a> Lexer<'a> {
         Ok(number)
     }
 
-    fn parse_comment(&mut self) -> Result<String, ion::Error> {
+    fn parse_comment(&mut self) -> Result<String, quark::Error> {
         let mut comment = String::new();
 
         loop {
@@ -148,18 +148,18 @@ impl<'a> Lexer<'a> {
         identifier
     }
 
-    fn parse_string(&mut self) -> Result<String, ion::Error> {
+    fn parse_string(&mut self) -> Result<String, quark::Error> {
         let mut s = String::new();
 
         loop {
             match self.chars.next() {
-                None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                 Some('"') => break,
                 Some('\\') => s.push({
                     let next_char = self
                         .chars
                         .next()
-                        .ok_or(ion::Error::Lexer(Error::UnexpectedEndOfInput))?;
+                        .ok_or(quark::Error::Lexer(Error::UnexpectedEndOfInput))?;
                     self.chars.unescape_char(next_char)?
                 }),
                 Some(char) => s.push(char),
@@ -170,22 +170,22 @@ impl<'a> Lexer<'a> {
     }
 
     /// Expects whitespace and then the first char of the identifier.
-    fn parse_end_tag(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+    fn parse_end_tag(&mut self) -> Result<WithSpan<Token>, quark::Error> {
         let start = self.chars.index();
 
         self.chars.skip_white_space();
 
         let tag_name = self.parse_identifier();
         if KEYWORDS.contains_key(tag_name.as_str()) {
-            return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(tag_name)));
+            return Err(quark::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(tag_name)));
         }
 
         self.chars.skip_white_space();
 
         match self.chars.next() {
-            None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+            None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
             Some('>') => {}
-            Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+            Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                 char,
                 UnexpectedCharacterError::ExpectedRightAngleWhileClosingEndTag,
             )))
@@ -198,14 +198,14 @@ impl<'a> Lexer<'a> {
         })
     }
     
-    fn parse_start_tag(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+    fn parse_start_tag(&mut self) -> Result<WithSpan<Token>, quark::Error> {
         let start = self.chars.index();
         
         self.chars.skip_white_space();
 
         let identifier = self.parse_identifier();
         if KEYWORDS.contains_key(identifier.as_str()) {
-            return Err(ion::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(identifier)));
+            return Err(quark::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(identifier)));
         }
 
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
@@ -217,7 +217,7 @@ impl<'a> Lexer<'a> {
         })
     }
     
-    pub fn next(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+    pub fn next(&mut self) -> Result<WithSpan<Token>, quark::Error> {
         // println!("\nLAYERS: {:?}\nPOT_M: {}\n", self.layers, self.potential_markup);
         
         // Pop the current layer to be analyzed.
@@ -241,8 +241,8 @@ impl<'a> Lexer<'a> {
 
                             match self.chars.next() {
                                 Some('>') => Token::MarkupClose,
-                                None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
-                                Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                                None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                                     char,
                                     UnexpectedCharacterError::ExpectedRightAngleWhileSelfClosingStartTag,
                                 ))),
@@ -257,11 +257,11 @@ impl<'a> Lexer<'a> {
                         }
                         
                         // Reject other characters
-                        Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                        Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                             char,
                             UnexpectedCharacterError::ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
                         ))),
-                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                     },
                     end: self.chars.index(),
                 })
@@ -271,8 +271,8 @@ impl<'a> Lexer<'a> {
 
                 match self.chars.next() {
                     Some('=') => {}
-                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                         char,
                         UnexpectedCharacterError::ExpectedEqualsWhileLexingMarkupValue,
                     ))),
@@ -297,11 +297,11 @@ impl<'a> Lexer<'a> {
                         },
 
                         // Reject other chars
-                        Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                        Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                             char,
                             UnexpectedCharacterError::ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
                         ))),
-                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                     },
                     end: self.chars.index(),
                 })
@@ -331,12 +331,12 @@ impl<'a> Lexer<'a> {
                 Ok(WithSpan {
                     start: self.chars.index(),
                     value: match self.chars.next() {
-                        None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                         Some('<') => {
                             self.chars.skip_white_space();
 
                             match self.chars.next() {
-                                None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
 
                                 // End tag
                                 Some('/') => self.parse_end_tag()?.value,
@@ -362,12 +362,12 @@ impl<'a> Lexer<'a> {
 
                             loop {
                                 match self.chars.next() {
-                                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                                     Some('<') => {
                                         self.chars.skip_white_space();
 
                                         match self.chars.next() {
-                                            None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                            None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                                             
                                             // End tag
                                             Some('/') => {
@@ -417,7 +417,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn next_default_context(&mut self) -> Result<WithSpan<Token>, ion::Error> {
+    fn next_default_context(&mut self) -> Result<WithSpan<Token>, quark::Error> {
         self.chars.skip_white_space();
         
         if self.potential_markup {
@@ -628,11 +628,11 @@ impl<'a> Lexer<'a> {
             Some('!') => match self.chars.next() {
                 Some('=') => {
                     self.potential_markup = true;
-                    Token::Symbol(Symbol::CaretEquals)
+                    Token::Symbol(Symbol::ExclamationMarkEquals)
                 }
                 option => {
                     self.chars.rollback(option);
-                    Token::Symbol(Symbol::Caret)
+                    Token::Symbol(Symbol::ExclamationMark)
                 }
             },
             Some('?') => Token::Symbol(match self.chars.next() {
@@ -644,12 +644,12 @@ impl<'a> Lexer<'a> {
             }),
             Some('\'') => Token::Char({
                 let char = match self.chars.next() {
-                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
                     Some('\\') => {
                         let next_char = self
                             .chars
                             .next()
-                            .ok_or(ion::Error::Lexer(Error::UnexpectedEndOfInput))?;
+                            .ok_or(quark::Error::Lexer(Error::UnexpectedEndOfInput))?;
                         self.chars.unescape_char(next_char)?
                     }
                     Some(char) => char,
@@ -657,8 +657,8 @@ impl<'a> Lexer<'a> {
                 
                 match self.chars.next() {
                     Some('\'') => {}
-                    None => return Err(ion::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some(char) => return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                         char,
                         UnexpectedCharacterError::ExpectedSingleQuote
                     )))
@@ -679,7 +679,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             Some(char) => {
-                return Err(ion::Error::Lexer(Error::UnexpectedCharacter(
+                return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
                     char,
                     UnexpectedCharacterError::AsStartOfNewToken,
                 )));

@@ -6,7 +6,7 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::token::Token;
 
-mod ion;
+mod quark;
 mod lexer;
 mod token;
 mod parser;
@@ -14,16 +14,16 @@ mod ast;
 mod bp;
 mod chars;
 
-fn main() -> Result<(), ion::Error> {
+fn main() -> Result<(), quark::Error> {
     let input = read_to_string("main.qk")
-        .map_err(|error| ion::Error::IO(error)).unwrap();
+        .map_err(|error| quark::Error::IO(error)).unwrap();
     // lex(input)?;
     parse(input);
     
     Ok(())
 }
 
-fn lex(input: String) -> Result<(), ion::Error> {
+fn lex(input: String) -> Result<(), quark::Error> {
     let mut lexer = Lexer::new(input.chars());
 
     loop {

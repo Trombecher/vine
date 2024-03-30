@@ -1,1 +1,18 @@
-<div></div>
+fn methodSelect() {
+    let open = Box.new(false);
+
+    <div
+        class="relative"
+        ref={fn(div) open.addListener(fn(isOpen) {
+            document.body.onmousedown = nil;
+        })}
+    >
+        <button
+            class={"hover:bg-shade-1 p-1 rounded-lg transition"}
+            onclick={fn() open.value = !open.value}
+            title={"Generator Method"}
+        >
+            <settings/>
+        </button>
+    </div>
+}

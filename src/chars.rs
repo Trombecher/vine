@@ -1,5 +1,5 @@
 use std::str::Chars;
-use crate::{ion, lexer};
+use crate::{quark, lexer};
 
 pub struct CharsIterator<'a> {
     chars: Chars<'a>,
@@ -16,7 +16,7 @@ impl<'a> CharsIterator<'a> {
         }
     }
     
-    pub fn unescape_char(&mut self, char: char) -> Result<char, ion::Error> {
+    pub fn unescape_char(&mut self, char: char) -> Result<char, quark::Error> {
         // TODO: unicode escapes (use of self)
         match char {
             '0' => Ok('\0'), // Null character
@@ -30,7 +30,7 @@ impl<'a> CharsIterator<'a> {
             '"' => Ok('"'),
             '\'' => Ok('\''),
             '[' => Ok('\u{1B}'), // Escape
-            char => Err(ion::Error::Lexer(lexer::Error::UnknownEscapeCharacter(char))),
+            char => Err(quark::Error::Lexer(lexer::Error::UnknownEscapeCharacter(char))),
         }
     }
 

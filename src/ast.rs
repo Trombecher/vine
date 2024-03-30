@@ -23,30 +23,71 @@ pub enum Expression {
     ShiftLeft(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
     ShiftRight(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
 
-    AdditionAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    SubtractionAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    MultiplicationAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    DivisionAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    RemainderAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    ExponentiationAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    BitwiseOrAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    BitwiseAndAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    BitwiseExclusiveOrAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    LogicalOrAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    LogicalAndAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    ShiftLeftAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
-    ShiftRightAssignment(Box<WithSpan<Expression>>, Box<WithSpan<Expression>>),
+    Assignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    AdditionAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    SubtractionAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    MultiplicationAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    DivisionAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    RemainderAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    ExponentiationAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    BitwiseOrAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    BitwiseAndAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    BitwiseExclusiveOrAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    LogicalOrAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    LogicalAndAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    ShiftLeftAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
+    ShiftRightAssignment(Box<WithSpan<AssignmentTarget>>, Box<WithSpan<Expression>>),
 
+    Not(Box<WithSpan<Expression>>),
+    
     Function {
         is_async: bool,
         parameters: Vec<Parameter>,
-        body: Vec<WithSpan<Expression>>
+        has_this_parameter: bool,
+        body: Box<WithSpan<Expression>>
     },
     Number(f64),
     String(String),
     Block(Vec<WithSpan<Expression>>),
     Markup(MarkupElement),
-    Identifier(String)
+    Identifier(String),
+    False,
+    True,
+    Nil,
+    Declaration {
+        is_mutable: bool,
+        identifier: String,
+        value: Option<Box<WithSpan<Expression>>>,
+    },
+    Access(Access),
+    Call {
+        target: Box<WithSpan<Expression>>,
+        arguments: Vec<WithSpan<Expression>>
+    }
+}
+
+#[derive(Debug)]
+pub enum AssignmentTarget {
+    Identifier(String),
+    Access(Access)
+}
+
+impl TryFrom<Expression> for AssignmentTarget {
+    type Error = ();
+
+    fn try_from(value: Expression) -> Result<Self, Self::Error> {
+        match value {
+            Expression::Access(access) => Ok(Self::Access(access)),
+            Expression::Identifier(identifier) => Ok(Self::Identifier(identifier)),
+            _ => Err(())
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Access {
+    pub target: Box<WithSpan<Expression>>,
+    pub property: String,
 }
 
 #[derive(Debug)]
@@ -65,9 +106,9 @@ pub enum MarkupChild {
 
 #[derive(Debug)]
 pub struct Parameter {
-    identifier: String,
-    is_mutable: bool,
-    ty: Type,
+    pub identifier: String,
+    pub is_mutable: bool,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug)]

@@ -1,17 +1,22 @@
-use crate::ast::{Expression, MarkupChild, MarkupElement};
+use crate::ast::{Access, AssignmentTarget, Expression, MarkupChild, MarkupElement, Parameter};
 use crate::lexer::Lexer;
-use crate::token::{Symbol, Token, WithSpan};
-use crate::{bp, ion};
+use crate::token::{Keyword, Symbol, Token, WithSpan};
+use crate::{bp, quark};
 
 #[derive(Debug)]
 pub enum Error {
     UnexpectedToken(UnexpectedTokenError),
     TagNamesDoNotMatch,
+    InvalidAssignmentTarget
 }
 
 #[derive(Debug)]
 pub enum UnexpectedTokenError {
     ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock,
+    ExpectedKeywordFn,
+    ExpectedIdentifierOrLeftParenthesis,
+    ExpectedLeftParenthesis,
+    NamedFunctionBodiesMustBeSurroundedByBraces
 }
 
 pub struct Parser<'a> {
@@ -20,49 +25,68 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(mut lexer: Lexer<'a>) -> Result<Self, ion::Error> {
+    pub fn new(mut lexer: Lexer<'a>) -> Result<Self, quark::Error> {
         Ok(Self {
             last_token: lexer.next()?,
             lexer,
         })
     }
 
-    fn next_token(&mut self) -> Result<(), ion::Error> {
+    fn next_token(&mut self) -> Result<(), quark::Error> {
         self.last_token = self.lexer.next()?;
         Ok(())
     }
-    
-    pub fn parse_module(&mut self) -> Result<Vec<WithSpan<Expression>>, ion::Error> {
+
+    pub fn parse_module(&mut self) -> Result<Vec<WithSpan<Expression>>, quark::Error> {
         let mut expressions = Vec::new();
 
         loop {
-            expressions.push(self.parse_expression(bp::COMMA_AND_SEMICOLON)?);
+            match &self.last_token.value {
+                Token::EndOfInput => return Ok(expressions),
+                _ => {}
+            }
+
+            let expression = self.parse_expression(bp::COMMA_AND_SEMICOLON)?;
+
+            expressions.push(expression);
 
             match &self.last_token.value {
                 Token::Symbol(Symbol::Semicolon) => self.next_token()?,
-                Token::EndOfInput => return Ok(expressions),
+                Token::EndOfInput => {}
                 token => todo!("unexpected token: {:?}", token)
             }
         }
     }
 
-    fn parse_block(&mut self) -> Result<Vec<WithSpan<Expression>>, ion::Error> {
+    fn parse_block(&mut self) -> Result<Expression, quark::Error> {
         let mut expressions = Vec::new();
 
         loop {
             expressions.push(self.parse_expression(bp::COMMA_AND_SEMICOLON)?);
 
             match &self.last_token.value {
-                Token::Symbol(Symbol::Semicolon) => self.next_token()?,
-                Token::Symbol(Symbol::RightBrace) => return Ok(expressions),
-                _ => return Err(ion::Error::Parser(Error::UnexpectedToken(
+                Token::Symbol(Symbol::Semicolon) => {
+                    self.next_token()?;
+
+                    if let Token::Symbol(Symbol::RightBrace) = &self.last_token.value {
+                        break
+                    }
+                },
+                Token::Symbol(Symbol::RightBrace) => break,
+                _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
                     UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock
                 ))),
             }
         }
+
+        if expressions.len() == 1 {
+            Ok(expressions.swap_remove(0).value)
+        } else {
+            Ok(Expression::Block(expressions))
+        }
     }
 
-    fn parse_markup_element(&mut self, identifier: String, start: usize) -> Result<MarkupElement, ion::Error> {
+    fn parse_markup_element(&mut self, identifier: String, start: usize) -> Result<MarkupElement, quark::Error> {
         let mut attributes = Vec::new();
 
         let children = loop {
@@ -81,19 +105,25 @@ impl<'a> Parser<'a> {
                         children.push(match &self.last_token.value {
                             Token::Symbol(Symbol::LeftBrace) => {
                                 self.next_token()?;
-                                MarkupChild::Insert(Expression::Block(self.parse_block()?))
-                            },
+                                let block = MarkupChild::Insert(self.parse_block()?);
+                                self.next_token()?;
+                                block
+                            }
                             Token::MarkupStartTag(tag_name) => {
                                 MarkupChild::Element(self.parse_markup_element(tag_name.clone(), start)?)
                             }
                             Token::MarkupEndTag(tag_name) => {
                                 if tag_name != &identifier {
-                                    return Err(ion::Error::Parser(Error::TagNamesDoNotMatch));
+                                    return Err(quark::Error::Parser(Error::TagNamesDoNotMatch));
                                 }
                                 self.next_token()?;
                                 break;
                             }
-                            Token::MarkupText(text) => MarkupChild::Text(text.clone()),
+                            Token::MarkupText(text) => {
+                                let text = MarkupChild::Text(text.clone());
+                                self.next_token()?;
+                                text
+                            },
                             token => unreachable!("Got token: {:?}. This token should not have been generated by the lexer.", token)
                         });
                     }
@@ -102,8 +132,8 @@ impl<'a> Parser<'a> {
                 }
                 Token::MarkupClose => {
                     self.next_token()?;
-                    break Vec::new()
-                },
+                    break Vec::new();
+                }
                 token => unreachable!("Got token: {:?}. This token should not have been generated by the lexer.", token)
             };
 
@@ -112,8 +142,8 @@ impl<'a> Parser<'a> {
             let value = match &self.last_token.value {
                 Token::Symbol(Symbol::LeftBrace) => {
                     self.next_token()?;
-                    Expression::Block(self.parse_block()?)
-                },
+                    self.parse_block()?
+                }
                 Token::String(s) => Expression::String(s.clone()),
                 token => unreachable!("Got token: {:?}. This token should not have been generated by the lexer.", token)
             };
@@ -128,55 +158,236 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub fn parse_expression(&mut self, min_bp: u8) -> Result<WithSpan<Expression>, ion::Error> {
+    /// Assumes that the last token is `(`. Always ends on `)`.
+    fn parse_function_parameters(&mut self) -> Result<(Vec<Parameter>, bool), quark::Error> {
+        let mut parameters = Vec::new();
+
+        let mut has_this_parameter = false;
+
+        self.next_token()?;
+
+        loop {
+            let is_mutable = match &self.last_token.value {
+                Token::Symbol(Symbol::RightParenthesis) => break,
+                Token::Keyword(Keyword::Mut) => {
+                    self.next_token()?;
+                    true
+                }
+                Token::Keyword(Keyword::This) => {
+                    has_this_parameter = true;
+                    continue
+                },
+                _ => false
+            };
+
+            let identifier = match &self.last_token.value {
+                Token::Identifier(identifier) => identifier.clone(),
+                _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                    UnexpectedTokenError::ExpectedIdentifierOrLeftParenthesis
+                )))
+            };
+
+            self.next_token()?;
+
+            let ty = match &self.last_token.value {
+                Token::Symbol(Symbol::RightParenthesis) => None,
+                Token::Symbol(Symbol::Colon) => {
+                    todo!()
+                },
+                Token::Symbol(Symbol::Comma) => {
+                    self.next_token()?;
+                    None
+                },
+                token => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                    todo!("{:?}", token)
+                )))
+            };
+
+            parameters.push(Parameter {
+                identifier,
+                is_mutable,
+                ty,
+            })
+        }
+
+        Ok((parameters, has_this_parameter))
+    }
+
+    /// Assumes that the last token is `fn`.
+    fn parse_function(&mut self, is_async: bool) -> Result<Expression, quark::Error> {
         let start = self.last_token.start;
 
-        let mut left_side = match &self.last_token.value {
-            Token::Number(number) => {
-                let number = WithSpan {
-                    value: Expression::Number(*number),
-                    start,
-                    end: self.last_token.end,
-                };
-                self.next_token()?;
-                number
-            }
-            Token::String(string) => {
-                let string = WithSpan {
-                    value: Expression::String(string.clone()),
-                    start,
-                    end: self.last_token.end,
-                };
-                self.next_token()?;
-                string
-            }
-            Token::Symbol(Symbol::LeftBrace) => {
-                self.next_token()?;
-                let block = self.parse_block()?;
+        self.next_token()?;
 
-                let block = WithSpan {
-                    value: Expression::Block(block),
-                    start,
-                    end: self.last_token.end,
-                };
+        match &self.last_token.value {
+            Token::Symbol(Symbol::LeftParenthesis) => {
+                let (parameters, has_this_parameter) = self.parse_function_parameters()?;
+
                 self.next_token()?;
-                block
-            }
-            Token::MarkupStartTag(element) => WithSpan {
-                start,
-                value: Expression::Markup(self.parse_markup_element(element.clone(), start)?),
-                end: self.last_token.end,
+
+                Ok(Expression::Function {
+                    is_async,
+                    parameters,
+                    has_this_parameter,
+                    body: Box::new(WithSpan {
+                        start: self.last_token.start,
+                        value: self.parse_expression(bp::COMMA_AND_SEMICOLON)?.value,
+                        end: self.last_token.end,
+                    }),
+                })
             },
             Token::Identifier(identifier) => {
-                let identifier = WithSpan {
-                    start,
-                    value: Expression::Identifier(identifier.clone()),
-                    end: self.last_token.end,
-                };
+                let identifier = identifier.clone();
+
                 self.next_token()?;
-                identifier
-            }
-            token => todo!("{:?}", token),
+                match &self.last_token.value {
+                    Token::Symbol(Symbol::LeftParenthesis) => {},
+                    _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                        UnexpectedTokenError::ExpectedLeftParenthesis
+                    )))
+                }
+
+                let (parameters, has_this_parameter) = self.parse_function_parameters()?;
+
+                self.next_token()?;
+
+                match &self.last_token.value {
+                    Token::Symbol(Symbol::LeftBrace) => {},
+                    _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                        UnexpectedTokenError::NamedFunctionBodiesMustBeSurroundedByBraces
+                    )))
+                }
+
+                self.next_token()?;
+
+                let body = Box::new(WithSpan {
+                    start: self.last_token.start,
+                    value: self.parse_block()?,
+                    end: self.last_token.end,
+                });
+
+                self.next_token()?;
+
+                Ok(Expression::Declaration {
+                    is_mutable: false,
+                    identifier,
+                    value: Some(Box::new(WithSpan {
+                        value: Expression::Function {
+                            is_async,
+                            parameters,
+                            has_this_parameter,
+                            body,
+                        },
+                        start,
+                        end: self.last_token.end,
+                    })),
+                })
+            },
+            _ => Err(quark::Error::Parser(Error::UnexpectedToken(
+                UnexpectedTokenError::ExpectedIdentifierOrLeftParenthesis
+            )))
+        }
+    }
+
+    fn parse_expression(&mut self, min_bp: u8) -> Result<WithSpan<Expression>, quark::Error> {
+        let start = self.last_token.start;
+
+        let mut left_side = WithSpan {
+            start,
+            value: match &self.last_token.value {
+                Token::Number(number) => {
+                    let number = Expression::Number(*number);
+                    self.next_token()?;
+                    number
+                }
+                Token::String(string) => {
+                    let string = Expression::String(string.clone());
+                    self.next_token()?;
+                    string
+                }
+                Token::Symbol(Symbol::LeftBrace) => {
+                    self.next_token()?;
+                    let block = self.parse_block()?;
+                    self.next_token()?;
+                    block
+                }
+                Token::MarkupStartTag(element) => Expression::Markup(self.parse_markup_element(element.clone(), start)?),
+                Token::Identifier(identifier) => {
+                    let identifier = Expression::Identifier(identifier.clone());
+                    self.next_token()?;
+                    identifier
+                }
+                Token::Keyword(Keyword::Async) => {
+                    self.next_token()?;
+
+                    match &self.last_token.value {
+                        Token::Keyword(Keyword::Fn) => self.parse_function(true)?,
+                        _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                            UnexpectedTokenError::ExpectedKeywordFn
+                        )))
+                    }
+                }
+                Token::Keyword(Keyword::Fn) => self.parse_function(false)?,
+                Token::Keyword(Keyword::Let) => {
+                    self.next_token()?;
+
+                    let is_mutable = match &self.last_token.value {
+                        Token::Keyword(Keyword::Mut) => {
+                            self.next_token()?;
+                            true
+                        }
+                        _ => false,
+                    };
+
+                    let identifier = match &self.last_token.value {
+                        Token::Identifier(identifier) => identifier.clone(),
+                        _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                            todo!()
+                        )))
+                    };
+
+                    self.next_token()?;
+
+                    let value = match &self.last_token.value {
+                        Token::Symbol(Symbol::Equals) => {
+                            self.next_token()?;
+                            Some(Box::new(self.parse_expression(bp::COMMA_AND_SEMICOLON)?))
+                        }
+                        _ => todo!()
+                    };
+
+                    Expression::Declaration {
+                        is_mutable,
+                        identifier,
+                        value,
+                    }
+                }
+                Token::Keyword(Keyword::False) => {
+                    let e = Expression::False;
+                    self.next_token()?;
+                    e
+                }
+                Token::Keyword(Keyword::Nil) => {
+                    let e = Expression::Nil;
+                    self.next_token()?;
+                    e
+                }
+                Token::Keyword(Keyword::True) => {
+                    let e = Expression::True;
+                    self.next_token()?;
+                    e
+                }
+                Token::Symbol(Symbol::ExclamationMark) => {
+                    self.next_token()?;
+                    Expression::Not(Box::new(WithSpan {
+                        value: self.parse_expression(bp::NEGATE_AND_NOT)?.value,
+                        start,
+                        end: self.last_token.end,
+                    }))
+                }
+                token => todo!("{:?}", token),
+            },
+            end: self.last_token.end,
         };
 
         macro_rules! op {
@@ -187,55 +398,135 @@ impl<'a> Parser<'a> {
 
                 self.next_token()?;
 
-                WithSpan {
-                    value: $e(Box::new(left_side), Box::new(self.parse_expression($bp.1)?)),
-                    start,
-                    end: self.last_token.end,
-                }
+                $e(Box::new(left_side), Box::new(self.parse_expression($bp.1)?))
             }};
         }
 
         loop {
-            left_side = match &self.last_token.value {
-                Token::Symbol(Symbol::Plus) => op!(Expression::Addition, bp::ADDITIVE),
-                Token::Symbol(Symbol::Minus) => op!(Expression::Subtraction, bp::ADDITIVE),
-                Token::Symbol(Symbol::Star) => op!(Expression::Multiplication, bp::MULTIPLICATIVE),
-                Token::Symbol(Symbol::Slash) => op!(Expression::Division, bp::MULTIPLICATIVE),
-                Token::Symbol(Symbol::Percent) => op!(Expression::Remainder, bp::MULTIPLICATIVE),
-                Token::Symbol(Symbol::StarStar) => op!(Expression::Exponentiation, bp::EXPONENTIAL),
-                Token::Symbol(Symbol::Pipe) => op!(Expression::BitwiseOr, bp::BITWISE_OR),
-                Token::Symbol(Symbol::Ampersand) => op!(Expression::BitwiseAnd, bp::BITWISE_AND),
-                Token::Symbol(Symbol::Caret) => {
-                    op!(Expression::BitwiseExclusiveOr, bp::BITWISE_XOR)
-                }
-                Token::Symbol(Symbol::PipePipe) => op!(Expression::LogicalOr, bp::LOGICAL_OR),
-                Token::Symbol(Symbol::AmpersandAmpersand) => {
-                    op!(Expression::LogicalAnd, bp::LOGICAL_AND)
-                }
-                Token::Symbol(Symbol::LeftAngleLeftAngle) => op!(Expression::ShiftLeft, bp::SHIFT),
-                Token::Symbol(Symbol::RightAngleRightAngle) => {
-                    op!(Expression::ShiftRight, bp::SHIFT)
-                }
+            left_side = WithSpan {
+                start,
+                value: match &self.last_token.value {
+                    Token::Symbol(Symbol::Plus) => op!(Expression::Addition, bp::ADDITIVE),
+                    Token::Symbol(Symbol::Minus) => op!(Expression::Subtraction, bp::ADDITIVE),
+                    Token::Symbol(Symbol::Star) => op!(Expression::Multiplication, bp::MULTIPLICATIVE),
+                    Token::Symbol(Symbol::Slash) => op!(Expression::Division, bp::MULTIPLICATIVE),
+                    Token::Symbol(Symbol::Percent) => op!(Expression::Remainder, bp::MULTIPLICATIVE),
+                    Token::Symbol(Symbol::StarStar) => op!(Expression::Exponentiation, bp::EXPONENTIAL),
+                    Token::Symbol(Symbol::Pipe) => op!(Expression::BitwiseOr, bp::BITWISE_OR),
+                    Token::Symbol(Symbol::Ampersand) => op!(Expression::BitwiseAnd, bp::BITWISE_AND),
+                    Token::Symbol(Symbol::Caret) => {
+                        op!(Expression::BitwiseExclusiveOr, bp::BITWISE_XOR)
+                    }
+                    Token::Symbol(Symbol::PipePipe) => op!(Expression::LogicalOr, bp::LOGICAL_OR),
+                    Token::Symbol(Symbol::AmpersandAmpersand) => {
+                        op!(Expression::LogicalAnd, bp::LOGICAL_AND)
+                    }
+                    Token::Symbol(Symbol::LeftAngleLeftAngle) => op!(Expression::ShiftLeft, bp::SHIFT),
+                    Token::Symbol(Symbol::RightAngleRightAngle) => {
+                        op!(Expression::ShiftRight, bp::SHIFT)
+                    }
 
-                Token::Symbol(Symbol::EqualsEquals) => op!(Expression::Equals, bp::EQUALITY),
-                Token::Symbol(Symbol::ExclamationMarkEquals) => {
-                    op!(Expression::NotEquals, bp::EQUALITY)
-                }
-                Token::Symbol(Symbol::LeftAngle) => op!(Expression::LessThan, bp::RELATIONAL),
-                Token::Symbol(Symbol::LeftAngleEquals) => {
-                    op!(Expression::LessThanOrEqual, bp::RELATIONAL)
-                }
-                Token::Symbol(Symbol::RightAngle) => op!(Expression::GreaterThan, bp::RELATIONAL),
-                Token::Symbol(Symbol::RightAngleEquals) => {
-                    op!(Expression::GreaterThanOrEqual, bp::RELATIONAL)
-                }
-                Token::Symbol(Symbol::Semicolon)
-                | Token::Symbol(Symbol::Comma)
-                | Token::EndOfInput
-                | Token::Symbol(Symbol::RightBrace)
-                | Token::Symbol(Symbol::RightParenthesis) => break,
-                token => todo!("{:?}", token),
-            }
+                    Token::Symbol(Symbol::EqualsEquals) => op!(Expression::Equals, bp::EQUALITY),
+                    Token::Symbol(Symbol::ExclamationMarkEquals) => {
+                        op!(Expression::NotEquals, bp::EQUALITY)
+                    }
+                    Token::Symbol(Symbol::LeftAngle) => op!(Expression::LessThan, bp::RELATIONAL),
+                    Token::Symbol(Symbol::LeftAngleEquals) => {
+                        op!(Expression::LessThanOrEqual, bp::RELATIONAL)
+                    }
+                    Token::Symbol(Symbol::RightAngle) => op!(Expression::GreaterThan, bp::RELATIONAL),
+                    Token::Symbol(Symbol::RightAngleEquals) => {
+                        op!(Expression::GreaterThanOrEqual, bp::RELATIONAL)
+                    }
+
+                    Token::Symbol(Symbol::Equals) => {
+                        if bp::ASSIGNMENT.0 < min_bp {
+                            break
+                        }
+
+                        self.next_token()?;
+
+                        let WithSpan {
+                            start,
+                            value,
+                            end
+                        } = left_side;
+
+                        if let Ok(target) = AssignmentTarget::try_from(value) {
+                            Expression::Assignment(
+                                Box::new(WithSpan {
+                                    value: target,
+                                    start,
+                                    end,
+                                }),
+                                Box::new(self.parse_expression(bp::RELATIONAL.1)?)
+                            )
+                        } else {
+                            return Err(quark::Error::Parser(Error::InvalidAssignmentTarget))
+                        }
+                    }
+
+                    Token::Symbol(Symbol::Semicolon)
+                    | Token::Symbol(Symbol::Comma)
+                    | Token::EndOfInput
+                    | Token::Symbol(Symbol::RightBrace)
+                    | Token::Symbol(Symbol::RightParenthesis) => break,
+
+                    Token::Symbol(Symbol::Dot) => {
+                        if bp::ACCESS_AND_OPTIONAL_ACCESS < min_bp {
+                            break;
+                        }
+
+                        self.next_token()?;
+
+                        let identifier = match &self.last_token.value {
+                            Token::Identifier(identifier) => identifier.clone(),
+                            _ => todo!(),
+                        };
+
+                        self.next_token()?;
+
+                        Expression::Access(Access {
+                            property: identifier,
+                            target: Box::new(left_side)
+                        })
+                    }
+                    Token::Symbol(Symbol::LeftParenthesis) => {
+                        if bp::CALL < min_bp {
+                            break;
+                        }
+
+                        self.next_token()?;
+
+                        let mut arguments = Vec::new();
+
+                        loop {
+                            if let Token::Symbol(Symbol::RightParenthesis) = &self.last_token.value {
+                                break
+                            }
+
+                            arguments.push(self.parse_expression(bp::COMMA_AND_SEMICOLON)?);
+
+                            match &self.last_token.value {
+                                Token::Symbol(Symbol::RightParenthesis) => {}
+                                Token::Symbol(Symbol::Comma) => self.next_token()?,
+                                _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                                    todo!()
+                                )))
+                            }
+                        }
+
+                        self.next_token()?;
+
+                        Expression::Call {
+                            target: Box::new(left_side),
+                            arguments,
+                        }
+                    }
+                    token => todo!("{:?}", token),
+                },
+                end: self.last_token.end,
+            };
         }
 
         Ok(left_side)
