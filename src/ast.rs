@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::token::WithSpan;
 
 #[derive(Debug)]
@@ -60,10 +61,15 @@ pub enum Expression {
         value: Option<Box<WithSpan<Expression>>>,
     },
     Access(Access),
+    OptionalAccess(Access),
     Call {
         target: Box<WithSpan<Expression>>,
         arguments: Vec<WithSpan<Expression>>
-    }
+    },
+    If {
+        condition: Box<WithSpan<Expression>>,
+        body: Box<WithSpan<Expression>>,
+    },
 }
 
 #[derive(Debug)]

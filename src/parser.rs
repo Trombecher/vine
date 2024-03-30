@@ -49,15 +49,15 @@ impl<'a> Parser<'a> {
             let expression = self.parse_expression(bp::COMMA_AND_SEMICOLON)?;
 
             expressions.push(expression);
-
+            
             match &self.last_token.value {
                 Token::Symbol(Symbol::Semicolon) => self.next_token()?,
-                Token::EndOfInput => {}
                 token => todo!("unexpected token: {:?}", token)
             }
         }
     }
 
+    /// Assumes `{` was already consumed. Ends on `}`.
     fn parse_block(&mut self) -> Result<Expression, quark::Error> {
         let mut expressions = Vec::new();
 
@@ -67,8 +67,13 @@ impl<'a> Parser<'a> {
             match &self.last_token.value {
                 Token::Symbol(Symbol::Semicolon) => {
                     self.next_token()?;
-
+                    
                     if let Token::Symbol(Symbol::RightBrace) = &self.last_token.value {
+                        expressions.push(WithSpan {
+                            value: Expression::Nil,
+                            start: self.last_token.start,
+                            end: self.last_token.end,
+                        });
                         break
                     }
                 },
@@ -385,6 +390,38 @@ impl<'a> Parser<'a> {
                         end: self.last_token.end,
                     }))
                 }
+                Token::Keyword(Keyword::If) => {
+                    self.next_token()?;
+                    
+                    let condition = self.parse_expression(0)?;
+                    
+                    match &self.last_token.value {
+                        Token::Symbol(Symbol::LeftBrace) => {}
+                        _ => return Err(quark::Error::Parser(Error::UnexpectedToken(
+                            todo!()
+                        )))
+                    }
+                    
+                    self.next_token()?;
+                    
+                    let body = self.parse_block()?;
+
+                    self.next_token()?;
+                    
+                    match &self.last_token.value {
+                        Token::Keyword(Keyword::Else) => todo!(),
+                        _ => {}
+                    }
+                    
+                    Expression::If {
+                        condition: Box::new(condition),
+                        body: Box::new(WithSpan {
+                            value: body,
+                            start,
+                            end: self.last_token.end,
+                        }),
+                    }
+                }
                 token => todo!("{:?}", token),
             },
             end: self.last_token.end,
@@ -469,6 +506,7 @@ impl<'a> Parser<'a> {
                     Token::Symbol(Symbol::Semicolon)
                     | Token::Symbol(Symbol::Comma)
                     | Token::EndOfInput
+                    | Token::Symbol(Symbol::LeftBrace) // Enables if-expressions
                     | Token::Symbol(Symbol::RightBrace)
                     | Token::Symbol(Symbol::RightParenthesis) => break,
 
