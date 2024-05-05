@@ -1,0 +1,7 @@
+fn main() {
+    aena.mount(esnext.document.body, App());
+};
+
+fn App() {
+    <div>Hi!</div>
+};

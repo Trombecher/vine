@@ -1,13 +1,15 @@
-use crate::chars::CharsIterator;
-use crate::quark;
-use crate::token::{Symbol, Token, WithSpan, KEYWORDS};
+pub mod token;
+pub mod chars;
+
+use chars::CharsIterator;
 use std::fmt::Debug;
+use std::hint::unreachable_unchecked;
 use std::str::Chars;
+use token::{Symbol, Token, Span, KEYWORDS};
 
 fn is_line_terminator(char: char) -> bool {
     match char {
-        '\n' => true,
-        '\r' => true,
+        '\n' | '\r' => true,
         _ => false,
     }
 }
@@ -29,7 +31,7 @@ pub enum UnexpectedCharacterError {
     ExpectedEqualsWhileLexingMarkupValue,
     ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
     ExpectedRightAngleWhileClosingEndTag,
-    ExpectedSingleQuote
+    ExpectedSingleQuote,
 }
 
 /// This enum describes the possibilities of the next token generated.
@@ -40,26 +42,41 @@ pub enum Layer {
     TextOrInsert,
     Insert,
     EndTag,
-    StartTag
+    StartTag,
 }
 
-pub struct Lexer<'a> {
-    chars: CharsIterator<'a>,
+pub struct Lexer<'s> {
+    chars: CharsIterator<'s>,
     /// This is needed for proper detection of markup
     layers: Vec<Layer>,
-    potential_markup: bool
+    potential_markup: bool,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(chars: Chars<'a>) -> Self {
+impl<'s> Lexer<'s> {
+    pub fn new(chars: Chars<'s>) -> Self {
         Self {
-            chars: CharsIterator::new(chars),
+            chars: chars.into(),
             layers: Vec::new(),
             potential_markup: true,
         }
     }
+    
+    pub fn collect(mut self) -> Result<Vec<Span<Token<'s>>>, crate::Error> {
+        let mut tokens = Vec::new();
 
-    fn parse_number<const BASE: u32>(&mut self, mut number: f64) -> Result<Token, quark::Error> {
+        loop {
+            let next_token = self.next()?;
+            if let Token::EndOfInput = next_token.value {
+                break;
+            }
+
+            tokens.push(next_token);
+        }
+        
+        Ok(tokens)
+    }
+    
+    fn parse_number<const BASE: u32>(&mut self, mut number: f64) -> Result<Token<'s>, crate::Error> {
         loop {
             let next = match self.chars.next() {
                 Some(next) => next,
@@ -75,7 +92,7 @@ impl<'a> Lexer<'a> {
                 number = self.parse_number_tail::<BASE>(number)?;
                 break;
             } else if next.is_alphanumeric() {
-                return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                     next,
                     UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
                 )));
@@ -88,7 +105,7 @@ impl<'a> Lexer<'a> {
         Ok(Token::Number(number))
     }
 
-    fn parse_number_tail<const BASE: u32>(&mut self, mut number: f64) -> Result<f64, quark::Error> {
+    fn parse_number_tail<const BASE: u32>(&mut self, mut number: f64) -> Result<f64, crate::Error> {
         let mut multiplier = 1_f64;
         let multiplier_multiplier = 1_f64 / BASE as f64;
 
@@ -105,7 +122,7 @@ impl<'a> Lexer<'a> {
                 multiplier *= multiplier_multiplier;
                 number += to_add as f64 * multiplier;
             } else if next.is_alphanumeric() {
-                return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                     next,
                     UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
                 )));
@@ -118,115 +135,93 @@ impl<'a> Lexer<'a> {
         Ok(number)
     }
 
-    fn parse_comment(&mut self) -> Result<String, quark::Error> {
-        let mut comment = String::new();
-
-        loop {
-            match self.chars.next() {
-                None => break,
-                Some(char) if is_line_terminator(char) => break,
-                Some(char) => comment.push(char),
-            }
-        }
-
-        Ok(comment)
+    fn parse_comment(&mut self) -> &'s str {
+        let mut x = self.chars.begin_extraction();
+        x.skip_until(|c| is_line_terminator(c));
+        x.finish()
     }
 
-    fn parse_identifier(&mut self) -> String {
-        let mut identifier = String::new();
-
-        loop {
-            match self.chars.next() {
-                Some(char) if char.is_alphanumeric() || char == '_' => identifier.push(char),
-                option => {
-                    self.chars.rollback(option);
-                    break;
-                }
-            };
-        }
-
-        identifier
+    fn parse_identifier(&mut self) -> &'s str {
+        let mut x = self.chars.begin_extraction();
+        x.skip_until(|c| !(c.is_alphanumeric() || c == '_'));
+        x.finish()
     }
 
-    fn parse_string(&mut self) -> Result<String, quark::Error> {
-        let mut s = String::new();
-
+    fn parse_string(&mut self) -> Result<&'s str, crate::Error> {
+        let mut x = self.chars.begin_extraction();
+        
         loop {
-            match self.chars.next() {
-                None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+            match x.next() {
+                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
                 Some('"') => break,
-                Some('\\') => s.push({
-                    let next_char = self
-                        .chars
-                        .next()
-                        .ok_or(quark::Error::Lexer(Error::UnexpectedEndOfInput))?;
-                    self.chars.unescape_char(next_char)?
-                }),
-                Some(char) => s.push(char),
+                Some('\\') => if let None = x.next() {
+                    return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput))
+                },
+                _ => {},
             }
         }
 
-        Ok(s)
+        Ok(x.finish())
     }
 
     /// Expects whitespace and then the first char of the identifier.
-    fn parse_end_tag(&mut self) -> Result<WithSpan<Token>, quark::Error> {
+    fn parse_end_tag(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
         let start = self.chars.index();
 
         self.chars.skip_white_space();
 
         let tag_name = self.parse_identifier();
-        if KEYWORDS.contains_key(tag_name.as_str()) {
-            return Err(quark::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(tag_name)));
+        if KEYWORDS.contains_key(tag_name) {
+            return Err(crate::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(tag_name.to_string())));
         }
 
         self.chars.skip_white_space();
 
         match self.chars.next() {
-            None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+            None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
             Some('>') => {}
-            Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+            Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                 char,
                 UnexpectedCharacterError::ExpectedRightAngleWhileClosingEndTag,
             )))
         }
 
-        Ok(WithSpan {
+        Ok(Span {
             start,
             value: Token::MarkupEndTag(tag_name),
             end: self.chars.index(),
         })
     }
-    
-    fn parse_start_tag(&mut self) -> Result<WithSpan<Token>, quark::Error> {
+
+    fn parse_start_tag(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
         let start = self.chars.index();
-        
+
         self.chars.skip_white_space();
 
         let identifier = self.parse_identifier();
-        if KEYWORDS.contains_key(identifier.as_str()) {
-            return Err(quark::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(identifier)));
+        if KEYWORDS.contains_key(identifier) {
+            return Err(crate::Error::Lexer(
+                Error::CannotUseKeywordAsTagNameForMarkupElement(identifier.to_string())
+            ));
         }
 
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-        Ok(WithSpan {
+        Ok(Span {
             start,
             value: Token::MarkupStartTag(identifier),
             end: self.chars.index(),
         })
     }
-    
-    pub fn next(&mut self) -> Result<WithSpan<Token>, quark::Error> {
-        // println!("\nLAYERS: {:?}\nPOT_M: {}\n", self.layers, self.potential_markup);
-        
+
+    pub fn next(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
         // Pop the current layer to be analyzed.
         match self.layers.pop() {
             None => self.next_default_context(),
             Some(Layer::KeyOrStartTagEndOrSelfClose) => {
                 self.chars.skip_white_space();
 
-                Ok(WithSpan {
+                Ok(Span {
                     start: self.chars.index(),
                     value: match self.chars.next() {
                         // Start collecting children
@@ -241,27 +236,27 @@ impl<'a> Lexer<'a> {
 
                             match self.chars.next() {
                                 Some('>') => Token::MarkupClose,
-                                None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
-                                Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                                     char,
                                     UnexpectedCharacterError::ExpectedRightAngleWhileSelfClosingStartTag,
                                 ))),
                             }
                         }
-                        
+
                         // Key
                         Some(char) if char.is_alphabetic() => {
                             self.chars.rollback(Some(char));
                             self.layers.push(Layer::Value);
                             Token::MarkupKey(self.parse_identifier())
                         }
-                        
+
                         // Reject other characters
-                        Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                        Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                             char,
                             UnexpectedCharacterError::ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
                         ))),
-                        None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
                     },
                     end: self.chars.index(),
                 })
@@ -271,8 +266,8 @@ impl<'a> Lexer<'a> {
 
                 match self.chars.next() {
                     Some('=') => {}
-                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                         char,
                         UnexpectedCharacterError::ExpectedEqualsWhileLexingMarkupValue,
                     ))),
@@ -281,7 +276,7 @@ impl<'a> Lexer<'a> {
                 self.chars.skip_white_space();
                 self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-                Ok(WithSpan {
+                Ok(Span {
                     start: self.chars.index(),
                     value: match self.chars.next() {
                         // HTML style attribute value
@@ -294,137 +289,136 @@ impl<'a> Lexer<'a> {
 
                             // Generate normal token
                             Token::Symbol(Symbol::LeftBrace)
-                        },
+                        }
 
                         // Reject other chars
-                        Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                        Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                             char,
                             UnexpectedCharacterError::ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
                         ))),
-                        None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
                     },
                     end: self.chars.index(),
                 })
             }
             Some(Layer::Insert) => {
                 self.layers.push(Layer::Insert);
-                
+
                 // Generate normal token
                 let token = self.next_default_context()?;
-                
+
                 match &token.value {
                     Token::Symbol(Symbol::LeftBrace) => {
                         // Push new.
                         self.layers.push(Layer::Insert);
-                    },
+                    }
                     Token::Symbol(Symbol::RightBrace) => {
                         self.layers.pop();
-                    },
+                    }
                     _ => {}
                 }
-                
+
                 Ok(token)
-            },
+            }
             Some(Layer::TextOrInsert) => {
                 self.chars.skip_white_space();
+
+                let mut x = self.chars.begin_extraction();
+                x.skip_until(|c| c == '<' || c == '=');
+                let text = x.finish();
                 
-                Ok(WithSpan {
-                    start: self.chars.index(),
-                    value: match self.chars.next() {
-                        None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                let token = if text.len() == 0 {
+                    // If there is no text, we have to yield something.
+                    
+                    match self.chars.next() {
+                        None => todo!(),
+                        
+                        // Yield an end tag or a nested element start
                         Some('<') => {
                             self.chars.skip_white_space();
-
+                            
                             match self.chars.next() {
-                                None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
-
+                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                                
                                 // End tag
                                 Some('/') => self.parse_end_tag()?.value,
-
+                                
                                 // Nested element
                                 option => {
                                     self.layers.push(Layer::TextOrInsert);
                                     self.chars.rollback(option);
                                     self.parse_start_tag()?.value
-                                },
+                                }
                             }
-                        },
+                        }
+                        
+                        // Yield an insert start
                         Some('{') => {
                             self.layers.push(Layer::TextOrInsert);
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
-                            
+
                             Token::Symbol(Symbol::LeftBrace)
                         }
-                        Some(char) => {
-                            self.layers.push(Layer::TextOrInsert);
-                            let mut text = String::from(char);
 
-                            loop {
-                                match self.chars.next() {
-                                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
-                                    Some('<') => {
-                                        self.chars.skip_white_space();
+                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
+                        _ => unsafe { unreachable_unchecked() }
+                    }
+                } else {
+                    // There is some text, so we yield the text and prepare the next layer state.
+                    
+                    match self.chars.next() {
+                        None => todo!(),
+                        Some('<') => {
+                            self.chars.skip_white_space();
 
-                                        match self.chars.next() {
-                                            None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
-                                            
-                                            // End tag
-                                            Some('/') => {
-                                                // Switch context
-                                                self.layers.pop();
-                                                self.layers.push(Layer::EndTag);
-                                            },
+                            match self.chars.next() {
+                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
 
-                                            // Nested element
-                                            option => {
-                                                self.chars.rollback(option);
-                                                
-                                                // Add context
-                                                self.layers.push(Layer::StartTag);
-                                            }
-                                        }
+                                // End tag
+                                Some('/') => self.layers.push(Layer::EndTag),
 
-                                        // Text may contain a trailing space.
-                                        match text.pop() {
-                                            None => unreachable!("Text \"{text}\" should not be empty!"),
-                                            Some(' ') => {}
-                                            Some(char) => text.push(char),
-                                        }
+                                // Nested element
+                                option => {
+                                    self.chars.rollback(option);
 
-                                        break;
-                                    }
-                                    Some(char) if char.is_whitespace() => {
-                                        self.chars.skip_white_space();
-                                        text.push(' ');
-                                    }
-                                    Some('{') => {
-                                        self.chars.rollback(Some('{'));
-                                        break;
-                                    }
-                                    Some(char) => text.push(char),
+                                    // Add context
+                                    self.layers.push(Layer::TextOrInsert);
+                                    self.layers.push(Layer::StartTag);
                                 }
                             }
-
-                            Token::MarkupText(text)
                         }
-                    },
+                        Some('{') => {
+                            self.layers.push(Layer::TextOrInsert);
+                            self.chars.rollback(Some('{'))
+                        },
+                        
+                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
+                        _ => unsafe { unreachable_unchecked() }
+                    }
+                    
+                    Token::MarkupText(text)
+                };
+                
+                Ok(Span {
+                    start: self.chars.index(),
+                    value: token,
                     end: self.chars.index(),
                 })
-            },
+            }
             Some(Layer::EndTag) => self.parse_end_tag(),
             Some(Layer::StartTag) => self.parse_start_tag(),
         }
     }
 
-    fn next_default_context(&mut self) -> Result<WithSpan<Token>, quark::Error> {
+    fn next_default_context(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
         self.chars.skip_white_space();
-        
+
         if self.potential_markup {
             self.potential_markup = false;
-            
+
             return match self.chars.next() {
-                None => Ok(WithSpan {
+                None => Ok(Span {
                     start: self.chars.index(),
                     value: Token::EndOfInput,
                     end: self.chars.index(),
@@ -434,9 +428,9 @@ impl<'a> Lexer<'a> {
                     self.chars.rollback(option);
                     self.next_default_context()
                 }
-            }
+            };
         }
-        
+
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {
                 match self.chars.next() {
@@ -450,7 +444,7 @@ impl<'a> Lexer<'a> {
         }
 
         let start = self.chars.index();
-        
+
         let token = match self.chars.next() {
             None => {
                 self.chars.rollback(None);
@@ -488,15 +482,7 @@ impl<'a> Lexer<'a> {
             Some('9') => self.parse_number::<10>(9.)?,
             Some('=') => {
                 self.potential_markup = true;
-
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::EqualsEquals,
-                    Some('>') => Symbol::EqualsRightAngle,
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::Equals
-                    }
-                })
+                Token::Symbol(opt_eq!(Symbol::Equals, Symbol::EqualsEquals))
             }
             Some('<') => {
                 self.potential_markup = true;
@@ -533,7 +519,14 @@ impl<'a> Lexer<'a> {
             }
             Some('-') => {
                 self.potential_markup = true;
-                Token::Symbol(opt_eq!(Symbol::Minus, Symbol::MinusEquals))
+                Token::Symbol(match self.chars.next() {
+                    Some('=') => Symbol::MinusEquals,
+                    Some('>') => Symbol::MinusRightAngle,
+                    option => {
+                        self.chars.rollback(option);
+                        Symbol::Minus
+                    }
+                })
             }
             Some('*') => {
                 self.potential_markup = true;
@@ -552,10 +545,10 @@ impl<'a> Lexer<'a> {
                 match self.chars.next() {
                     Some('=') => Token::Symbol(Symbol::SlashEquals),
                     Some('/') => match self.chars.next() {
-                        Some('/') => Token::DocComment(self.parse_comment()?),
+                        Some('/') => Token::DocComment(self.parse_comment()),
                         option => {
                             self.chars.rollback(option);
-                            Token::LineComment(self.parse_comment()?)
+                            Token::LineComment(self.parse_comment())
                         }
                     },
                     option => {
@@ -616,7 +609,7 @@ impl<'a> Lexer<'a> {
             Some(',') => {
                 self.potential_markup = true;
                 Token::Symbol(Symbol::Comma)
-            },
+            }
             Some(';') => {
                 self.potential_markup = true;
                 Token::Symbol(Symbol::Semicolon)
@@ -644,49 +637,50 @@ impl<'a> Lexer<'a> {
             }),
             Some('\'') => Token::Char({
                 let char = match self.chars.next() {
-                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
                     Some('\\') => {
                         let next_char = self
                             .chars
                             .next()
-                            .ok_or(quark::Error::Lexer(Error::UnexpectedEndOfInput))?;
+                            .ok_or(crate::Error::Lexer(Error::UnexpectedEndOfInput))?;
                         self.chars.unescape_char(next_char)?
                     }
                     Some(char) => char,
                 };
-                
+
                 match self.chars.next() {
                     Some('\'') => {}
-                    None => return Err(quark::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some(char) => return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                         char,
-                        UnexpectedCharacterError::ExpectedSingleQuote
+                        UnexpectedCharacterError::ExpectedSingleQuote,
                     )))
                 }
-                
+
                 char
             }),
+            Some('@') => Token::Symbol(Symbol::At),
             Some('"') => Token::String(self.parse_string()?),
             Some(char) if char.is_alphabetic() || char == '_' => {
                 self.chars.rollback(Some(char));
 
                 let identifier = self.parse_identifier();
-
-                if let Ok(keyword) = KEYWORDS.get(identifier.as_str()).copied().ok_or(()) {
+                
+                if let Ok(keyword) = KEYWORDS.get(identifier).copied().ok_or(()) {
                     Token::Keyword(keyword)
                 } else {
                     Token::Identifier(identifier)
                 }
             }
             Some(char) => {
-                return Err(quark::Error::Lexer(Error::UnexpectedCharacter(
+                return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
                     char,
                     UnexpectedCharacterError::AsStartOfNewToken,
                 )));
             }
         };
 
-        Ok(WithSpan {
+        Ok(Span {
             start,
             end: self.chars.index(),
             value: token,

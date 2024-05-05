@@ -1,0 +1,4 @@
+name = "example"
+
+[deps]
+aena = "0.0.1"

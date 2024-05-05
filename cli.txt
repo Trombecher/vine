@@ -1,0 +1,17 @@
+# The CLI Spec For Vine
+
+## Project Management
+vine new <LOCATION>
+vine create <SCRIPT>
+vine rename <NAME>
+
+## Dependencies
+vine add <DEPENDENCY>
+vine remove <DEPENDENCY>
+vine list
+
+## Run
+vine <SCRIPT>
+
+## REPL
+vine repl

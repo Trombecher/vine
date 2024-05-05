@@ -1,53 +1,24 @@
-#![deny(unsafe_code)]
-
 use std::fs::read_to_string;
 use std::time::Instant;
-use crate::lexer::Lexer;
-use crate::parser::Parser;
-use crate::token::Token;
+use vine::lex::Lexer;
+use vine::parse::Parser;
 
-mod quark;
-mod lexer;
-mod token;
-mod parser;
-mod ast;
-mod bp;
-mod chars;
-
-fn main() -> Result<(), quark::Error> {
-    let input = read_to_string("main.qk")
-        .map_err(|error| quark::Error::IO(error)).unwrap();
-    // lex(input)?;
-    parse(input);
+fn main() -> Result<(), vine::Error> {
+    let source_file = read_to_string("libs/example/src/app.vn")
+        .map_err(|err| vine::Error::IO(err))?;
     
-    Ok(())
-}
-
-fn lex(input: String) -> Result<(), quark::Error> {
-    let mut lexer = Lexer::new(input.chars());
-
-    loop {
-        let next = lexer.next()?;
-        if let Token::EndOfInput = next.value {
-            break
-        }
-        
-        println!("{:?}", next);
-    }
-    
-    Ok(())
-}
-
-fn parse(input: String) {
+    let mut lexer = Parser::new(Lexer::new(source_file.chars()))?;
     let now = Instant::now();
+    let module = lexer.parse_module("app");
     
-    let mut parser = Parser::new(Lexer::new(input.chars())).unwrap();
+    println!("{:?}", now.elapsed());
     
-    match parser.parse_module() {
-        Ok(expressions) => {
-            println!("delta: {:?}", now.elapsed());
-            println!("{:#?}", expressions)
-        },
-        Err(error) => println!("error: {:?}, last_token: {:?}", error, parser.last_token),
+    match module {
+        Ok(module) => println!("{:#?}", module),
+        Err(error) => {
+            println!("{:#?}; last token: {:#?}", error, lexer.last_token())
+        }
     }
+    
+    Ok(())
 }

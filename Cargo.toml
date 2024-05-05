@@ -1,9 +1,15 @@
 [package]
-name = "ion"
+name = "vine"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
+[profile.release]
+lto = "fat"
 
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }

@@ -1,0 +1,26 @@
+@const
+fn add(a: number, b: number, c: number) -> number {
+    a + b
+}
+
+fn main() -> number {
+    256 + 30
+}
+
+fn if_else() {
+    if true {
+    
+    }
+    
+    if true {
+    
+    } else {
+    
+    }
+    
+    if true {
+        
+    } else if {
+    
+    }
+}

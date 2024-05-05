@@ -1,0 +1,53 @@
+pub extern mod console {
+    pub extern fn log(...args: Any[]);
+}
+
+pub extern mod document {
+    pub extern fn activeElement() -> Element;
+}
+
+pub struct Map<K, V>();
+
+impl Map<K, V> {
+    pub fn clear() {};
+
+    pub fn get(key: K) -> V? {};
+
+    pub fn set(key: K, value: V) {};
+
+    pub fn has(key: K) -> bool {};
+
+    pub fn iter() -> Entries {};
+}
+
+pub struct MapIterator();
+
+impl Iterator for MapIterator {}
+
+pub extern struct Set<T>;
+
+impl<T> Set<T> {
+    pub fn add(this, value: T) -> bool;
+
+    pub fn clear(this);
+
+    pub fn delete(this, value: T) -> bool;
+
+    pub fn difference(this, other: Set<T>) -> Set<T>;
+
+    pub fn iter() -> SetIterator;
+
+    pub fn has(value: T) -> bool;
+
+    pub fn intersection(this, other: Set<T>) -> Set<T>;
+
+    pub fn is_disjoint_from(this, other: Set<T>) -> bool;
+
+    pub fn is_subset_of(this, other: Set<T>) -> bool;
+
+    pub fn is_superset_of(this, other: Set<T>) -> bool;
+
+    pub fn symmetric_difference(this, other: Set<T>) -> Set<T>;
+}
+
+pub struct SetIterator {}

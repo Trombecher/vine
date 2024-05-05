@@ -2,32 +2,44 @@ use std::fmt::Debug;
 use phf::phf_map;
 
 #[derive(Debug)]
-pub struct WithSpan<T> where T: Debug {
+pub struct Span<T> where T: Debug {
     pub value: T,
     pub start: usize,
     pub end: usize,
 }
 
-#[derive(Debug)]
-pub enum Token {
+impl<T: Debug> Span<T> {
+    #[inline]
+    pub fn map<U, F: Fn(T) -> U>(self, mapper: F) -> Span<U> where U: Debug {
+        Span {
+            value: mapper(self.value),
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Token<'a> {
     Char(char),
-    Identifier(String),
+    Identifier(&'a str),
     Number(f64),
-    DocComment(String),
-    LineComment(String),
+    DocComment(&'a str),
+    LineComment(&'a str),
     Symbol(Symbol),
     Keyword(Keyword),
-    String(String),
+    String(&'a str),
     EndOfInput,
-    MarkupStartTag(String),
-    MarkupKey(String),
+    MarkupStartTag(&'a str),
+    MarkupKey(&'a str),
     MarkupStartTagEnd,
     MarkupClose,
-    MarkupText(String),
-    MarkupEndTag(String),
+    MarkupText(&'a str),
+    MarkupEndTag(&'a str),
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
+#[repr(u8)]
 pub enum Keyword {
     As,
     Await,
@@ -43,15 +55,18 @@ pub enum Keyword {
     If,
     In,
     Let,
+    Mod,
     Mut,
     Match,
     Nil,
+    Pub,
     Return,
     This,
     ThisCase,
     True,
     Type,
     While,
+    Underscore,
     Use,
 }
 
@@ -70,9 +85,11 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "if" => Keyword::If,
     "in" => Keyword::In,
     "let" => Keyword::Let,
+    "mod" => Keyword::Mod,
     "mut" => Keyword::Mut,
     "match" => Keyword::Match,
     "nil" => Keyword::Nil,
+    "pub" => Keyword::Pub,
     "return" => Keyword::Return,
     "this" => Keyword::This,
     "This" => Keyword::ThisCase,
@@ -80,13 +97,14 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "type" => Keyword::Type,
     "while" => Keyword::While,
     "use" => Keyword::Use,
+    "_" => Keyword::Underscore
 };
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
 pub enum Symbol {
     Equals,
     EqualsEquals,
-    EqualsRightAngle,
     ExclamationMark,
     ExclamationMarkEquals,
     LeftAngle,
@@ -101,6 +119,7 @@ pub enum Symbol {
     PlusEquals,
     Minus,
     MinusEquals,
+    MinusRightAngle,
     Star,
     StarEquals,
     Percent,
@@ -131,4 +150,5 @@ pub enum Symbol {
     RightBracket,
     LeftBrace,
     RightBrace,
+    At
 }
