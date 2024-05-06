@@ -1,7 +1,23 @@
-fn main() {
-    aena.mount(esnext.document.body, App());
+use aena.*;
+use esnext.{
+    document,
+    parseInt
 };
 
-fn App() {
-    <div>Hi!</div>
+let x: number = 20;
+
+@entry
+@inline
+fn main() {
+    mount(document.body, App());
+};
+
+fn App() -> Element {
+    if true {
+        <div>Hi!</div>
+    } else if false {
+        10
+    } else {
+        <div>Ok</div>
+    }
 };

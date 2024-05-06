@@ -1,6 +1,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(iter_next_chunk)]
 #![feature(iter_advance_by)]
+#![allow(warnings)] // TODO: turn back off
 
 pub mod lex;
 pub mod parse;

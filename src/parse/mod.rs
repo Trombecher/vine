@@ -34,11 +34,13 @@ impl<'s> Parser<'s> {
         })
     }
 
+    #[inline]
     fn next_token(&mut self) -> Result<(), crate::Error> {
         self.last_token = self.lexer.next()?;
         Ok(())
     }
 
+    #[inline]
     pub fn last_token(&self) -> &Span<Token> {
         &self.last_token
     }
@@ -64,7 +66,9 @@ impl<'s> Parser<'s> {
                     Error::UnexpectedToken(UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock)
                 ))?,
             });
-
+            
+            // println!("last tli: {:#?}", items.last());
+            
             match &self.last_token.value {
                 Token::Symbol(Symbol::Semicolon) => self.next_token()?,
                 token => todo!("unexpected token: {:?}", token)
@@ -88,7 +92,30 @@ impl<'s> Parser<'s> {
     pub fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'s>>>, crate::Error> {
         let start = self.last_token.start;
 
-        Ok(match &self.last_token.value {
+        let mut annotations = Vec::new();
+
+        loop {
+            match &self.last_token.value {
+                Token::Symbol(Symbol::At) => {}
+                _ => break,
+            }
+
+            self.next_token()?;
+
+            let id = match &self.last_token.value {
+                Token::Identifier(id) => *id,
+                _ => todo!()
+            };
+
+            annotations.push(Annotation {
+                path: ItemPath(vec![id]),
+                arguments: vec![], // TODO: Path + arguments of annotations
+            });
+            
+            self.next_token()?;
+        }
+        
+        let statement_kind = match &self.last_token.value {
             Token::Keyword(Keyword::Mod) => {
                 self.next_token()?;
 
@@ -107,17 +134,10 @@ impl<'s> Parser<'s> {
 
                 self.next_token()?;
 
-                Some(Span {
-                    start,
-                    value: Statement {
-                        annotations: Vec::new(), // TODO: Annotations
-                        statement_kind: StatementKind::Module(Module {
-                            id,
-                            items: None,
-                        }),
-                    },
-                    end: self.last_token.end,
-                })
+                Some(StatementKind::Module(Module {
+                    id,
+                    items: None,
+                }))
             }
             Token::Keyword(Keyword::Async) => {
                 self.next_token()?;
@@ -132,16 +152,7 @@ impl<'s> Parser<'s> {
                     _ => todo!()
                 };
 
-                Some(Span {
-                    start,
-                    value: Statement {
-                        annotations: Vec::new(), // TODO: Annotations
-                        statement_kind: StatementKind::Declaration(
-                            self.parse_function_statement(true, id)?
-                        ),
-                    },
-                    end: self.last_token.end,
-                })
+                Some(StatementKind::Declaration(self.parse_function_statement(true, id)?))
             }
             Token::Keyword(Keyword::Fn) => {
                 self.next_token()?;
@@ -151,23 +162,17 @@ impl<'s> Parser<'s> {
                     _ => todo!()
                 };
 
-                Some(Span {
-                    start,
-                    value: Statement {
-                        annotations: vec![], // TODO: Annotations
-                        statement_kind: StatementKind::Declaration(
-                            self.parse_function_statement(false, id)?
-                        ),
-                    },
-                    end: self.last_token.end,
-                })
+                Some(StatementKind::Declaration(self.parse_function_statement(false, id)?))
             }
             Token::Keyword(Keyword::Use) => {
-                Some(Span {
-                    start,
-                    value: todo!("Use statements"),
-                    end: 0,
-                })
+                self.next_token()?;
+
+                let id = match &self.last_token.value {
+                    Token::Identifier(id) => *id,
+                    _ => todo!("Use error")
+                };
+
+                Some(StatementKind::Use(self.parse_use(id)?))
             }
             Token::Keyword(Keyword::Let) => {
                 self.next_token()?;
@@ -189,38 +194,109 @@ impl<'s> Parser<'s> {
 
                 self.next_token()?;
 
+                let ty = match &self.last_token.value {
+                    Token::Symbol(Symbol::Colon) => Some(self.parse_type()?),
+                    _ => None
+                };
+
                 let value = match &self.last_token.value {
                     Token::Symbol(Symbol::Equals) => {
                         self.next_token()?;
                         Some(Box::new(self.parse_expression(bp::COMMA_AND_SEMICOLON)?))
                     }
-                    _ => todo!()
+                    token => todo!("{:?}", token)
                 };
 
-                Some(Span {
-                    start,
-                    value: Statement {
-                        annotations: vec![],
-                        statement_kind: StatementKind::Declaration(
-                            Declaration {
-                                is_mutable,
-                                ty: Type::Unknown,
-                                identifier,
-                                value,
-                            }
-                        ),
-                    },
-                    end: self.last_token.end,
-                })
+                Some(StatementKind::Declaration(
+                    Declaration {
+                        is_mutable,
+                        ty,
+                        identifier,
+                        value,
+                    }
+                ))
             }
             _ => None
+        };
+        
+        Ok(statement_kind.map(|statement_kind| Span {
+            start,
+            value: Statement {
+                annotations,
+                statement_kind,
+            },
+            end: self.last_token.end,
+        }))
+    }
+    
+    /// Expects the first token to be the identifier. Ends on the token after.
+    /// 
+    /// # Syntax
+    /// 
+    /// ```vine
+    /// use x; // no child
+    /// use x.y; // single child
+    /// use x.{y, z}; // multiple children
+    /// use x.*; // all children
+    /// ```
+    fn parse_use(&mut self, id: &'s str) -> Result<Use<'s>, crate::Error> {
+        self.next_token()?;
+
+        let child: Option<UseChild<'s>> = match &self.last_token.value {
+            Token::Symbol(Symbol::Semicolon)
+            | Token::Symbol(Symbol::Comma)
+            | Token::Symbol(Symbol::RightBrace) => None,
+            Token::Symbol(Symbol::Dot) => {
+                self.next_token()?;
+
+                match &self.last_token.value {
+                    Token::Identifier(id) =>
+                        Some(UseChild::Single(Box::new(self.parse_use(*id)?))),
+                    Token::Symbol(Symbol::LeftBrace) => {
+                        self.next_token()?;
+                        
+                        let mut children = Vec::new();
+
+                        loop {
+                            match &self.last_token.value {
+                                Token::Identifier(id) => children.push(self.parse_use(*id)?),
+                                Token::Symbol(Symbol::RightBrace) => break,
+                                _ => todo!()
+                            }
+                            
+                            match &self.last_token.value {
+                                Token::Symbol(Symbol::Comma) => self.next_token()?,
+                                Token::Symbol(Symbol::RightBrace) => {}
+                                _ => todo!()
+                            }
+                        }
+
+                        self.next_token()?;
+                        
+                        Some(UseChild::Multiple(children))
+                    }
+                    Token::Symbol(Symbol::Star) => {
+                        self.next_token()?;
+                        Some(UseChild::All)
+                    },
+                    _ => todo!("Use child error")
+                }
+            }
+            token => todo!("{:?}", token)
+        };
+        
+        Ok(Use {
+            id,
+            child,
         })
     }
 
-    /// Assumes that the last token is the one after `{`. Ends on `}`.
+    /// Assumes that the last token is `{`. Ends on `}`.
     fn parse_scope(&mut self) -> Result<Vec<Span<StatementOrExpression<'s>>>, crate::Error> {
         let mut body = Vec::new();
 
+        self.next_token()?;
+        
         loop {
             body.push(self.parse_statement_or_expression(bp::COMMA_AND_SEMICOLON)?);
 
@@ -229,11 +305,11 @@ impl<'s> Parser<'s> {
                     self.next_token()?;
 
                     if let Token::Symbol(Symbol::RightBrace) = &self.last_token.value {
-                        // body.push(WithSpan {
-                        //     value: Expression::Nil,
-                        //     start: self.last_token.start,
-                        //     end: self.last_token.end,
-                        // });
+                        body.push(Span {
+                            value: StatementOrExpression::Expression(Expression::Nil),
+                            start: self.last_token.start,
+                            end: self.last_token.end,
+                        });
                         break;
                     }
                 }
@@ -265,7 +341,6 @@ impl<'s> Parser<'s> {
                     loop {
                         children.push(match &self.last_token.value {
                             Token::Symbol(Symbol::LeftBrace) => {
-                                self.next_token()?;
                                 let block = MarkupChild::Insert(Expression::Scope(self.parse_scope()?));
                                 self.next_token()?;
                                 block
@@ -301,10 +376,7 @@ impl<'s> Parser<'s> {
             self.next_token()?;
 
             let value = match &self.last_token.value {
-                Token::Symbol(Symbol::LeftBrace) => {
-                    self.next_token()?;
-                    Expression::Scope(self.parse_scope()?)
-                }
+                Token::Symbol(Symbol::LeftBrace) => Expression::Scope(self.parse_scope()?),
                 Token::String(s) => Expression::String(s),
                 token => unreachable!("Got token: {:?}. This token should not have been generated by the lexer.", token)
             };
@@ -318,12 +390,12 @@ impl<'s> Parser<'s> {
             children,
         })
     }
-
+    
     /// Assumes that the last token is `(`. Always ends on `)`.
     fn parse_function_parameters(&mut self) -> Result<(Vec<Parameter<'s>>, bool), crate::Error> {
         let mut parameters = Vec::new();
         let mut has_this_parameter = false;
-
+        
         self.next_token()?;
 
         loop {
@@ -358,11 +430,11 @@ impl<'s> Parser<'s> {
             self.next_token()?;
 
             let ty = match &self.last_token.value {
-                Token::Symbol(Symbol::RightParenthesis) => Type::Unknown,
-                Token::Symbol(Symbol::Colon) => self.parse_type()?,
+                Token::Symbol(Symbol::RightParenthesis) => None,
+                Token::Symbol(Symbol::Colon) => Some(self.parse_type()?),
                 Token::Symbol(Symbol::Comma) => {
                     self.next_token()?;
-                    Type::Unknown
+                    None
                 }
                 token => return Err(crate::Error::Parser(Error::UnexpectedToken(
                     todo!("{:?}", token)
@@ -379,42 +451,39 @@ impl<'s> Parser<'s> {
         Ok((parameters, has_this_parameter))
     }
 
-    /// Assumes that the first token was not consumed.
+    /// Assumes that the first token was not consumed. Consumes next.
     fn parse_type(&mut self) -> Result<Type<'s>, crate::Error> {
         self.next_token()?;
         
         Ok(match &self.last_token.value {
-            Token::Keyword(Keyword::Underscore) => Type::Unknown,
-            Token::Keyword(Keyword::Nil) => Type::Nil,
-            Token::Symbol(Symbol::ExclamationMark) => Type::Never,
-            Token::Identifier(id) => match *id {
-                "number" => Type::Number,
-                "bool" => Type::Boolean,
-                "str" => Type::String,
-                _ => {
-                    let mut path = Vec::new();
-                    path.push(*id);
+            Token::Symbol(Symbol::ExclamationMark) => {
+                self.next_token()?;
+                Type::Never
+            },
+            Token::Identifier(id) => {
+                let mut path = Vec::new();
+                path.push(*id);
 
-                    loop {
-                        self.next_token()?;
-                        match &self.last_token.value {
-                            Token::Symbol(Symbol::Dot) => {
-                                self.next_token()?;
+                loop {
+                    self.next_token()?;
+                    
+                    match &self.last_token.value {
+                        Token::Symbol(Symbol::Dot) => {
+                            self.next_token()?;
 
-                                match &self.last_token.value {
-                                    Token::Identifier(id) => path.push(*id),
-                                    _ => todo!()
-                                }
+                            match &self.last_token.value {
+                                Token::Identifier(id) => path.push(*id),
+                                _ => todo!()
                             }
-                            Token::Symbol(Symbol::LeftAngle) => todo!("Generics"),
-                            _ => break
                         }
+                        Token::Symbol(Symbol::LeftAngle) => todo!("Generics"),
+                        _ => break
                     }
+                }
 
-                    Type::ItemPath {
-                        generics: vec![],
-                        path: ItemPath(path),
-                    }
+                Type::ItemPath {
+                    generics: vec![],
+                    path: ItemPath(path),
                 }
             },
             Token::Keyword(Keyword::Fn) => {
@@ -457,7 +526,7 @@ impl<'s> Parser<'s> {
 
         Ok(Function {
             signature: FunctionSignature {
-                return_type: Type::Unknown,
+                return_type: None,
                 is_async,
                 parameters,
                 has_this_parameter,
@@ -483,11 +552,11 @@ impl<'s> Parser<'s> {
 
         self.next_token()?;
 
-        let return_type = match &self.last_token.value {
+        let return_type = Some(match &self.last_token.value {
             Token::Symbol(Symbol::LeftBrace) => Type::Nil,
             Token::Symbol(Symbol::MinusRightAngle) => self.parse_type()?,
             _ => todo!()
-        };
+        });
 
         match &self.last_token.value {
             Token::Symbol(Symbol::LeftBrace) => {}
@@ -496,19 +565,19 @@ impl<'s> Parser<'s> {
             )))
         }
 
-        self.next_token()?;
-
         let body = Box::new(Span {
             start: self.last_token.start,
             value: Expression::Scope(self.parse_scope()?),
             end: self.last_token.end,
         });
+        
+        println!("function statement last token after body parse: {:?}", self.last_token);
 
         self.next_token()?;
 
         Ok(Declaration {
             is_mutable: false,
-            ty: Type::Unknown,
+            ty: None,
             identifier,
             value: Some(Box::new(Span {
                 value: Expression::Function(Function {
@@ -554,7 +623,6 @@ impl<'s> Parser<'s> {
                     string
                 }
                 Token::Symbol(Symbol::LeftBrace) => {
-                    self.next_token()?;
                     let scope = Expression::Scope(self.parse_scope()?);
                     self.next_token()?;
                     scope
@@ -583,19 +651,16 @@ impl<'s> Parser<'s> {
                     Expression::Function(self.parse_function_expression(false)?)
                 }
                 Token::Keyword(Keyword::False) => {
-                    let e = Expression::False;
                     self.next_token()?;
-                    e
+                    Expression::False
                 }
                 Token::Keyword(Keyword::Nil) => {
-                    let e = Expression::Nil;
                     self.next_token()?;
-                    e
+                    Expression::Nil
                 }
                 Token::Keyword(Keyword::True) => {
-                    let e = Expression::True;
                     self.next_token()?;
-                    e
+                    Expression::True
                 }
                 Token::Symbol(Symbol::ExclamationMark) => {
                     self.next_token()?;
@@ -612,22 +677,62 @@ impl<'s> Parser<'s> {
 
                     match &self.last_token.value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                            todo!()
-                        )))
+                        _ => todo!()
                     }
-
-                    self.next_token()?;
 
                     let body = self.parse_scope()?;
+                    
+                    let mut else_ifs = Vec::new();
+                    
+                    let else_body = loop {
+                        let start = self.last_token.start;
+                        
+                        self.next_token()?;
+                        
+                        match &self.last_token.value {
+                            Token::Keyword(Keyword::Else) => {
+                                self.next_token()?;
+                                
+                                match &self.last_token.value {
+                                    Token::Keyword(Keyword::If) => {}
+                                    Token::Symbol(Symbol::LeftBrace) => {
+                                        let value = self.parse_scope()?;
+                                        
+                                        self.next_token()?;
+                                        
+                                        break Some(Span {
+                                            value,
+                                            start,
+                                            end: self.last_token.end,
+                                        })
+                                    },
+                                    token => todo!("Else error {:?}", token)
+                                }
 
-                    self.next_token()?;
+                                self.next_token()?;
 
-                    match &self.last_token.value {
-                        Token::Keyword(Keyword::Else) => todo!(),
-                        _ => {}
-                    }
+                                let condition = self.parse_expression(0)?;
 
+                                let start = self.last_token.start;
+
+                                match &self.last_token.value {
+                                    Token::Symbol(Symbol::LeftBrace) => {}
+                                    _ => todo!()
+                                }
+
+                                else_ifs.push(If {
+                                    condition: Box::new(condition),
+                                    body: Span {
+                                        start,
+                                        value: self.parse_scope()?,
+                                        end: self.last_token.end,
+                                    },
+                                })
+                            }
+                            _ => break None
+                        }
+                    };
+                    
                     Expression::If {
                         base: If {
                             condition: Box::new(condition),
@@ -637,8 +742,8 @@ impl<'s> Parser<'s> {
                                 end: self.last_token.end,
                             }
                         },
-                        else_ifs: vec![], // TODO: Else if
-                        else_body: None, // TODO: Else
+                        else_ifs,
+                        else_body,
                     }
                 }
                 Token::Keyword(Keyword::Return) => {
@@ -671,8 +776,6 @@ impl<'s> Parser<'s> {
                         _ => todo!()
                     }
 
-                    self.next_token()?;
-
                     let expression = Expression::While {
                         condition: Box::new(condition),
                         body: Span {
@@ -685,17 +788,6 @@ impl<'s> Parser<'s> {
                     self.next_token()?;
 
                     expression
-                }
-                Token::Keyword(Keyword::Use) => {
-                    self.next_token()?;
-
-                    let id = match &self.last_token.value {
-                        Token::Identifier(id) => *id,
-                        _ => todo!()
-                    };
-
-
-                    todo!()
                 }
                 token => todo!("{:?}", token),
             },
@@ -786,7 +878,7 @@ impl<'s> Parser<'s> {
                     Token::Symbol(Symbol::Semicolon)
                     | Token::Symbol(Symbol::Comma)
                     | Token::EndOfInput
-                    | Token::Symbol(Symbol::LeftBrace) // Enables if-expressions
+                    | Token::Symbol(Symbol::LeftBrace)
                     | Token::Symbol(Symbol::RightBrace)
                     | Token::Symbol(Symbol::RightParenthesis) => break,
 

@@ -1,4 +1,4 @@
 name = "example"
 
 [deps]
-aena = "0.0.1"
+aena = "0.15.3"

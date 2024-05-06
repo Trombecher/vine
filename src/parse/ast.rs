@@ -106,7 +106,8 @@ pub enum StatementKind<'s> {
 
 #[derive(Debug)]
 pub struct Annotation<'s> {
-    pub path: ItemPath<'s>
+    pub path: ItemPath<'s>,
+    pub arguments: Vec<Span<Expression<'s>>>
 }
 
 #[derive(Debug)]
@@ -135,8 +136,8 @@ pub struct TopLevelItem<'s> {
 
 #[derive(Debug)]
 pub struct Use<'s> {
-    id: &'s str,
-    child: Option<UseChild<'s>>
+    pub id: &'s str,
+    pub child: Option<UseChild<'s>>
 }
 
 #[derive(Debug)]
@@ -149,7 +150,7 @@ pub enum UseChild<'s> {
 #[derive(Debug)]
 pub struct Declaration<'s> {
     pub is_mutable: bool,
-    pub ty: Type<'s>,
+    pub ty: Option<Type<'s>>,
     pub identifier: &'s str,
     pub value: Option<Box<Span<Expression<'s>>>>,
 }
@@ -207,12 +208,11 @@ pub enum MarkupChild<'s> {
 pub struct Parameter<'s> {
     pub identifier: &'s str,
     pub is_mutable: bool,
-    pub ty: Type<'s>,
+    pub ty: Option<Type<'s>>,
 }
 
 #[derive(Debug)]
 pub enum Type<'s> {
-    Unknown,
     Never,
     Nil,
     Number,
@@ -227,7 +227,7 @@ pub enum Type<'s> {
 
 #[derive(Debug)]
 pub struct FunctionSignature<'s> {
-    pub return_type: Type<'s>,
+    pub return_type: Option<Type<'s>>,
     pub is_async: bool,
     pub parameters: Vec<Parameter<'s>>,
     pub has_this_parameter: bool,

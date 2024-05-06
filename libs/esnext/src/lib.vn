@@ -24,9 +24,9 @@ pub struct MapIterator();
 
 impl Iterator for MapIterator {}
 
-pub extern struct Set<T>;
+pub extern "js" struct Set<T>;
 
-impl<T> Set<T> {
+extern "js" impl<T> Set<T> {
     pub fn add(this, value: T) -> bool;
 
     pub fn clear(this);
