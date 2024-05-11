@@ -1,24 +1,6 @@
 use std::fmt::Debug;
 use phf::phf_map;
 
-#[derive(Debug)]
-pub struct Span<T> where T: Debug {
-    pub value: T,
-    pub start: usize,
-    pub end: usize,
-}
-
-impl<T: Debug> Span<T> {
-    #[inline]
-    pub fn map<U, F: Fn(T) -> U>(self, mapper: F) -> Span<U> where U: Debug {
-        Span {
-            value: mapper(self.value),
-            start: self.start,
-            end: self.end,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum Token<'a> {
     Char(char),

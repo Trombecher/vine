@@ -1,12 +1,13 @@
 use std::ops::{Deref, DerefMut};
 use std::ptr::slice_from_raw_parts;
 use std::str::{Chars, from_utf8_unchecked};
-use crate::lex::Error;
+
+use crate::lex::error::*;
 
 pub struct CharsIterator<'a> {
     chars: Chars<'a>,
     force_take: Option<char>,
-    index: usize,
+    index: u64,
 }
 
 impl<'s> From<Chars<'s>> for CharsIterator<'s> {
@@ -40,7 +41,9 @@ impl<'s> CharsIterator<'s> {
             '"' => Ok('"'),
             '\'' => Ok('\''),
             '[' => Ok('\u{1B}'), // Escape
-            char => Err(crate::Error::Lexer(Error::UnknownEscapeCharacter(char))),
+            _ => Err(crate::Error::Lexer(Error::UnexpectedCharacter(
+                UnexpectedCharacterError::InvalidStringEscape
+            ))),
         }
     }
 
@@ -81,7 +84,7 @@ impl<'s> CharsIterator<'s> {
     }
 
     #[inline]
-    pub fn index(&self) -> usize {
+    pub fn index(&self) -> u64 {
         self.index
     }
 

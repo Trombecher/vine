@@ -1,4 +1,4 @@
-use crate::lex::token::Span;
+use crate::Span;
 
 /// A binary operation.
 #[derive(Debug)]
@@ -92,9 +92,9 @@ pub struct If<'s> {
 pub enum StatementKind<'s> {
     Enum(Vec<&'s str>),
     Declaration(Declaration<'s>),
-    Struct {
+    Class {
         id: &'s str,
-        // TODO: struct fields
+        fields: Vec<Span<ClassField<'s>>>
     },
     TypeAlias {
         alias: &'s str,
@@ -102,6 +102,13 @@ pub enum StatementKind<'s> {
     },
     Use(Use<'s>),
     Module(Module<'s>)
+}
+
+#[derive(Debug)]
+pub struct ClassField<'s> {
+    pub is_public: bool,
+    pub id: &'s str,
+    pub ty: Option<Type<'s>>,
 }
 
 #[derive(Debug)]

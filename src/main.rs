@@ -1,22 +1,22 @@
-use std::fs::read_to_string;
+use std::fs::read;
 use std::time::Instant;
+use vine::chars::Cursor;
 use vine::lex::Lexer;
 use vine::parse::Parser;
 
 fn main() -> Result<(), vine::Error> {
-    let source_file = read_to_string("libs/example/src/app.vn")
-        .map_err(|err| vine::Error::IO(err))?;
+    let source_file = read("libs/example/src/app.vn").expect("file should exist");
     
-    let mut lexer = Parser::new(Lexer::new(source_file.chars()))?;
+    let mut parser = Parser::new(Lexer::new(Cursor::new(source_file.as_slice())))?;
     let now = Instant::now();
-    let module = lexer.parse_module("app");
+    let module = parser.parse_module("app");
     
     println!("{:?}", now.elapsed());
     
     match module {
         Ok(module) => println!("{:#?}", module),
         Err(error) => {
-            println!("{:#?}; last token: {:#?}", error, lexer.last_token())
+            println!("{:?}.\nLast token: {:?}", error, parser.last_token());
         }
     }
     

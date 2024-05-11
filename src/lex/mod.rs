@@ -1,364 +1,335 @@
 pub mod token;
-pub mod chars;
+pub mod error;
+mod tests;
+mod benchmark;
 
-use chars::CharsIterator;
-use std::fmt::Debug;
 use std::hint::unreachable_unchecked;
-use std::str::Chars;
-use token::{Symbol, Token, Span, KEYWORDS};
+use super::chars::Cursor;
+use error::{Error, UnexpectedCharacterError, UnexpectedEndOfInputError};
+use token::{KEYWORDS, Symbol, Token};
+use super::Span;
 
-fn is_line_terminator(char: char) -> bool {
-    match char {
-        '\n' | '\r' => true,
-        _ => false,
-    }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    UnexpectedCharacter(char, UnexpectedCharacterError),
-    UnexpectedEndOfInput,
-    CannotUseKeywordAsTagNameForMarkupElement(String),
-    UnknownEscapeCharacter(char),
-}
-
-#[derive(Debug)]
-pub enum UnexpectedCharacterError {
-    AsStartOfNewToken,
-    InvalidAlphanumericCharacterWhileParsingNumber,
-    ExpectedRightAngleWhileSelfClosingStartTag,
-    ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
-    ExpectedEqualsWhileLexingMarkupValue,
-    ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
-    ExpectedRightAngleWhileClosingEndTag,
-    ExpectedSingleQuote,
-}
-
-/// This enum describes the possibilities of the next token generated.
-#[derive(Debug)]
 pub enum Layer {
+    /// This layer expects `key=`, `/>` or `>`.
     KeyOrStartTagEndOrSelfClose,
     Value,
     TextOrInsert,
-    Insert,
     EndTag,
-    StartTag,
+    Insert,
+    StartTag
 }
 
-pub struct Lexer<'s> {
-    chars: CharsIterator<'s>,
-    /// This is needed for proper detection of markup
-    layers: Vec<Layer>,
+pub struct Lexer<'a> {
+    cursor: Cursor<'a>,
     potential_markup: bool,
+    layers: Vec<Layer>
 }
 
-impl<'s> Lexer<'s> {
-    pub fn new(chars: Chars<'s>) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(cursor: Cursor<'a>) -> Self {
         Self {
-            chars: chars.into(),
+            cursor,
+            potential_markup: false,
             layers: Vec::new(),
-            potential_markup: true,
         }
     }
     
-    pub fn collect(mut self) -> Result<Vec<Span<Token<'s>>>, crate::Error> {
-        let mut tokens = Vec::new();
-
+    fn unescape_char(&mut self) -> Result<char, crate::Error> {
+        // TODO: unicode escapes (use of self)
+        match self.cursor.next() {
+            None => Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
+                UnexpectedEndOfInputError::EndTag
+            ))),
+            Some(b'0') => Ok('\0'),     // Null character
+            Some(b'\\') => Ok('\\'),    // Backslash
+            Some(b'f') => Ok('\u{0c}'), // Form feed
+            Some(b't') => Ok('\t'),     // Horizontal tab
+            Some(b'r') => Ok('\r'),     // Carriage return
+            Some(b'n') => Ok('\n'),     // Line feed / new line
+            Some(b'b') => Ok('\u{07}'), // Bell
+            Some(b'v') => Ok('\u{0b}'), // Vertical tab
+            Some(b'"') => Ok('"'),      // Double quote
+            Some(b'\'') => Ok('\''),    // Single quote
+            Some(b'[') => Ok('\u{1B}'), // Escape
+            _ => Err(crate::Error::Lexer(Error::UnexpectedCharacter(
+                UnexpectedCharacterError::InvalidStringEscape
+            ))),
+        }
+    }
+    
+    fn parse_number_dec(&mut self, mut number: f64) -> Result<Token<'a>, crate::Error> {
         loop {
-            let next_token = self.next()?;
-            if let Token::EndOfInput = next_token.value {
-                break;
+            match self.cursor.next() {
+                Some(b'_') => {}
+                Some(b'0') => number *= 10.,
+                Some(b'1') => number = number * 10. + 1.,
+                Some(b'2') => number = number * 10. + 2.,
+                Some(b'3') => number = number * 10. + 3.,
+                Some(b'4') => number = number * 10. + 4.,
+                Some(b'5') => number = number * 10. + 5.,
+                Some(b'6') => number = number * 10. + 6.,
+                Some(b'7') => number = number * 10. + 7.,
+                Some(b'8') => number = number * 10. + 8.,
+                Some(b'9') => number = number * 10. + 9.,
+                Some(b'.') => todo!("fp numbers"),
+                Some(x) if x.is_ascii_alphabetic() => todo!(),
+                Some(_) => {
+                    self.cursor.rewind_ascii();
+                    break
+                }
+                None => break,
             }
-
-            tokens.push(next_token);
         }
         
-        Ok(tokens)
-    }
-    
-    fn parse_number<const BASE: u32>(&mut self, mut number: f64) -> Result<Token<'s>, crate::Error> {
-        loop {
-            let next = match self.chars.next() {
-                Some(next) => next,
-                option => {
-                    self.chars.rollback(option);
-                    break;
-                }
-            };
-
-            if let Some(to_add) = next.to_digit(BASE) {
-                number = number * BASE as f64 + to_add as f64;
-            } else if next == '.' {
-                number = self.parse_number_tail::<BASE>(number)?;
-                break;
-            } else if next.is_alphanumeric() {
-                return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                    next,
-                    UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
-                )));
-            } else if next != '_' {
-                self.chars.rollback(Some(next));
-                break;
-            }
-        }
-
         Ok(Token::Number(number))
     }
-
-    fn parse_number_tail<const BASE: u32>(&mut self, mut number: f64) -> Result<f64, crate::Error> {
-        let mut multiplier = 1_f64;
-        let multiplier_multiplier = 1_f64 / BASE as f64;
+    
+    /// Expects the next byte to be after the quote.
+    fn parse_string(&mut self) -> Result<&'a str, crate::Error> {
+        let mut recorder = self.cursor.begin_recording();
 
         loop {
-            let next = match self.chars.next() {
-                Some(next) => next,
-                option => {
-                    self.chars.rollback(option);
-                    break;
-                }
-            };
-
-            if let Some(to_add) = next.to_digit(BASE) {
-                multiplier *= multiplier_multiplier;
-                number += to_add as f64 * multiplier;
-            } else if next.is_alphanumeric() {
-                return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                    next,
-                    UnexpectedCharacterError::InvalidAlphanumericCharacterWhileParsingNumber,
-                )));
-            } else if next != '_' {
-                self.chars.rollback(Some(next));
-                break;
-            }
-        }
-
-        Ok(number)
-    }
-
-    fn parse_comment(&mut self) -> &'s str {
-        let mut x = self.chars.begin_extraction();
-        x.skip_until(|c| is_line_terminator(c));
-        x.finish()
-    }
-
-    fn parse_identifier(&mut self) -> &'s str {
-        let mut x = self.chars.begin_extraction();
-        x.skip_until(|c| !(c.is_alphanumeric() || c == '_'));
-        x.finish()
-    }
-
-    fn parse_string(&mut self) -> Result<&'s str, crate::Error> {
-        let mut x = self.chars.begin_extraction();
-        
-        loop {
-            match x.next() {
-                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-                Some('"') => break,
-                Some('\\') => if let None = x.next() {
-                    return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput))
+            match recorder.cursor.peek_raw() {
+                Some(b'"') => {
+                    unsafe { recorder.cursor.advance_unchecked(); }
+                    break Ok(recorder.stop())
                 },
-                _ => {},
+                Some(b'\\') => {
+                    unsafe { recorder.cursor.advance_unchecked(); }
+                    if let None = recorder.cursor.peek_raw() {
+                        todo!()
+                    }
+                    unsafe { recorder.cursor.advance_unchecked(); }
+                }
+                None => todo!(),
+                Some(_) => if let Err(e) = recorder.cursor.advance_char() {
+                    break Err(e)
+                }
+            }
+        }
+    }
+    
+    fn parse_id(&mut self) -> Result<&'a str, crate::Error> {
+        let recorder = self.cursor.begin_recording();
+
+        loop {
+            match recorder.cursor.next() {
+                None => todo!(),
+                Some(x) if x.is_ascii_alphanumeric() || x == b'_' => {}
+                Some(128..=255) => todo!(),
+                _ => {
+                    recorder.cursor.rewind_ascii();
+                    break
+                },
             }
         }
 
-        Ok(x.finish())
+        Ok(recorder.stop())
     }
+    
+    fn parse_comment(&mut self) -> Result<&'a str, crate::Error> {
+        let recorder = self.cursor.begin_recording();
 
-    /// Expects whitespace and then the first char of the identifier.
-    fn parse_end_tag(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
-        let start = self.chars.index();
-
-        self.chars.skip_white_space();
-
-        let tag_name = self.parse_identifier();
-        if KEYWORDS.contains_key(tag_name) {
-            return Err(crate::Error::Lexer(Error::CannotUseKeywordAsTagNameForMarkupElement(tag_name.to_string())));
+        loop {
+            match recorder.cursor.next() {
+                None | Some(b'\n') => break,
+                Some(128..=255) => {
+                    recorder.cursor.rewind_ascii();
+                    recorder.cursor.advance_char()?;
+                }
+                _ => {}
+            }
         }
-
-        self.chars.skip_white_space();
-
-        match self.chars.next() {
-            None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-            Some('>') => {}
-            Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                char,
-                UnexpectedCharacterError::ExpectedRightAngleWhileClosingEndTag,
-            )))
-        }
-
-        Ok(Span {
-            start,
-            value: Token::MarkupEndTag(tag_name),
-            end: self.chars.index(),
-        })
+        
+        Ok(recorder.stop())
     }
+    
+    /// Assumes that the next byte is `<`.
+    pub fn parse_start_tag(&mut self) -> Result<Span<Token<'a>>, crate::Error> {
+        let start = self.cursor.index();
 
-    fn parse_start_tag(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
-        let start = self.chars.index();
-
-        self.chars.skip_white_space();
-
-        let identifier = self.parse_identifier();
+        unsafe { self.cursor.advance_unchecked(); }
+        
+        self.skip_white_space();
+        
+        let identifier = self.parse_id()?;
         if KEYWORDS.contains_key(identifier) {
-            return Err(crate::Error::Lexer(
-                Error::CannotUseKeywordAsTagNameForMarkupElement(identifier.to_string())
-            ));
+            return Err(crate::Error::Lexer(Error::CannotUseKeywordAsTagName));
         }
-
+        
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
-
+        
         Ok(Span {
-            start,
             value: Token::MarkupStartTag(identifier),
-            end: self.chars.index(),
+            start,
+            end: self.cursor.index(),
         })
     }
-
-    pub fn next(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
-        // Pop the current layer to be analyzed.
+    
+    pub fn parse_end_tag(&mut self) -> Result<Span<Token<'a>>, crate::Error> {
+        let start = self.cursor.index();
+        
+        self.skip_white_space();
+        
+        let tag_name = self.parse_id()?;
+        if KEYWORDS.contains_key(tag_name) {
+            return Err(crate::Error::Lexer(Error::CannotUseKeywordAsTagName));
+        }
+        
+        self.skip_white_space();
+        
+        match self.cursor.next() {
+            Some(b'>') => {}
+            _ => todo!()
+        }
+        
+        Ok(Span {
+            value: Token::MarkupEndTag(tag_name),
+            start,
+            end: self.cursor.index(),
+        })
+    }
+    
+    pub fn next(&mut self) -> Result<Span<Token<'a>>, crate::Error> {
         match self.layers.pop() {
-            None => self.next_default_context(),
+            None => {
+                // Skip whitespace
+                self.skip_white_space();
+                
+                if self.potential_markup {
+                    self.potential_markup = false;
+                    
+                    if self.cursor.peek_raw() == Some(b'<') {
+                        self.parse_start_tag()
+                    } else {
+                        self.next_default_context()
+                    }
+                } else {
+                    self.next_default_context()
+                }
+            },
             Some(Layer::KeyOrStartTagEndOrSelfClose) => {
-                self.chars.skip_white_space();
-
+                self.skip_white_space();
+                
                 Ok(Span {
-                    start: self.chars.index(),
-                    value: match self.chars.next() {
-                        // Start collecting children
-                        Some('>') => {
+                    start: self.cursor.index(),
+                    value: match self.cursor.peek_raw() {
+                        Some(b'>') => {
+                            unsafe { self.cursor.advance_unchecked(); }
                             self.layers.push(Layer::TextOrInsert);
                             Token::MarkupStartTagEnd
                         }
-
-                        // Self closing tag
-                        Some('/') => {
-                            self.chars.skip_white_space();
-
-                            match self.chars.next() {
-                                Some('>') => Token::MarkupClose,
-                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-                                Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                                    char,
-                                    UnexpectedCharacterError::ExpectedRightAngleWhileSelfClosingStartTag,
-                                ))),
+                        Some(b'/') => {
+                            unsafe { self.cursor.advance_unchecked(); }
+                            self.skip_white_space();
+                            
+                            match self.cursor.next() {
+                                Some(b'>') => Token::MarkupClose,
+                                _ => todo!()
                             }
                         }
-
-                        // Key
-                        Some(char) if char.is_alphabetic() => {
-                            self.chars.rollback(Some(char));
+                        Some(char) if char.is_ascii_alphabetic() || char == b'_' => {
                             self.layers.push(Layer::Value);
-                            Token::MarkupKey(self.parse_identifier())
+                            Token::MarkupKey(self.parse_id()?)
                         }
-
-                        // Reject other characters
-                        Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                            char,
-                            UnexpectedCharacterError::ExpectedRightAngleOrSlashOrAlphabeticWhileLexingAttributes,
-                        ))),
-                        None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        _ => todo!()
                     },
-                    end: self.chars.index(),
+                    end: self.cursor.index(),
                 })
-            }
+            },
             Some(Layer::Value) => {
-                self.chars.skip_white_space();
-
-                match self.chars.next() {
-                    Some('=') => {}
-                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                        char,
-                        UnexpectedCharacterError::ExpectedEqualsWhileLexingMarkupValue,
-                    ))),
+                self.skip_white_space();
+                
+                match self.cursor.next() {
+                    Some(b'=') => {}
+                    _ => todo!()
                 }
-
-                self.chars.skip_white_space();
+                
+                self.skip_white_space();
+                
                 self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
-
+                
                 Ok(Span {
-                    start: self.chars.index(),
-                    value: match self.chars.next() {
-                        // HTML style attribute value
-                        Some('"') => Token::String(self.parse_string()?),
-
-                        // JSX style attribute value
-                        Some('{') => {
+                    start: self.cursor.index(),
+                    value: match self.cursor.next() {
+                        Some(b'"') => Token::String(self.parse_string()?),
+                        Some(b'{') => {
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
-
-                            // Generate normal token
                             Token::Symbol(Symbol::LeftBrace)
                         }
-
-                        // Reject other chars
-                        Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                            char,
-                            UnexpectedCharacterError::ExpectedQuoteOrLeftBraceWhileLexingMarkupValue,
-                        ))),
-                        None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                        _ => todo!()
                     },
-                    end: self.chars.index(),
+                    end: self.cursor.index(),
                 })
-            }
+            },
             Some(Layer::Insert) => {
-                self.layers.push(Layer::Insert);
-
-                // Generate normal token
                 let token = self.next_default_context()?;
-
+                
                 match &token.value {
                     Token::Symbol(Symbol::LeftBrace) => {
-                        // Push new.
+                        self.layers.push(Layer::Insert);
                         self.layers.push(Layer::Insert);
                     }
-                    Token::Symbol(Symbol::RightBrace) => {
-                        self.layers.pop();
-                    }
-                    _ => {}
+                    Token::Symbol(Symbol::RightBrace) => {}
+                    _ => self.layers.push(Layer::Insert),
                 }
-
+                
                 Ok(token)
             }
             Some(Layer::TextOrInsert) => {
-                self.chars.skip_white_space();
-
-                let mut x = self.chars.begin_extraction();
-                x.skip_until(|c| c == '<' || c == '=');
-                let text = x.finish();
+                self.skip_white_space();
                 
-                let token = if text.len() == 0 {
-                    // If there is no text, we have to yield something.
-                    
-                    match self.chars.next() {
+                let start = self.cursor.index();
+                
+                let mut text = self.cursor.begin_recording();
+                loop {
+                    match text.cursor.peek_raw() {
+                        Some(b'<' | b'{') => break,
+                        Some(_) => unsafe { text.cursor.advance_char()?; }
                         None => todo!(),
-                        
+                    }
+                }
+                let text = text.stop();
+                
+                Ok(if text.len() == 0 {
+                    // If there is no text, we have to yield something.
+
+                    match self.cursor.next() {
                         // Yield an end tag or a nested element start
-                        Some('<') => {
-                            self.chars.skip_white_space();
-                            
-                            match self.chars.next() {
-                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-                                
+                        Some(b'<') => {
+                            self.skip_white_space();
+
+                            match self.cursor.peek_raw() {
+                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
+                                    UnexpectedEndOfInputError::NestedMarkupStart,
+                                ))),
+
                                 // End tag
-                                Some('/') => self.parse_end_tag()?.value,
-                                
+                                Some(b'/') => {
+                                    unsafe { self.cursor.advance_unchecked() }
+                                    self.parse_end_tag()?
+                                },
+
                                 // Nested element
-                                option => {
+                                Some(_) => {
                                     self.layers.push(Layer::TextOrInsert);
-                                    self.chars.rollback(option);
-                                    self.parse_start_tag()?.value
+                                    self.parse_start_tag()?
                                 }
                             }
                         }
-                        
+
                         // Yield an insert start
-                        Some('{') => {
+                        Some(b'{') => {
                             self.layers.push(Layer::TextOrInsert);
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            Token::Symbol(Symbol::LeftBrace)
+                            Span {
+                                start: self.cursor.index() - 1,
+                                value: Token::Symbol(Symbol::LeftBrace),
+                                end: self.cursor.index(),
+                            }
                         }
 
                         // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
@@ -366,324 +337,391 @@ impl<'s> Lexer<'s> {
                     }
                 } else {
                     // There is some text, so we yield the text and prepare the next layer state.
-                    
-                    match self.chars.next() {
-                        None => todo!(),
-                        Some('<') => {
-                            self.chars.skip_white_space();
 
-                            match self.chars.next() {
-                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
+                    match self.cursor.peek_raw() {
+                        Some(b'<') => {
+                            unsafe { self.cursor.advance_unchecked(); }
+                            
+                            self.skip_white_space();
+
+                            match self.cursor.peek_raw() {
+                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
+                                    UnexpectedEndOfInputError::NestedMarkupStart,
+                                ))),
 
                                 // End tag
-                                Some('/') => self.layers.push(Layer::EndTag),
+                                Some(b'/') => {
+                                    unsafe { self.cursor.advance_unchecked(); }
+                                    self.layers.push(Layer::EndTag)
+                                },
 
                                 // Nested element
-                                option => {
-                                    self.chars.rollback(option);
-
+                                _ => {
                                     // Add context
                                     self.layers.push(Layer::TextOrInsert);
                                     self.layers.push(Layer::StartTag);
                                 }
                             }
                         }
-                        Some('{') => {
-                            self.layers.push(Layer::TextOrInsert);
-                            self.chars.rollback(Some('{'))
-                        },
-                        
+                        Some(b'{') => self.layers.push(Layer::TextOrInsert),
+
                         // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
                         _ => unsafe { unreachable_unchecked() }
                     }
-                    
-                    Token::MarkupText(text)
-                };
-                
-                Ok(Span {
-                    start: self.chars.index(),
-                    value: token,
-                    end: self.chars.index(),
+
+                    Span {
+                        start,
+                        value: Token::MarkupText(text),
+                        end: self.cursor.index(),
+                    }
                 })
-            }
+            },
             Some(Layer::EndTag) => self.parse_end_tag(),
             Some(Layer::StartTag) => self.parse_start_tag(),
         }
     }
-
-    fn next_default_context(&mut self) -> Result<Span<Token<'s>>, crate::Error> {
-        self.chars.skip_white_space();
-
-        if self.potential_markup {
-            self.potential_markup = false;
-
-            return match self.chars.next() {
-                None => Ok(Span {
-                    start: self.chars.index(),
-                    value: Token::EndOfInput,
-                    end: self.chars.index(),
-                }),
-                Some('<') => self.parse_start_tag(),
-                option => {
-                    self.chars.rollback(option);
-                    self.next_default_context()
+    
+    fn skip_white_space(&mut self) {
+        loop {
+            match self.cursor.peek_raw() {
+                Some(x) if x.is_ascii_whitespace() => {
+                    unsafe { self.cursor.advance_unchecked() }
                 }
-            };
-        }
-
-        macro_rules! opt_eq {
-            ($symbol: expr, $eq: expr) => {
-                match self.chars.next() {
-                    Some('=') => $eq,
-                    option => {
-                        self.chars.rollback(option);
-                        $symbol
-                    }
-                }
-            };
-        }
-
-        let start = self.chars.index();
-
-        let token = match self.chars.next() {
-            None => {
-                self.chars.rollback(None);
-                Token::EndOfInput
+                _ => break,
             }
-            Some('0') => match self.chars.next() {
-                Some('x') => self.parse_number::<16>(0.)?,
-                Some('o') => self.parse_number::<8>(0.)?,
-                Some('b') => self.parse_number::<2>(0.)?,
-                Some('_') => self.parse_number::<10>(0.)?,
-                Some('.') => Token::Number(self.parse_number_tail::<10>(0.)?),
-                Some('0') => self.parse_number::<10>(0.)?,
-                Some('1') => self.parse_number::<10>(1.)?,
-                Some('2') => self.parse_number::<10>(2.)?,
-                Some('3') => self.parse_number::<10>(3.)?,
-                Some('4') => self.parse_number::<10>(4.)?,
-                Some('5') => self.parse_number::<10>(5.)?,
-                Some('6') => self.parse_number::<10>(6.)?,
-                Some('7') => self.parse_number::<10>(7.)?,
-                Some('8') => self.parse_number::<10>(8.)?,
-                Some('9') => self.parse_number::<10>(9.)?,
-                option => {
-                    self.chars.rollback(option);
-                    Token::Number(0.)
+        }
+    }
+    
+    pub fn next_default_context(&mut self) -> Result<Span<Token<'a>>, crate::Error> {
+        macro_rules! opt_eq {
+            ($symbol: expr, $eq: expr) => {{
+                unsafe { self.cursor.advance_unchecked() };
+                match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        $eq
+                    },
+                    _ => $symbol
                 }
+            }};
+        }
+
+        let start = self.cursor.index();
+        
+        let token = match self.cursor.peek_raw() {
+            None => Token::EndOfInput,
+            Some(b'0') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                match self.cursor.next() {
+                    Some(b'x') => todo!("hex numbers"), // self.parse_number::<16>(0.)?,
+                    Some(b'o') => todo!("octal numbers"), // self.parse_number::<8>(0.)?,
+                    Some(b'b') => todo!("binary numbers"), // self.parse_number::<2>(0.)?,
+                    Some(b'_') => self.parse_number_dec(0.)?,
+                    Some(b'.') => todo!("fp numbers"), // Token::Number(self.parse_number_tail::<10>(0.)?),
+                    Some(b'0') => self.parse_number_dec(0.)?,
+                    Some(b'1') => self.parse_number_dec(1.)?,
+                    Some(b'2') => self.parse_number_dec(2.)?,
+                    Some(b'3') => self.parse_number_dec(3.)?,
+                    Some(b'4') => self.parse_number_dec(4.)?,
+                    Some(b'5') => self.parse_number_dec(5.)?,
+                    Some(b'6') => self.parse_number_dec(6.)?,
+                    Some(b'7') => self.parse_number_dec(7.)?,
+                    Some(b'8') => self.parse_number_dec(8.)?,
+                    Some(b'9') => self.parse_number_dec(9.)?,
+                    Some(_) => {
+                        self.cursor.rewind_ascii();
+                        Token::Number(0.)
+                    }
+                    None => Token::Number(0.)
+                }
+            }
+            Some(b'1') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(1.)?
             },
-            Some('1') => self.parse_number::<10>(1.)?,
-            Some('2') => self.parse_number::<10>(2.)?,
-            Some('3') => self.parse_number::<10>(3.)?,
-            Some('4') => self.parse_number::<10>(4.)?,
-            Some('5') => self.parse_number::<10>(5.)?,
-            Some('6') => self.parse_number::<10>(6.)?,
-            Some('7') => self.parse_number::<10>(7.)?,
-            Some('8') => self.parse_number::<10>(8.)?,
-            Some('9') => self.parse_number::<10>(9.)?,
-            Some('=') => {
+            Some(b'2') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(2.)?
+            }
+            Some(b'3') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(3.)?
+            }
+            Some(b'4') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(4.)?
+            }
+            Some(b'5') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(5.)?
+            }
+            Some(b'6') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(6.)?
+            }
+            Some(b'7') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(7.)?
+            }
+            Some(b'8') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(8.)?
+            }
+            Some(b'9') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.parse_number_dec(9.)?
+            }
+            Some(b'<') => {
+                unsafe { self.cursor.advance_unchecked() };
+                self.potential_markup = true;
+
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::LeftAngleEquals
+                    },
+                    Some(b'<') => opt_eq!(Symbol::LeftAngleLeftAngle, Symbol::LeftAngleLeftAngleEquals),
+                    _ => Symbol::LeftAngle
+                })
+            }
+            Some(b'>') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                self.potential_markup = true;
+
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::RightAngleEquals
+                    },
+                    Some(b'>') => opt_eq!(Symbol::RightAngleRightAngle, Symbol::RightAngleRightAngleEquals),
+                    _ => Symbol::RightAngle
+                })
+            }
+            Some(b'=') => {
                 self.potential_markup = true;
                 Token::Symbol(opt_eq!(Symbol::Equals, Symbol::EqualsEquals))
             }
-            Some('<') => {
-                self.potential_markup = true;
-
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::LeftAngleEquals,
-                    Some('<') => {
-                        opt_eq!(Symbol::LeftAngleLeftAngle, Symbol::LeftAngleLeftAngleEquals)
-                    }
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::LeftAngle
-                    }
-                })
-            }
-            Some('>') => {
-                self.potential_markup = true;
-
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::RightAngleEquals,
-                    Some('<') => opt_eq!(
-                        Symbol::RightAngleRightAngle,
-                        Symbol::RightAngleRightAngleEquals
-                    ),
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::RightAngle
-                    }
-                })
-            }
-            Some('+') => {
+            Some(b'+') => {
                 self.potential_markup = true;
                 Token::Symbol(opt_eq!(Symbol::Plus, Symbol::PlusEquals))
             }
-            Some('-') => {
+            Some(b'-') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::MinusEquals,
-                    Some('>') => Symbol::MinusRightAngle,
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::Minus
+                
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::MinusEquals
+                    },
+                    Some(b'>') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::MinusRightAngle
                     }
+                    _ => Symbol::Minus
                 })
             }
-            Some('*') => {
+            Some(b'*') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::StarEquals,
-                    Some('*') => opt_eq!(Symbol::StarStar, Symbol::StarStarEquals),
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::Star
-                    }
+                
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::StarEquals
+                    },
+                    Some(b'*') => opt_eq!(Symbol::StarStar, Symbol::StarStarEquals),
+                    _ => Symbol::Star,
                 })
             }
-            Some('/') => {
+            Some(b'/') => {
                 self.potential_markup = true;
-
-                match self.chars.next() {
-                    Some('=') => Token::Symbol(Symbol::SlashEquals),
-                    Some('/') => match self.chars.next() {
-                        Some('/') => Token::DocComment(self.parse_comment()),
-                        option => {
-                            self.chars.rollback(option);
-                            Token::LineComment(self.parse_comment())
+                
+                match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Token::Symbol(Symbol::SlashEquals)
+                    },
+                    Some(b'/') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        
+                        match self.cursor.peek_raw() {
+                            Some(b'/') => {
+                                unsafe { self.cursor.advance_unchecked() };
+                                Token::DocComment(self.parse_comment()?)
+                            },
+                            _ => Token::LineComment(self.parse_comment()?)
                         }
                     },
-                    option => {
-                        self.chars.rollback(option);
-                        Token::Symbol(Symbol::Slash)
-                    }
+                    _ => Token::Symbol(Symbol::Slash)
                 }
             }
-            Some('%') => {
+            Some(b'%') => {
                 self.potential_markup = true;
                 Token::Symbol(opt_eq!(Symbol::Percent, Symbol::PercentEquals))
             }
-            Some('|') => {
+            Some(b'|') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::PipeEquals,
-                    Some('|') => opt_eq!(Symbol::PipePipe, Symbol::PipePipeEquals),
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::Pipe
+                
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::PipeEquals
                     }
+                    Some(b'|') => opt_eq!(Symbol::PipePipe, Symbol::PipePipeEquals),
+                    _ => Symbol::Pipe
                 })
             }
-            Some('&') => {
+            Some(b'&') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
 
-                Token::Symbol(match self.chars.next() {
-                    Some('=') => Symbol::AmpersandEquals,
-                    Some('&') => {
-                        opt_eq!(Symbol::AmpersandAmpersand, Symbol::AmpersandAmpersandEquals)
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::AmpersandEquals
                     }
-                    option => {
-                        self.chars.rollback(option);
-                        Symbol::Ampersand
-                    }
+                    Some(b'&') => opt_eq!(Symbol::AmpersandAmpersand, Symbol::AmpersandAmpersandEquals),
+                    _ => Symbol::Ampersand
                 })
             }
-            Some('^') => {
+            Some(b'^') => {
                 self.potential_markup = true;
+                
                 Token::Symbol(opt_eq!(Symbol::Caret, Symbol::CaretEquals))
             }
-            Some('(') => {
+            Some(b'(') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
+                
                 Token::Symbol(Symbol::LeftParenthesis)
-            }
-            Some(')') => Token::Symbol(Symbol::RightParenthesis),
-            Some('[') => {
+            },
+            Some(b')') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                Token::Symbol(Symbol::RightParenthesis)
+            },
+            Some(b'[') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
+                
                 Token::Symbol(Symbol::LeftBracket)
-            }
-            Some(']') => Token::Symbol(Symbol::RightBracket),
-            Some('{') => {
+            },
+            Some(b']') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                Token::Symbol(Symbol::RightBracket)
+            },
+            Some(b'{') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
+                
                 Token::Symbol(Symbol::LeftBrace)
+            },
+            Some(b'}') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                Token::Symbol(Symbol::RightBrace)
+            },
+            Some(b'.') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                Token::Symbol(Symbol::Dot)
             }
-            Some('}') => Token::Symbol(Symbol::RightBrace),
-            Some('.') => Token::Symbol(Symbol::Dot),
-            Some(',') => {
+            Some(b',') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
+                
                 Token::Symbol(Symbol::Comma)
             }
-            Some(';') => {
+            Some(b';') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
+                
                 Token::Symbol(Symbol::Semicolon)
             }
-            Some(':') => {
+            Some(b':') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
+                
                 Token::Symbol(Symbol::Colon)
             }
-            Some('!') => match self.chars.next() {
-                Some('=') => {
-                    self.potential_markup = true;
-                    Token::Symbol(Symbol::ExclamationMarkEquals)
-                }
-                option => {
-                    self.chars.rollback(option);
-                    Token::Symbol(Symbol::ExclamationMark)
+            Some(b'!') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                match self.cursor.peek_raw() {
+                    Some(b'=') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        self.potential_markup = true;
+                        
+                        Token::Symbol(Symbol::ExclamationMarkEquals)
+                    }
+                    _ => Token::Symbol(Symbol::ExclamationMark)
                 }
             },
-            Some('?') => Token::Symbol(match self.chars.next() {
-                Some('.') => Symbol::QuestionMarkDot,
-                option => {
-                    self.chars.rollback(option);
-                    Symbol::QuestionMark
-                }
-            }),
-            Some('\'') => Token::Char({
-                let char = match self.chars.next() {
-                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some('\\') => {
-                        let next_char = self
-                            .chars
-                            .next()
-                            .ok_or(crate::Error::Lexer(Error::UnexpectedEndOfInput))?;
-                        self.chars.unescape_char(next_char)?
+            Some(b'?') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                Token::Symbol(match self.cursor.peek_raw() {
+                    Some(b'.') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::QuestionMarkDot
+                    },
+                    _ => Symbol::QuestionMark
+                })
+            },
+            Some(b'\'') => {
+                unsafe { self.cursor.advance_unchecked() };
+                
+                let char = match self.cursor.next() {
+                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
+                        UnexpectedEndOfInputError::CharLiteralContent
+                    ))),
+                    Some(b'\\') => {
+                        self.unescape_char()?
                     }
-                    Some(char) => char,
+                    Some(char) => char.into(),
                 };
 
-                match self.chars.next() {
-                    Some('\'') => {}
-                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput)),
-                    Some(char) => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                        char,
-                        UnexpectedCharacterError::ExpectedSingleQuote,
+                match self.cursor.next() {
+                    Some(b'\'') => {}
+                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
+                        UnexpectedEndOfInputError::CharLiteralQuote
+                    ))),
+                    _ => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
+                        UnexpectedCharacterError::CharLiteralQuote
                     )))
                 }
 
-                char
-            }),
-            Some('@') => Token::Symbol(Symbol::At),
-            Some('"') => Token::String(self.parse_string()?),
-            Some(char) if char.is_alphabetic() || char == '_' => {
-                self.chars.rollback(Some(char));
-
-                let identifier = self.parse_identifier();
+                Token::Char(char)
+            },
+            Some(b'@') => {
+                unsafe { self.cursor.advance_unchecked() };
+                Token::Symbol(Symbol::At)
+            },
+            Some(b'"') => {
+                unsafe { self.cursor.advance_unchecked() };
+                Token::String(self.parse_string()?)
+            },
+            Some(b'A'..=b'Z' | b'_' | b'a'..=b'z') => {
+                let str = self.parse_id()?;
                 
-                if let Ok(keyword) = KEYWORDS.get(identifier).copied().ok_or(()) {
-                    Token::Keyword(keyword)
+                if let Some(kw) = KEYWORDS.get(str) {
+                    Token::Keyword(*kw)
                 } else {
-                    Token::Identifier(identifier)
+                    Token::Identifier(str)
                 }
             }
-            Some(char) => {
-                return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                    char,
-                    UnexpectedCharacterError::AsStartOfNewToken,
-                )));
-            }
+            Some(x) => todo!("Char: {}", x)
         };
-
+        
         Ok(Span {
             start,
-            end: self.chars.index(),
             value: token,
+            end: self.cursor.index(),
         })
     }
 }

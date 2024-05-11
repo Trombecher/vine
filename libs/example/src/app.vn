@@ -1,23 +1,5 @@
-use aena.*;
-use esnext.{
-    document,
-    parseInt
-};
+use esnext.*;
 
-let x: number = 20;
-
-@entry
-@inline
 fn main() {
-    mount(document.body, App());
-};
-
-fn App() -> Element {
-    if true {
-        <div>Hi!</div>
-    } else if false {
-        10
-    } else {
-        <div>Ok</div>
-    }
-};
+    console.log(ABC.try_from(number.from(prompt("Enter a number"))));
+}
