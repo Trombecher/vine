@@ -1,5 +1,13 @@
-use esnext.*;
+use esnext.document;
+use aena.*;
 
 fn main() {
-    console.log(ABC.try_from(number.from(prompt("Enter a number"))));
+    mount(document.body, <App/>);
+}
+
+fn App() {
+    <div>
+        <h1>Hello, World!</h1>
+        {["test", "test2"].map(fn(s) <a href={"/{s}"}>{s.pascal_case()}</a>)}
+    </div>
 }

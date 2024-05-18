@@ -43,8 +43,13 @@ pub enum Instruction {
     // A
     
     DeclareANumber,
-    DeclareABoolean,
     DeclareANil,
+    
+    /// Casts the value in A to a number corresponding to the following scheme:
+    /// 
+    /// - number -> do nothing
+    /// - 
+    CastANumber,
     
     /// Loads 0 as u64 into A with type [Value::Nil].
     LoadANil0,
@@ -76,7 +81,8 @@ pub enum Instruction {
     /// Loads the entry from the static table into A, with the next byte being the index.
     LoadAStatic,
     
-    // B
+    // Register B
+    
     /// Loads 0 as u64 into B with type [Value::Nil].
     LoadBNil0,
 
@@ -107,7 +113,7 @@ pub enum Instruction {
     /// Loads the entry from the static table into B, with the next byte being the index.
     LoadBStatic,
 
-    // R
+    // Register R
     
     /// Loads 0 as u64 into R with type [Value::Nil].
     LoadRNil0,
@@ -145,14 +151,12 @@ pub enum Instruction {
 
     // Operations
     
-    Add,
-    
     /// Assumes and adds integers in A and B. The type of R will be [Value::Nil].
     AddU64Unchecked,
     
     /// Assumes and adds floats in A and B. The type of R will be [Value::Number].
     AddF64Unchecked,
-
+    
     // Stack
 
     PushA,
@@ -200,7 +204,48 @@ pub enum Instruction {
 
     /// Loads the top item of the stack into R. If the stack is empty `Nil` is loaded.
     LoadTopIntoR,
-
+    
+    // Objects
+    
+    /// Uses the next u8 to index into the `offset_table`.
+    /// This offset is used to create an object via [Instruction::CreateObject].
+    CreateObjectOffset,
+    
+    /// Allocates a new object. The next `u64` is used to index into the `type_table`.
+    /// The resulting pointer to this type is used as the type.
+    /// 
+    /// The object is placed in A.
+    CreateObject,
+    
+    
+    ReadProperty0,
+    ReadProperty1,
+    ReadProperty2,
+    ReadProperty3,
+    Implements,
+    
+    // IO
+    
+    /// Returns an array of strings.
+    Args,
+    
+    /// Writes A to stdout coercing the value to bytes.
+    WriteStdout,
+    WriteStdoutLF,
+    WriteStderr,
+    WriteStderrLF,
+    ReadStdin,
+    ReadStdinLine,
+    
+    WriteFile,
+    ReadFile,
+    FileExists,
+    CreateDirectory,
+    ReadDirectory,
+    DeleteFile,
+    DeleteEmptyDirectory,
+    DeleteDirectoryRecursively,
+    
     LastInstruction
 }
 

@@ -1,0 +1,9 @@
+.anon3242500
+    char_to_upper_case
+    ret
+
+.main
+    read_line
+    swap_ar
+    map_chars anon3242500
+    write_line

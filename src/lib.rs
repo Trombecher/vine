@@ -1,6 +1,8 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(iter_next_chunk)]
 #![feature(iter_advance_by)]
+#![feature(layout_for_ptr)]
+#![feature(const_alloc_layout)]
 #![allow(warnings)] // TODO: disallow in the future
 
 use std::fmt::Debug;
@@ -37,3 +39,6 @@ impl<T: Debug> Span<T> {
         }
     }
 }
+
+const X: u8 = 2
+fn x() {}

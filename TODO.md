@@ -1,17 +1,25 @@
-# The CLI Spec For Vine
+# TODO
 
-## Project Management
+This is a non-exhaustive list of features to be implemented:
+
+## CLI
+
+### Project Management
+
 vine new <LOCATION>
 vine create <SCRIPT>
 vine rename <NAME>
 
-## Dependencies
+### Dependencies
+
 vine add <DEPENDENCY>
 vine remove <DEPENDENCY>
 vine list
 
-## Run
+### Run
+
 vine <SCRIPT>
 
-## REPL
+### REPL
+
 vine repl

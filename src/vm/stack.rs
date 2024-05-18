@@ -1,4 +1,6 @@
+use std::intrinsics::transmute;
 use std::mem::MaybeUninit;
+use std::slice::from_raw_parts;
 use crate::vm::{Error, Value};
 
 pub struct Stack {
@@ -15,6 +17,11 @@ impl Stack {
         }
     }
 
+    #[inline]
+    pub fn as_slice(&self) -> &[Value] {
+        unsafe { from_raw_parts(transmute(&self.buffer), self.size) }
+    }
+    
     #[inline]
     pub fn push(&mut self, value: Value) -> Result<(), Error> {
         self.preallocate(1)?[0].write(value);
@@ -93,20 +100,6 @@ impl Stack {
         Some(unsafe {
             self.buffer[self.size].assume_init_ref().clone()
         })
-    }
-
-    /// Pops all values until it encounters a [Value::ReturnIndex] or the buffer is empty.
-    pub fn clear_scope(&mut self) -> Option<usize> {
-        while let Some(value) = self.top() {
-            if let Value::ReturnIndex(return_index) = value {
-                let return_index = *return_index;
-                self.size -= 1;
-                return Some(return_index)
-            }
-            self.size -= 1;
-        }
-
-        None
     }
 
     #[inline]

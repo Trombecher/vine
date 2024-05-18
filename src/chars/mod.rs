@@ -141,6 +141,16 @@ impl<'a> Cursor<'a> {
             None => return Ok(()),
         };
 
+        macro_rules! next {
+            ($e:expr,$i:expr) => {
+                match self.next() {
+                    None => return Err(crate::Error::Chars($e)),
+                    Some(x) if x & 0b1100_0000 != 0b1000_0000 => return Err(crate::Error::Chars($i)),
+                    _ => {},
+                }
+            };
+        }
+
         match UTF8_CHAR_WIDTH[first_byte as usize] {
             0 => Err(crate::Error::Chars(Error::UTF8InvalidFirstByte)),
             1 => {
@@ -150,46 +160,19 @@ impl<'a> Cursor<'a> {
                 Ok(())
             },
             2 => {
-                match self.next() {
-                    None => Err(crate::Error::Chars(Error::UTF8Expected2Of2)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 =>
-                        Err(crate::Error::Chars(Error::UTF8Invalid2Of2)),
-                    _ => Ok(()),
-                }
+                next!(Error::UTF8Expected2Of2, Error::UTF8Invalid2Of2);
+                Ok(())
             }
             3 => {
-                match self.next() {
-                    None => return Err(crate::Error::Chars(Error::UTF8Expected2Of3)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 =>
-                        return Err(crate::Error::Chars(Error::UTF8Invalid2Of3)),
-                    _ => {},
-                };
-                match self.next() {
-                    None => Err(crate::Error::Chars(Error::UTF8Expected3Of3)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 =>
-                        Err(crate::Error::Chars(Error::UTF8Invalid3Of3)),
-                    _ => Ok(()),
-                }
+                next!(Error::UTF8Expected2Of3, Error::UTF8Invalid2Of3);
+                next!(Error::UTF8Expected3Of3, Error::UTF8Invalid3Of3);
+                Ok(())
             }
             4 => {
-                match self.next() {
-                    None => return Err(crate::Error::Chars(Error::UTF8Expected2Of4)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 =>
-                        return Err(crate::Error::Chars(Error::UTF8Invalid2Of4)),
-                    _ => {},
-                };
-                match self.next() {
-                    None => return Err(crate::Error::Chars(Error::UTF8Expected3Of4)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 =>
-                        return Err(crate::Error::Chars(Error::UTF8Invalid3Of4)),
-                    _ => {},
-                };
-                match self.next() {
-                    None => Err(crate::Error::Chars(Error::UTF8Expected4Of4)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 =>
-                        Err(crate::Error::Chars(Error::UTF8Invalid4Of4)),
-                    _ => Ok(()),
-                }
+                next!(Error::UTF8Expected2Of4, Error::UTF8Invalid2Of4);
+                next!(Error::UTF8Expected3Of4, Error::UTF8Invalid3Of4);
+                next!(Error::UTF8Expected4Of4, Error::UTF8Invalid4Of4);
+                Ok(())
             }
             _ => unsafe { unreachable_unchecked() }
         }

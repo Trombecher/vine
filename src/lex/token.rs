@@ -54,8 +54,6 @@ pub enum Keyword {
 
 pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "as" => Keyword::As,
-    "await" => Keyword::Await,
-    "async" => Keyword::Async,
     "break" => Keyword::Break,
     "class" => Keyword::Class,
     "continue" => Keyword::Continue,

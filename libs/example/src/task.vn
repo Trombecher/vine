@@ -1,0 +1,30 @@
+pub struct Task<T>();
+
+impl<T> Task<T> {
+    /// Creates a new task and starts executing it.
+    @inline
+    fn spawn<F: fn() -> T>(f: F) -> This {
+        let task = This.new(f);
+        task.continue();
+        task
+    }
+
+    /// Creates a new task.
+    @inline
+    fn new<F: fn() -> T>(f: F) -> This;
+
+    /// Continues execution of this task.
+    fn continue();
+
+    /// Pauses execution of this task.
+    fn pause();
+
+    /// Aborts the task. After that, it cannot be continued.
+    fn abort();
+
+    /// Gets the value if the task has finished, aborts otherwise.
+    fn get_or_abort() -> T?;
+
+    /// Blocks until the task has finished.
+    fn await() -> T;
+}
