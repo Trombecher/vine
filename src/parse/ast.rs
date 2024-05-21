@@ -39,6 +39,7 @@ pub enum ComparativeOperation {
 
 #[derive(Debug)]
 pub enum Expression<'s> {
+    // Binary Expressions
     Operation {
         left: Box<Span<Expression<'s>>>,
         operation: Operation,
@@ -49,28 +50,14 @@ pub enum Expression<'s> {
         operation: Option<PAOperation>,
         value: Box<Span<Expression<'s>>>
     },
+    
+    // Unary Expressions
     Not(Box<Span<Expression<'s>>>),
     Return(Box<Span<Expression<'s>>>),
-    Await(Box<Span<Expression<'s>>>),
+    
+    // Control Flow
     Continue,
     Break,
-    Function(Function<'s>),
-    Number(f64),
-    String(&'s str),
-    Scope(Vec<Span<StatementOrExpression<'s>>>),
-    Markup(MarkupElement<'s>),
-    Identifier(&'s str),
-    False,
-    True,
-    This,
-    Nil,
-    Use(Use<'s>),
-    Access(Access<'s>),
-    OptionalAccess(Access<'s>),
-    Call {
-        target: Box<Span<Expression<'s>>>,
-        arguments: Vec<Span<Expression<'s>>>
-    },
     If {
         base: If<'s>,
         else_ifs: Vec<If<'s>>,
@@ -80,7 +67,38 @@ pub enum Expression<'s> {
         condition: Box<Span<Expression<'s>>>,
         body: Span<Vec<Span<StatementOrExpression<'s>>>>
     },
+    For {
+        is_mutable: bool,
+        variable: &'s str,
+        iter: Box<Expression<'s>>,
+    },
+    Scope(Vec<Span<StatementOrExpression<'s>>>),
+    
+    // Objects And Paths
+    EmptyObject,
+    Object(Properties<'s>),
+    Access(Access<'s>),
+    OptionalAccess(Access<'s>),
+    
+    // Primitives
+    Number(f64),
+    String(&'s str),
+    Identifier(&'s str),
+    False,
+    True,
+    This,
+    Markup(MarkupElement<'s>),
+    
+    // Functions
+    Function(Function<'s>),
+    Call {
+        target: Box<Span<Expression<'s>>>,
+        arguments: Vec<Span<Expression<'s>>>
+    },
 }
+
+#[derive(Debug)]
+pub struct Properties<'s>(Vec<(&'s str, Expression<'s>)>);
 
 #[derive(Debug)]
 pub struct If<'s> {
@@ -90,22 +108,39 @@ pub struct If<'s> {
 
 #[derive(Debug)]
 pub enum StatementKind<'s> {
-    Enum(Vec<&'s str>),
-    Declaration(Declaration<'s>),
-    Class {
+    Enum {
         id: &'s str,
-        fields: Vec<Span<ClassField<'s>>>
+        tps: Vec<TypeParameter<'s>>,
+        variants: Vec<(&'s str, Option<Box<Expression<'s>>>)>,
+    },
+    Declaration {
+        is_mutable: bool,
+        ty: Option<Type<'s>>,
+        identifier: &'s str,
+        value: Option<Box<Span<Expression<'s>>>>,
+    },
+    Struct {
+        id: &'s str,
+        tps: Vec<TypeParameter<'s>>,
+        fields: Vec<Span<StructField<'s>>>
     },
     TypeAlias {
-        alias: &'s str,
-        ty: Type<'s>
+        id: &'s str,
+        tps: Vec<TypeParameter<'s>>,
+        ty: Type<'s>,
     },
     Use(Use<'s>),
     Module(Module<'s>)
 }
 
 #[derive(Debug)]
-pub struct ClassField<'s> {
+pub struct TypeParameter<'s> {
+    id: &'s str,
+    traits: Vec<ItemPath<'s>>
+}
+
+#[derive(Debug)]
+pub struct StructField<'s> {
     pub is_public: bool,
     pub id: &'s str,
     pub ty: Option<Type<'s>>,
@@ -155,15 +190,8 @@ pub enum UseChild<'s> {
 }
 
 #[derive(Debug)]
-pub struct Declaration<'s> {
-    pub is_mutable: bool,
-    pub ty: Option<Type<'s>>,
-    pub identifier: &'s str,
-    pub value: Option<Box<Span<Expression<'s>>>>,
-}
-
-#[derive(Debug)]
 pub struct Function<'s> {
+    pub tps: Vec<TypeParameter<'s>>,
     pub signature: FunctionSignature<'s>,
     pub body: Box<Span<Expression<'s>>>,
 }

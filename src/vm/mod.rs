@@ -21,14 +21,14 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::collections::HashSet;
 use std::iter::Copied;
 use std::mem::{swap, transmute};
-use std::ptr::{NonNull, slice_from_raw_parts};
+use std::ptr::{NonNull, null, slice_from_raw_parts};
 use std::slice;
 use crate::vm::instruction::Instruction;
 use crate::vm::stack::Stack;
 
-const NUMBER_TYPE: *const u64 = &0_u64 as *const u64;
-const NIL_TYPE: *const u64 = 0_usize as *const u64;
-const ARRAY_TYPE: *const u64 = &0_u64 as *const u64;
+const NUMBER_TYPE: *const u8 = &0_u8 as *const u8;
+const NIL_TYPE: *const u8 = null();
+const ARRAY_TYPE: *const u8 = &0_u8 as *const u8;
 
 #[derive(Copy, Clone)]
 union ValueValue {
@@ -51,7 +51,7 @@ impl Object {
 }
 
 #[derive(Clone, Copy)]
-pub struct Value(*const u64, ValueValue);
+pub struct Value(*const u8, ValueValue);
 
 impl Value {
     #[inline]
@@ -114,17 +114,18 @@ pub struct VM<'a> {
     next_byte: usize,
 
     /// A table containing u64 offsets for functions, locations, etc.
-    offset_table: &'a [usize],
+    offset_table: &'a [u64],
     
-    /// A table containing a series of lengths. The pointers to those lengths are the types.
-    type_table: &'a [u64],
+    /// A table containing type lengths. A pointer to a length is considered the type.
+    /// Objects with zero sized types are not allocated.
+    type_table: &'a [u8],
 
     /// A table containing static values.
     static_table: &'a [Value],
 
     /// A stack for maintaining values.
     stack: Stack,
-
+    
     allocated_objects: HashSet<NonNull<Object>>,
 }
 
@@ -187,9 +188,9 @@ impl<'a> VM<'a> {
     pub fn new(
         code: &'a [u8],
         entry: usize,
-        offset_table: &'a [usize],
+        offset_table: &'a [u64],
         static_table: &'a [Value],
-        type_table: &'a [u64]
+        type_table: &'a [u8]
     ) -> VM<'a> {
         Self {
             a: Value::nil(),
@@ -272,10 +273,10 @@ impl<'a> VM<'a> {
     /// # Safety
     ///
     /// The caller must ensure that `ty` is a valid pointer to an object type.
-    pub unsafe fn alloc(&mut self, ty: *const u64) -> Value {
+    pub unsafe fn alloc(&mut self, ty: *const u8) -> Value {
         // Allocate an object with *ty fields.
         let ptr = NonNull::new(unsafe {
-            alloc(Object::layout(*ty))
+            alloc(Object::layout(*ty as u64))
         } as *mut Object).expect("Allocation has produces a null pointer (bad)");
 
         self.allocated_objects.insert(ptr);
@@ -336,9 +337,7 @@ impl<'a> VM<'a> {
             Instruction::NoOperation => {}
 
             // A
-            Instruction::DeclareANumber => self.a.0 = NUMBER_TYPE,
-            Instruction::DeclareANil => self.a.0 = NIL_TYPE,
-
+            Instruction::CastANumber => self.a = self.a.cast_number(),
             Instruction::LoadANil0 => self.a = Value::nil(),
             Instruction::LoadANil1 => self.a = Value::nil_value(1),
             Instruction::LoadANumber0 => self.a = Value::number(0.0),
@@ -420,7 +419,7 @@ impl<'a> VM<'a> {
                 }
             }
              */
-            
+
             Instruction::SwapTopA => {
                 let Self { stack, a, .. } = self;
                 if let Some(top) = stack.top_mut() {
@@ -453,7 +452,8 @@ impl<'a> VM<'a> {
             Instruction::PopIntoR => if let Some(value) = self.stack.pop_get() {
                 self.r = value;
             }
-
+            Instruction::Pop => self.stack.pop(),
+            
             // Operations
             /*
             Instruction::AddU64Unchecked => {
@@ -467,12 +467,15 @@ impl<'a> VM<'a> {
             // Objects
             
             Instruction::CreateObject => {
-                let ty = &self.type_table[self.get_u64()? as usize] as *const u64;
+                let ty = &self.type_table[self.get_u64()? as usize] as *const u8;
                 self.a = unsafe { self.alloc(ty) };
             }
             Instruction::CreateObjectOffset => {
-                let ty = &self.type_table[self.offset_table[self.get_u8()? as usize]] as *const u64;
+                let ty = &self.type_table[self.offset_table[self.get_u8()? as usize]] as *const u8;
                 self.a = unsafe { self.alloc(ty) };
+            }
+            Instruction::ReadProperty0 => {
+                
             }
             
             i => todo!("Instruction {i:?} not implemented")

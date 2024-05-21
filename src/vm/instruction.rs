@@ -37,13 +37,9 @@ pub enum Instruction {
     /// Returns [Value::Nil].
     ReturnNil,
 
-    // Registers
-    
+    // --- Registers ---
     
     // A
-    
-    DeclareANumber,
-    DeclareANil,
     
     /// Casts the value in A to a number corresponding to the following scheme:
     /// 
@@ -162,12 +158,6 @@ pub enum Instruction {
     PushA,
     PushB,
     PushR,
-    
-    /// Pushes [Value::zero] onto the stack.
-    Push0,
-
-    /// Pushes [Value::one] onto the stack.
-    Push1,
 
     /// Removes the top item from the stack if there is one.
     Pop,
@@ -205,7 +195,7 @@ pub enum Instruction {
     /// Loads the top item of the stack into R. If the stack is empty `Nil` is loaded.
     LoadTopIntoR,
     
-    // Objects
+    // --- Objects ---
     
     /// Uses the next u8 to index into the `offset_table`.
     /// This offset is used to create an object via [Instruction::CreateObject].
@@ -216,14 +206,89 @@ pub enum Instruction {
     /// 
     /// The object is placed in A.
     CreateObject,
-    
-    
     ReadProperty0,
     ReadProperty1,
     ReadProperty2,
     ReadProperty3,
+    ReadPropertyN,
     Implements,
     
+    /// Casts the object in A to a same-sized type.
+    /// 
+    /// # Errors
+    /// 
+    /// - if the value in A is not an object.
+    /// - if the types do not have the same size.
+    CastEquivalent,
+    
+    // Built-In Objects
+    
+    // --- Unary Operations ---
+    
+    // Angles
+    Sine,
+    Cosine,
+    Tangent,
+    ArcusSine,
+    ArcusCosine,
+    ArcusTangent,
+    HyperbolicSine,
+    HyperbolicCosine,
+    HyperbolicTangent,
+    HyperbolicArcusSine,
+    HyperbolicArcusCosine,
+    HyperbolicArcusTangent,
+    Angle,
+    
+    /// `A = sqrt(A * A + B * B)`
+    Hypotenuse,
+    
+    // Exponents
+    Exp,
+    
+    /// `A = A ** B`
+    Power,
+    LogE,
+    Log2,
+    Log10,
+    LogN,
+    
+    // Numbers
+    
+    Random,
+    
+    /// `A = sqrt(A)`. Only works on floats and ints.
+    SquareRoot,
+    CubeRoot,
+    NthRoot,
+    Abs,
+    Ceil,
+    Floor,
+    Round,
+    Max,
+    Min,
+    Sign,
+    Truncate,
+    
+    // Bitwise
+    Invert,
+    LeadingZeroes,
+    
+    // --- Binary Operations ---
+    
+    /// A = A + B, A and B must be of type int or float.
+    Add,
+
+    /// A = A - B
+    Subtract,
+
+    /// A = A * B
+    Multiply,
+
+    /// A = A / B
+    Divide,
+    Remainder,
+
     // IO
     
     /// Returns an array of strings.

@@ -39,6 +39,3 @@ impl<T: Debug> Span<T> {
         }
     }
 }
-
-const X: u8 = 2
-fn x() {}

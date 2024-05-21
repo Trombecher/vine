@@ -11,23 +11,20 @@ pub enum Token<'a> {
     Symbol(Symbol),
     Keyword(Keyword),
     String(&'a str),
-    EndOfInput,
     MarkupStartTag(&'a str),
     MarkupKey(&'a str),
     MarkupStartTagEnd,
     MarkupClose,
     MarkupText(&'a str),
     MarkupEndTag(&'a str),
+    EndOfInput,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
 pub enum Keyword {
     As,
-    Await,
-    Async,
     Break,
-    Class,
     Continue,
     Else,
     Enum,
@@ -40,22 +37,29 @@ pub enum Keyword {
     Mod,
     Mut,
     Match,
-    Nil,
     Pub,
     Return,
+    Struct,
     This,
-    ThisCase,
+    Trait,
     True,
     Type,
     While,
     Underscore,
     Use,
+    
+    // Optional primitive types:
+    
+    // Num,
+    // Str,
+    // Bool,
+    // Char,
+    // Object,
 }
 
 pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "as" => Keyword::As,
     "break" => Keyword::Break,
-    "class" => Keyword::Class,
     "continue" => Keyword::Continue,
     "else" => Keyword::Else,
     "enum" => Keyword::Enum,
@@ -68,16 +72,16 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "mod" => Keyword::Mod,
     "mut" => Keyword::Mut,
     "match" => Keyword::Match,
-    "nil" => Keyword::Nil,
     "pub" => Keyword::Pub,
     "return" => Keyword::Return,
+    "struct" => Keyword::Struct,
     "this" => Keyword::This,
-    "This" => Keyword::ThisCase,
+    "trait" => Keyword::Trait,
     "true" => Keyword::True,
     "type" => Keyword::Type,
     "while" => Keyword::While,
+    "_" => Keyword::Underscore,
     "use" => Keyword::Use,
-    "_" => Keyword::Underscore
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -130,5 +134,5 @@ pub enum Symbol {
     RightBracket,
     LeftBrace,
     RightBrace,
-    At
+    At,
 }

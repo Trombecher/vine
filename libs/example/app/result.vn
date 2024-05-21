@@ -1,0 +1,7 @@
+pub type<T, E> Result = Ok<T> | Err<E>;
+
+pub struct<T> Ok(value: T);
+
+pub struct<T> Err(value: T);
+
+pub type X = A | B;

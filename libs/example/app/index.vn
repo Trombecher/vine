@@ -1,0 +1,10 @@
+use aena.*;
+use vine.*;
+use this.components.page_shell;
+
+@page
+fn page() {
+    <page_shell lang="en" title="My Website" body_attributes={Default::default()}>
+        <h1>Welcome To My App</h1>
+    </page_shell>
+}
