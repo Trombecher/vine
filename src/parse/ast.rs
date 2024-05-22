@@ -1,14 +1,14 @@
 use crate::Span;
 
 /// A binary operation.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Operation {
     PA(PAOperation),
     Comp(ComparativeOperation),
 }
 
 /// An operation that can be assigned, like `+=`.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum PAOperation {
     Addition,
@@ -26,7 +26,7 @@ pub enum PAOperation {
     ShiftRight,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum ComparativeOperation {
     Equals,
@@ -37,7 +37,7 @@ pub enum ComparativeOperation {
     GreaterThanOrEqual
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expression<'s> {
     // Binary Expressions
     Operation {
@@ -75,8 +75,7 @@ pub enum Expression<'s> {
     Scope(Vec<Span<StatementOrExpression<'s>>>),
     
     // Objects And Paths
-    EmptyObject,
-    Object(Properties<'s>),
+    Object(Vec<(&'s str, Expression<'s>)>),
     Access(Access<'s>),
     OptionalAccess(Access<'s>),
     
@@ -90,33 +89,33 @@ pub enum Expression<'s> {
     Markup(MarkupElement<'s>),
     
     // Functions
-    Function(Function<'s>),
+    Function {
+        signature: FunctionSignature<'s>,
+        body: Box<Span<Expression<'s>>>,
+    },
     Call {
         target: Box<Span<Expression<'s>>>,
         arguments: Vec<Span<Expression<'s>>>
     },
 }
 
-#[derive(Debug)]
-pub struct Properties<'s>(Vec<(&'s str, Expression<'s>)>);
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct If<'s> {
     pub condition: Box<Span<Expression<'s>>>,
     pub body: Span<Vec<Span<StatementOrExpression<'s>>>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum StatementKind<'s> {
     Enum {
         id: &'s str,
         tps: Vec<TypeParameter<'s>>,
-        variants: Vec<(&'s str, Option<Box<Expression<'s>>>)>,
+        variants: Vec<(&'s str, Option<Span<Expression<'s>>>)>,
     },
     Declaration {
         is_mutable: bool,
         ty: Option<Type<'s>>,
-        identifier: &'s str,
+        id: &'s str,
         value: Option<Box<Span<Expression<'s>>>>,
     },
     Struct {
@@ -133,75 +132,63 @@ pub enum StatementKind<'s> {
     Module(Module<'s>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TypeParameter<'s> {
-    id: &'s str,
-    traits: Vec<ItemPath<'s>>
+    pub id: &'s str,
+    pub traits: Vec<ItemPath<'s>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct StructField<'s> {
     pub is_public: bool,
     pub id: &'s str,
     pub ty: Option<Type<'s>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Annotation<'s> {
     pub path: ItemPath<'s>,
     pub arguments: Vec<Span<Expression<'s>>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Statement<'s> {
     pub annotations: Vec<Annotation<'s>>,
     pub statement_kind: StatementKind<'s>
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum StatementOrExpression<'s> {
     Statement(Statement<'s>),
     Expression(Expression<'s>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Module<'s> {
     pub id: &'s str,
     pub items: Option<Vec<TopLevelItem<'s>>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TopLevelItem<'s> {
     pub is_public: bool,
     pub statement: Span<Statement<'s>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Use<'s> {
     pub id: &'s str,
     pub child: Option<UseChild<'s>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum UseChild<'s> {
     Single(Box<Use<'s>>),
     Multiple(Vec<Use<'s>>),
     All,
 }
 
-#[derive(Debug)]
-pub struct Function<'s> {
-    pub tps: Vec<TypeParameter<'s>>,
-    pub signature: FunctionSignature<'s>,
-    pub body: Box<Span<Expression<'s>>>,
-}
-
-#[derive(Debug)]
-pub enum ConstParameter<'s> {
-    Generic(&'s str),
-}
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AssignmentTarget<'s> {
     Identifier(&'s str),
     Access(Access<'s>)
@@ -219,34 +206,34 @@ impl<'s> TryFrom<Expression<'s>> for AssignmentTarget<'s> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Access<'s> {
     pub target: Box<Span<Expression<'s>>>,
     pub property: &'s str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct MarkupElement<'s> {
     pub identifier: &'s str,
     pub attributes: Vec<(&'s str, Expression<'s>)>,
     pub children: Vec<MarkupChild<'s>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum MarkupChild<'s> {
     Element(MarkupElement<'s>),
     Text(&'s str),
     Insert(Expression<'s>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Parameter<'s> {
     pub identifier: &'s str,
     pub is_mutable: bool,
     pub ty: Option<Type<'s>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Type<'s> {
     Never,
     Nil,
@@ -260,14 +247,13 @@ pub enum Type<'s> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FunctionSignature<'s> {
     pub return_type: Option<Type<'s>>,
-    pub is_async: bool,
     pub parameters: Vec<Parameter<'s>>,
     pub has_this_parameter: bool,
-    pub const_parameters: Vec<ConstParameter<'s>>,
+    pub tps: Vec<TypeParameter<'s>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ItemPath<'s>(pub Vec<&'s str>);

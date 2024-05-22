@@ -1,35 +1,36 @@
 pub mod ast;
 pub mod bp;
 pub mod error;
+mod tests;
 
-use crate::lex::Lexer;
-use crate::lex::token::{Keyword, Symbol, Token};
+use crate::lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::Span;
 
 use ast::*;
 use error::*;
 
-pub struct Parser<'s> {
-    lexer: Lexer<'s>,
+pub struct Parser<'s, T: TokenIterator<'s>> {
+    token_iterator: T,
     last_token: Span<Token<'s>>,
 }
 
-impl<'s> Parser<'s> {
-    pub fn new(mut lexer: Lexer<'s>) -> Result<Parser<'s>, crate::Error> {
+impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
+    #[inline]
+    pub fn new(mut token_iterator: T) -> Result<Parser<'s, T>, crate::Error> {
         Ok(Self {
-            last_token: lexer.next()?,
-            lexer,
+            last_token: token_iterator.next_token()?,
+            token_iterator,
         })
     }
 
     #[inline]
-    pub fn lexer(&self) -> &Lexer<'s> {
-        &self.lexer
+    pub fn token_iterator(&self) -> &T {
+        &self.token_iterator
     }
 
     #[inline]
     fn next_token(&mut self) -> Result<(), crate::Error> {
-        self.last_token = self.lexer.next()?;
+        self.last_token = self.token_iterator.next_token()?;
         Ok(())
     }
 
@@ -70,7 +71,43 @@ impl<'s> Parser<'s> {
             items: Some(items),
         })
     }
+    
+    /// First token is `<` or other. Ends on the token after `>`.
+    fn parse_tps(&mut self) -> Result<Vec<TypeParameter<'s>>, crate::Error> {
+        match &self.last_token.value {
+            Token::Symbol(Symbol::LeftAngle) => {},
+            _ => return Ok(Vec::new()),
+        };
+        
+        let mut tps = Vec::new();
 
+        self.next_token()?;
+
+        loop {
+            let id = match &self.last_token.value {
+                Token::Identifier(id) => *id,
+                Token::Symbol(Symbol::RightAngle) => break,
+                _ => todo!(),
+            };
+
+            tps.push(TypeParameter {
+                id,
+                traits: Vec::new(), // TODO: traits
+            });
+
+            self.next_token()?;
+            match &self.last_token.value {
+                Token::Symbol(Symbol::Colon) => todo!("traits"),
+                Token::Symbol(Symbol::Comma) => self.next_token()?,
+                _ => {},
+            }
+        }
+
+        self.next_token()?;
+        
+        Ok(tps)
+    }
+    
     /// Tries to parse a statement.
     ///
     /// # Tokens
@@ -134,37 +171,73 @@ impl<'s> Parser<'s> {
                     _ => todo!()
                 }))
             }
-            Token::Keyword(Keyword::Async) => {
-                self.next_token()?;
-
-                match &self.last_token.value {
-                    Token::Keyword(Keyword::Fn) => self.next_token()?,
-                    _ => return Err(crate::Error::Parser(Error::UnexpectedToken(UnexpectedTokenError::ExpectedKeywordFn)))
-                }
-
-                let id = match &self.last_token.value {
-                    Token::Identifier(id) => *id,
-                    _ => todo!()
-                };
-
-                Some(StatementKind::Declaration(self.parse_function_statement(true, id)?))
-            }
             Token::Keyword(Keyword::Fn) => {
                 self.next_token()?;
 
+                let tps = self.parse_tps()?;
+                
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
                     _ => todo!()
                 };
 
-                Some(StatementKind::Declaration(self.parse_function_statement(false, id)?))
+                self.next_token()?;
+                
+                match &self.last_token.value {
+                    Token::Symbol(Symbol::LeftParenthesis) => {}
+                    _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
+                        UnexpectedTokenError::ExpectedLeftParenthesis
+                    )))
+                }
+
+                let (parameters, has_this_parameter) = self.parse_function_parameters()?;
+
+                self.next_token()?;
+
+                let return_type = Some(match &self.last_token.value {
+                    Token::Symbol(Symbol::LeftBrace) => Type::Nil,
+                    Token::Symbol(Symbol::MinusRightAngle) => self.parse_type()?,
+                    _ => todo!()
+                });
+
+                match &self.last_token.value {
+                    Token::Symbol(Symbol::LeftBrace) => {}
+                    _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
+                        UnexpectedTokenError::NamedFunctionBodiesMustBeSurroundedByBraces
+                    )))
+                }
+
+                let body = Box::new(Span {
+                    start: self.last_token.start,
+                    value: Expression::Scope(self.parse_scope()?),
+                    end: self.last_token.end,
+                });
+
+                Some(StatementKind::Declaration {
+                    id,
+                    ty: None,
+                    value: Some(Box::new(Span {
+                        value: Expression::Function {
+                            signature: FunctionSignature {
+                                return_type,
+                                parameters,
+                                has_this_parameter,
+                                tps,
+                            },
+                            body,
+                        },
+                        start,
+                        end: self.last_token.end,
+                    })),
+                    is_mutable: false,
+                })
             }
             Token::Keyword(Keyword::Use) => {
                 self.next_token()?;
 
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
-                    _ => todo!("Use error")
+                    _ => todo!("expected id after use")
                 };
 
                 Some(StatementKind::Use(self.parse_use(id)?))
@@ -180,7 +253,7 @@ impl<'s> Parser<'s> {
                     _ => false,
                 };
 
-                let identifier = match &self.last_token.value {
+                let id = match &self.last_token.value {
                     Token::Identifier(identifier) => *identifier,
                     _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
                         todo!()
@@ -202,21 +275,22 @@ impl<'s> Parser<'s> {
                     token => todo!("{:?}", token)
                 };
 
-                Some(StatementKind::Declaration(
-                    Declaration {
-                        is_mutable,
-                        ty,
-                        identifier,
-                        value,
-                    }
-                ))
+                Some(StatementKind::Declaration {
+                    is_mutable,
+                    ty,
+                    value,
+                    id,
+                })
             }
-            Token::Keyword(Keyword::Class) => {
+            Token::Keyword(Keyword::Struct) => {
                 self.next_token()?;
 
+                // Parse type parameters
+                let tps = self.parse_tps()?;
+                
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
-                    _ => todo!()
+                    _ => todo!("struct: expected identifier")
                 };
 
                 self.next_token()?;
@@ -249,15 +323,14 @@ impl<'s> Parser<'s> {
 
                     self.next_token()?;
 
-                    let ty = if let Token::Symbol(Symbol::Colon) = &self.last_token.value {
-                        Some(self.parse_type()?)
-                    } else {
-                        None
+                    let ty = match &self.last_token.value {
+                        Token::Symbol(Symbol::Colon) => Some(self.parse_type()?),
+                        _ => None,
                     };
                     
                     fields.push(Span {
                         start,
-                        value: ClassField{
+                        value: StructField {
                             is_public,
                             id,
                             ty,
@@ -272,8 +345,9 @@ impl<'s> Parser<'s> {
                     }
                 }
 
-                Some(StatementKind::Class {
+                Some(StatementKind::Struct {
                     id,
+                    tps,
                     fields,
                 })
             }
@@ -368,7 +442,7 @@ impl<'s> Parser<'s> {
 
                     if let Token::Symbol(Symbol::RightBrace) = &self.last_token.value {
                         body.push(Span {
-                            value: StatementOrExpression::Expression(Expression::Nil),
+                            value: StatementOrExpression::Expression(Expression::Object(Vec::new())),
                             start: self.last_token.start,
                             end: self.last_token.end,
                         });
@@ -488,19 +562,17 @@ impl<'s> Parser<'s> {
                     UnexpectedTokenError::ExpectedIdentifierOrLeftParenthesis
                 )))
             };
-
+            
             self.next_token()?;
 
             let ty = match &self.last_token.value {
-                Token::Symbol(Symbol::RightParenthesis) => None,
                 Token::Symbol(Symbol::Colon) => Some(self.parse_type()?),
-                Token::Symbol(Symbol::Comma) => {
-                    self.next_token()?;
-                    None
-                }
-                token => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                    todo!("{:?}", token)
-                )))
+                _ => None,
+            };
+            
+            match &self.last_token.value {
+                Token::Symbol(Symbol::Comma) => self.next_token()?,
+                _ => {},
             };
 
             parameters.push(Parameter {
@@ -555,105 +627,6 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// Assumes that the last token is `<`.
-    fn parse_const_parameters(&mut self) -> Result<Vec<ConstParameter<'s>>, crate::Error> {
-        let mut params = Vec::new();
-        self.next_token()?;
-
-        loop {
-            match &self.last_token.value {
-                Token::Symbol(Symbol::RightAngle) => break,
-                Token::Identifier(s) => {
-                    params.push(ConstParameter::Generic(s));
-                    self.next_token()?;
-                }
-                _ => todo!()
-            }
-
-            match &self.last_token.value {
-                Token::Symbol(Symbol::Comma) => self.next_token()?,
-                _ => {}
-            }
-        }
-
-        Ok(params)
-    }
-
-    /// Assumes that the last token is `(` or `<`.
-    fn parse_function_expression(&mut self, is_async: bool) -> Result<Function<'s>, crate::Error> {
-        let const_parameters = self.parse_const_parameters()?;
-        let (parameters, has_this_parameter) = self.parse_function_parameters()?;
-
-        self.next_token()?;
-
-        Ok(Function {
-            signature: FunctionSignature {
-                return_type: None,
-                is_async,
-                parameters,
-                has_this_parameter,
-                const_parameters,
-            },
-            body: Box::new(self.parse_expression(bp::COMMA_AND_SEMICOLON)?),
-        })
-    }
-
-    /// Assumes that the last token is the identifier. Ends on `}`.
-    fn parse_function_statement(&mut self, is_async: bool, identifier: &'s str) -> Result<Declaration<'s>, crate::Error> {
-        let start = self.last_token.start;
-
-        self.next_token()?;
-        match &self.last_token.value {
-            Token::Symbol(Symbol::LeftParenthesis) => {}
-            _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                UnexpectedTokenError::ExpectedLeftParenthesis
-            )))
-        }
-
-        let (parameters, has_this_parameter) = self.parse_function_parameters()?;
-
-        self.next_token()?;
-
-        let return_type = Some(match &self.last_token.value {
-            Token::Symbol(Symbol::LeftBrace) => Type::Nil,
-            Token::Symbol(Symbol::MinusRightAngle) => self.parse_type()?,
-            _ => todo!()
-        });
-
-        match &self.last_token.value {
-            Token::Symbol(Symbol::LeftBrace) => {}
-            _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                UnexpectedTokenError::NamedFunctionBodiesMustBeSurroundedByBraces
-            )))
-        }
-
-        let body = Box::new(Span {
-            start: self.last_token.start,
-            value: Expression::Scope(self.parse_scope()?),
-            end: self.last_token.end,
-        });
-
-        Ok(Declaration {
-            is_mutable: false,
-            ty: None,
-            identifier,
-            value: Some(Box::new(Span {
-                value: Expression::Function(Function {
-                    signature: FunctionSignature {
-                        return_type,
-                        is_async,
-                        parameters,
-                        has_this_parameter,
-                        const_parameters: vec![], // TODO
-                    },
-                    body,
-                }),
-                start,
-                end: self.last_token.end,
-            })),
-        })
-    }
-
     fn parse_statement_or_expression(&mut self, min_bp: u8) -> Result<Span<StatementOrExpression<'s>>, crate::Error> {
         Ok(if let Some(statement) = self.try_parse_statement()? {
             statement
@@ -694,30 +667,43 @@ impl<'s> Parser<'s> {
                     self.next_token()?;
                     identifier
                 }
-                Token::Keyword(Keyword::Async) => {
-                    self.next_token()?;
-
-                    match &self.last_token.value {
-                        Token::Keyword(Keyword::Fn) => {
-                            self.next_token()?;
-                            Expression::Function(self.parse_function_expression(true)?)
-                        }
-                        _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                            UnexpectedTokenError::ExpectedKeywordFn
-                        )))
-                    }
-                }
                 Token::Keyword(Keyword::Fn) => {
                     self.next_token()?;
-                    Expression::Function(self.parse_function_expression(false)?)
+
+                    let tps = self.parse_tps()?;
+                    
+                    match &self.last_token.value {
+                        Token::Symbol(Symbol::LeftParenthesis) => {},
+                        _ => todo!()
+                    }
+                    
+                    let (parameters, has_this_parameter) = self.parse_function_parameters()?;
+                    
+                    self.next_token()?;
+                    
+                    let return_type = match &self.last_token.value {
+                        Token::Symbol(Symbol::MinusRightAngle) => Some(self.parse_type()?),
+                        _ => None
+                    };
+                    
+                    match &self.last_token.value {
+                        Token::Symbol(Symbol::LeftBrace) => {}
+                        _ => todo!()
+                    }
+
+                    Expression::Function {
+                        signature: FunctionSignature {
+                            return_type,
+                            parameters,
+                            has_this_parameter,
+                            tps,
+                        },
+                        body: Box::new(self.parse_expression(bp::COMMA_AND_SEMICOLON)?),
+                    }
                 }
                 Token::Keyword(Keyword::False) => {
                     self.next_token()?;
                     Expression::False
-                }
-                Token::Keyword(Keyword::Nil) => {
-                    self.next_token()?;
-                    Expression::Nil
                 }
                 Token::Keyword(Keyword::True) => {
                     self.next_token()?;
@@ -809,11 +795,7 @@ impl<'s> Parser<'s> {
                 }
                 Token::Keyword(Keyword::Return) => {
                     self.next_token()?;
-                    Expression::Return(Box::new(self.parse_expression(bp::RETURN_AND_AWAIT)?))
-                }
-                Token::Keyword(Keyword::Await) => {
-                    self.next_token()?;
-                    Expression::Await(Box::new(self.parse_expression(bp::RETURN_AND_AWAIT)?))
+                    Expression::Return(Box::new(self.parse_expression(bp::RETURN)?))
                 }
                 Token::Keyword(Keyword::Continue) => {
                     self.next_token()?;

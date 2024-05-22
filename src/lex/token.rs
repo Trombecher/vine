@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 use phf::phf_map;
+use crate::Span;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Token<'a> {
     Char(char),
     Identifier(&'a str),
@@ -135,4 +136,8 @@ pub enum Symbol {
     LeftBrace,
     RightBrace,
     At,
+}
+
+pub trait TokenIterator<'a> {
+    fn next_token(&mut self) -> Result<Span<Token<'a>>, crate::Error>;
 }

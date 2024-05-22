@@ -1,7 +1,7 @@
-//! Binding precedence.
+//! # Binding precedence.
 
 pub const COMMA_AND_SEMICOLON: u8 = 0;
-pub const RETURN_AND_AWAIT: u8 = 1;
+pub const RETURN: u8 = 1;
 pub const ASSIGNMENT: (u8, u8) = (3, 2);
 pub const LOGICAL_OR: (u8, u8) = (4, 5);
 pub const LOGICAL_AND: (u8, u8) = (6, 7);

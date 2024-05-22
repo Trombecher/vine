@@ -6,23 +6,6 @@ use std::mem::transmute;
 use std::ops::{Deref, DerefMut};
 use std::ptr::slice_from_raw_parts;
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    UTF8InvalidFirstByte,
-    UTF8Expected2Of2,
-    UTF8Invalid2Of2,
-    UTF8Expected2Of3,
-    UTF8Invalid2Of3,
-    UTF8Expected3Of3,
-    UTF8Invalid3Of3,
-    UTF8Expected2Of4,
-    UTF8Invalid2Of4,
-    UTF8Expected3Of4,
-    UTF8Invalid3Of4,
-    UTF8Expected4Of4,
-    UTF8Invalid4Of4,
-}
-
 pub struct Cursor<'a> {
     /// The pointer to the first element.
     first: *const u8,
@@ -144,15 +127,15 @@ impl<'a> Cursor<'a> {
         macro_rules! next {
             ($e:expr,$i:expr) => {
                 match self.next() {
-                    None => return Err(crate::Error::Chars($e)),
-                    Some(x) if x & 0b1100_0000 != 0b1000_0000 => return Err(crate::Error::Chars($i)),
+                    None => return Err($e),
+                    Some(x) if x & 0b1100_0000 != 0b1000_0000 => return Err($i),
                     _ => {},
                 }
             };
         }
 
         match UTF8_CHAR_WIDTH[first_byte as usize] {
-            0 => Err(crate::Error::Chars(Error::UTF8InvalidFirstByte)),
+            0 => Err(crate::Error::E0000),
             1 => {
                 if first_byte == b'\r' && self.peek_raw() == Some(b'\n')  {
                     unsafe { self.advance_unchecked() }
@@ -160,18 +143,18 @@ impl<'a> Cursor<'a> {
                 Ok(())
             },
             2 => {
-                next!(Error::UTF8Expected2Of2, Error::UTF8Invalid2Of2);
+                next!(crate::Error::E0001, crate::Error::E0002);
                 Ok(())
             }
             3 => {
-                next!(Error::UTF8Expected2Of3, Error::UTF8Invalid2Of3);
-                next!(Error::UTF8Expected3Of3, Error::UTF8Invalid3Of3);
+                next!(crate::Error::E0003, crate::Error::E0004);
+                next!(crate::Error::E0005, crate::Error::E0006);
                 Ok(())
             }
             4 => {
-                next!(Error::UTF8Expected2Of4, Error::UTF8Invalid2Of4);
-                next!(Error::UTF8Expected3Of4, Error::UTF8Invalid3Of4);
-                next!(Error::UTF8Expected4Of4, Error::UTF8Invalid4Of4);
+                next!(crate::Error::E0007, crate::Error::E0008);
+                next!(crate::Error::E0009, crate::Error::E0010);
+                next!(crate::Error::E0011, crate::Error::E0012);
                 Ok(())
             }
             _ => unsafe { unreachable_unchecked() }

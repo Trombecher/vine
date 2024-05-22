@@ -1,0 +1,123 @@
+{
+    "0": {
+        "description": "Illegal first byte.",
+        "source": "utf-8",
+        "hint": "unexpected byte"
+    },
+    "1": {
+        "source": "utf-8",
+        "description": "Expected a second byte because the first byte implied it.",
+        "context": "in a two byte UTF-8 code point encoding.",
+        "hint": "unexpected end of input"
+    },
+    "2": {
+        "source": "utf-8",
+        "description": "The second byte is not a continuation byte.",
+        "context": "in a two byte UTF-8 code point encoding.",
+        "hint": "unexpected byte"
+    },
+    "3": {
+        "source": "utf-8",
+        "description": "Expected a second byte because the first byte implied it.",
+        "context": "in a three byte UTF-8 code point encoding.",
+        "hint": "unexpected end of input"
+    },
+    "4": {
+        "source": "utf-8",
+        "description": "The second byte is not a continuation byte.",
+        "context": "in a three byte UTF-8 code point encoding.",
+        "hint": "unexpected byte"
+    },
+    "5": {
+        "source": "utf-8",
+        "description": "Expected a third byte because the first byte implied it.",
+        "context": "in a three byte UTF-8 code point encoding.",
+        "hint": "unexpected end of input"
+    },
+    "6": {
+        "source": "utf-8",
+        "description": "The third byte is not a continuation byte.",
+        "context": "in a three byte UTF-8 code point encoding.",
+        "hint": "unexpected byte"
+    },
+    "7": {
+        "source": "utf-8",
+        "description": "Expected a second byte because the first byte implied it.",
+        "context": "in a four byte UTF-8 code point encoding.",
+        "hint": "unexpected end of input"
+    },
+    "8": {
+        "source": "utf-8",
+        "description": "The second byte is not a continuation byte.",
+        "context": "in a four byte UTF-8 code point encoding.",
+        "hint": "unexpected byte"
+    },
+    "9": {
+        "source": "utf-8",
+        "description": "Expected a third byte because the first byte implied it.",
+        "context": "in a four byte UTF-8 code point encoding.",
+        "hint": "unexpected end of input"
+    },
+    "10": {
+        "source": "utf-8",
+        "description": "The third byte is not a continuation byte.",
+        "context": "in a four byte UTF-8 code point encoding.",
+        "hint": "unexpected byte"
+    },
+    "11": {
+        "source": "utf-8",
+        "description": "Expected a fourth byte because the first byte implied it.",
+        "context": "in a four byte UTF-8 code point encoding.",
+        "hint": "unexpected end of input"
+    },
+    "12": {
+        "source": "utf-8",
+        "description": "The fourth byte is not a continuation byte.",
+        "context": "in a four byte UTF-8 code point encoding."
+    },
+    "13": {
+        "source": "lexer",
+        "description": "Expected escape character.",
+        "hint": "unexpected end of input"
+    },
+    "14": {
+        "source": "lexer",
+        "description": "Invalid string escape.",
+        "context": "after '\\\\' in a string escape.",
+        "hint": "unexpected character"
+    },
+    "15": {
+        "source": "lexer",
+        "description": "Cannot use a keyword as a tag name.",
+        "context": "in a markup start tag."
+    },
+    "16": {
+        "source": "lexer",
+        "description": "Cannot use a keyword as a tag name.",
+        "context": "in a markup end tag."
+    },
+    "17": {
+        "source": "lexer",
+        "description": "Invalid (alphabetic) digit for decimal number literal. In decimal, you can only use numbers from zero to nine.",
+        "context": "while lexing a decimal number literal.",
+        "hint": "unexpected character"
+    },
+    "18": {
+        "source": "lexer",
+        "description": "Expected a string escape character.",
+        "context": "in a string literal.",
+        "hint": "unexpected end of input"
+    },
+    "19": {
+        "source": "lexer",
+        "description": "Expected something.",
+        "context": "in a string literal.",
+        "hint": "unexpected end of input"
+    },
+    "20": {
+        "source": "lexer",
+        "description": "Non-ASCII characters in identifiers are currently not supported.",
+        "context": "while lexing an identifier.",
+        "hint": "unexpected character"
+    }
+}

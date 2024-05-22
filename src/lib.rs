@@ -9,24 +9,29 @@ use std::fmt::Debug;
 
 pub mod chars;
 pub mod lex;
-pub mod parse;
-pub mod resolve;
-pub mod vm;
-pub mod transpile;
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    Chars(chars::Error),
-    Lexer(lex::error::Error),
-    Parser(parse::error::Error),
-    Resolver(resolve::error::Error),
-}
+// pub mod parse;
+// pub mod resolve;
+// pub mod vm;
+// pub mod transpile;
+mod error;
+pub use error::Error;
 
 #[derive(Debug, PartialEq)]
 pub struct Span<T> where T: Debug {
     pub value: T,
     pub start: u64,
     pub end: u64,
+}
+
+impl<T: Debug> Span<T> {
+    #[inline]
+    pub const fn zero(value: T) -> Span<T> {
+        Span {
+            value,
+            start: 0,
+            end: 0,
+        }
+    }
 }
 
 impl<T: Debug> Span<T> {

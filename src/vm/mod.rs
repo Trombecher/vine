@@ -471,7 +471,7 @@ impl<'a> VM<'a> {
                 self.a = unsafe { self.alloc(ty) };
             }
             Instruction::CreateObjectOffset => {
-                let ty = &self.type_table[self.offset_table[self.get_u8()? as usize]] as *const u8;
+                let ty = &self.type_table[self.offset_table[self.get_u8()? as usize] as usize] as *const u8;
                 self.a = unsafe { self.alloc(ty) };
             }
             Instruction::ReadProperty0 => {

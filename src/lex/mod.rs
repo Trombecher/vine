@@ -1,12 +1,11 @@
 pub mod token;
 pub mod error;
 mod tests;
-mod benchmark;
 
 use std::hint::unreachable_unchecked;
 use super::chars::Cursor;
-use error::{Error, UnexpectedCharacterError, UnexpectedEndOfInputError};
 use token::{KEYWORDS, Symbol, Token};
+use crate::lex::token::TokenIterator;
 use super::Span;
 
 pub enum Layer {
@@ -37,9 +36,7 @@ impl<'a> Lexer<'a> {
     fn unescape_char(&mut self) -> Result<char, crate::Error> {
         // TODO: unicode escapes (use of self)
         match self.cursor.next() {
-            None => Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
-                UnexpectedEndOfInputError::EndTag
-            ))),
+            None => Err(crate::Error::E0013),
             Some(b'0') => Ok('\0'),     // Null character
             Some(b'\\') => Ok('\\'),    // Backslash
             Some(b'f') => Ok('\u{0c}'), // Form feed
@@ -51,9 +48,7 @@ impl<'a> Lexer<'a> {
             Some(b'"') => Ok('"'),      // Double quote
             Some(b'\'') => Ok('\''),    // Single quote
             Some(b'[') => Ok('\u{1B}'), // Escape
-            _ => Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                UnexpectedCharacterError::InvalidStringEscape
-            ))),
+            _ => Err(crate::Error::E0014),
         }
     }
     
@@ -72,7 +67,7 @@ impl<'a> Lexer<'a> {
                 Some(b'8') => number = number * 10. + 8.,
                 Some(b'9') => number = number * 10. + 9.,
                 Some(b'.') => todo!("fp numbers"),
-                Some(x) if x.is_ascii_alphabetic() => todo!(),
+                Some(x) if x.is_ascii_alphabetic() => return Err(crate::Error::E0017),
                 Some(_) => {
                     self.cursor.rewind_ascii();
                     break
@@ -97,11 +92,11 @@ impl<'a> Lexer<'a> {
                 Some(b'\\') => {
                     unsafe { recorder.cursor.advance_unchecked(); }
                     if let None = recorder.cursor.peek_raw() {
-                        todo!()
+                        break Err(crate::Error::E0018)
                     }
                     unsafe { recorder.cursor.advance_unchecked(); }
                 }
-                None => todo!(),
+                None => break Err(crate::Error::E0019),
                 Some(_) => if let Err(e) = recorder.cursor.advance_char() {
                     break Err(e)
                 }
@@ -114,9 +109,9 @@ impl<'a> Lexer<'a> {
 
         loop {
             match recorder.cursor.next() {
-                None => todo!(),
                 Some(x) if x.is_ascii_alphanumeric() || x == b'_' => {}
-                Some(128..=255) => todo!(),
+                Some(128..=255) => return Err(crate::Error::E0020),
+                None => break,
                 _ => {
                     recorder.cursor.rewind_ascii();
                     break
@@ -154,7 +149,7 @@ impl<'a> Lexer<'a> {
         
         let identifier = self.parse_id()?;
         if KEYWORDS.contains_key(identifier) {
-            return Err(crate::Error::Lexer(Error::CannotUseKeywordAsTagName));
+            return Err(crate::Error::E0015);
         }
         
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
@@ -173,7 +168,7 @@ impl<'a> Lexer<'a> {
         
         let tag_name = self.parse_id()?;
         if KEYWORDS.contains_key(tag_name) {
-            return Err(crate::Error::Lexer(Error::CannotUseKeywordAsTagName));
+            return Err(crate::Error::E0016);
         }
         
         self.skip_white_space();
@@ -188,197 +183,6 @@ impl<'a> Lexer<'a> {
             start,
             end: self.cursor.index(),
         })
-    }
-    
-    pub fn next(&mut self) -> Result<Span<Token<'a>>, crate::Error> {
-        match self.layers.pop() {
-            None => {
-                // Skip whitespace
-                self.skip_white_space();
-                
-                if self.potential_markup {
-                    self.potential_markup = false;
-                    
-                    if self.cursor.peek_raw() == Some(b'<') {
-                        self.parse_start_tag()
-                    } else {
-                        self.next_default_context()
-                    }
-                } else {
-                    self.next_default_context()
-                }
-            },
-            Some(Layer::KeyOrStartTagEndOrSelfClose) => {
-                self.skip_white_space();
-                
-                Ok(Span {
-                    start: self.cursor.index(),
-                    value: match self.cursor.peek_raw() {
-                        Some(b'>') => {
-                            unsafe { self.cursor.advance_unchecked(); }
-                            self.layers.push(Layer::TextOrInsert);
-                            Token::MarkupStartTagEnd
-                        }
-                        Some(b'/') => {
-                            unsafe { self.cursor.advance_unchecked(); }
-                            self.skip_white_space();
-                            
-                            match self.cursor.next() {
-                                Some(b'>') => Token::MarkupClose,
-                                _ => todo!()
-                            }
-                        }
-                        Some(char) if char.is_ascii_alphabetic() || char == b'_' => {
-                            self.layers.push(Layer::Value);
-                            Token::MarkupKey(self.parse_id()?)
-                        }
-                        _ => todo!()
-                    },
-                    end: self.cursor.index(),
-                })
-            },
-            Some(Layer::Value) => {
-                self.skip_white_space();
-                
-                match self.cursor.next() {
-                    Some(b'=') => {}
-                    _ => todo!()
-                }
-                
-                self.skip_white_space();
-                
-                self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
-                
-                Ok(Span {
-                    start: self.cursor.index(),
-                    value: match self.cursor.next() {
-                        Some(b'"') => Token::String(self.parse_string()?),
-                        Some(b'{') => {
-                            self.layers.push(Layer::Insert);
-                            self.potential_markup = true;
-                            Token::Symbol(Symbol::LeftBrace)
-                        }
-                        _ => todo!()
-                    },
-                    end: self.cursor.index(),
-                })
-            },
-            Some(Layer::Insert) => {
-                let token = self.next_default_context()?;
-                
-                match &token.value {
-                    Token::Symbol(Symbol::LeftBrace) => {
-                        self.layers.push(Layer::Insert);
-                        self.layers.push(Layer::Insert);
-                    }
-                    Token::Symbol(Symbol::RightBrace) => {}
-                    _ => self.layers.push(Layer::Insert),
-                }
-                
-                Ok(token)
-            }
-            Some(Layer::TextOrInsert) => {
-                self.skip_white_space();
-                
-                let start = self.cursor.index();
-                
-                let mut text = self.cursor.begin_recording();
-                loop {
-                    match text.cursor.peek_raw() {
-                        Some(b'<' | b'{') => break,
-                        Some(_) => unsafe { text.cursor.advance_char()?; }
-                        None => todo!(),
-                    }
-                }
-                let text = text.stop();
-                
-                Ok(if text.len() == 0 {
-                    // If there is no text, we have to yield something.
-
-                    match self.cursor.next() {
-                        // Yield an end tag or a nested element start
-                        Some(b'<') => {
-                            self.skip_white_space();
-
-                            match self.cursor.peek_raw() {
-                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
-                                    UnexpectedEndOfInputError::NestedMarkupStart,
-                                ))),
-
-                                // End tag
-                                Some(b'/') => {
-                                    unsafe { self.cursor.advance_unchecked() }
-                                    self.parse_end_tag()?
-                                },
-
-                                // Nested element
-                                Some(_) => {
-                                    self.layers.push(Layer::TextOrInsert);
-                                    self.parse_start_tag()?
-                                }
-                            }
-                        }
-
-                        // Yield an insert start
-                        Some(b'{') => {
-                            self.layers.push(Layer::TextOrInsert);
-                            self.layers.push(Layer::Insert);
-                            self.potential_markup = true;
-
-                            Span {
-                                start: self.cursor.index() - 1,
-                                value: Token::Symbol(Symbol::LeftBrace),
-                                end: self.cursor.index(),
-                            }
-                        }
-
-                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
-                        _ => unsafe { unreachable_unchecked() }
-                    }
-                } else {
-                    // There is some text, so we yield the text and prepare the next layer state.
-
-                    match self.cursor.peek_raw() {
-                        Some(b'<') => {
-                            unsafe { self.cursor.advance_unchecked(); }
-                            
-                            self.skip_white_space();
-
-                            match self.cursor.peek_raw() {
-                                None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
-                                    UnexpectedEndOfInputError::NestedMarkupStart,
-                                ))),
-
-                                // End tag
-                                Some(b'/') => {
-                                    unsafe { self.cursor.advance_unchecked(); }
-                                    self.layers.push(Layer::EndTag)
-                                },
-
-                                // Nested element
-                                _ => {
-                                    // Add context
-                                    self.layers.push(Layer::TextOrInsert);
-                                    self.layers.push(Layer::StartTag);
-                                }
-                            }
-                        }
-                        Some(b'{') => self.layers.push(Layer::TextOrInsert),
-
-                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
-                        _ => unsafe { unreachable_unchecked() }
-                    }
-
-                    Span {
-                        start,
-                        value: Token::MarkupText(text),
-                        end: self.cursor.index(),
-                    }
-                })
-            },
-            Some(Layer::EndTag) => self.parse_end_tag(),
-            Some(Layer::StartTag) => self.parse_start_tag(),
-        }
     }
     
     fn skip_white_space(&mut self) {
@@ -677,9 +481,7 @@ impl<'a> Lexer<'a> {
                 unsafe { self.cursor.advance_unchecked() };
                 
                 let char = match self.cursor.next() {
-                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
-                        UnexpectedEndOfInputError::CharLiteralContent
-                    ))),
+                    None => todo!(), // UnexpectedEndOfInputError::CharLiteralContent
                     Some(b'\\') => {
                         self.unescape_char()?
                     }
@@ -688,12 +490,8 @@ impl<'a> Lexer<'a> {
 
                 match self.cursor.next() {
                     Some(b'\'') => {}
-                    None => return Err(crate::Error::Lexer(Error::UnexpectedEndOfInput(
-                        UnexpectedEndOfInputError::CharLiteralQuote
-                    ))),
-                    _ => return Err(crate::Error::Lexer(Error::UnexpectedCharacter(
-                        UnexpectedCharacterError::CharLiteralQuote
-                    )))
+                    None => todo!(), // UnexpectedEndOfInputError::CharLiteralQuote
+                    _ => todo!() // UnexpectedCharacterError::CharLiteralQuote
                 }
 
                 Token::Char(char)
@@ -723,5 +521,194 @@ impl<'a> Lexer<'a> {
             value: token,
             end: self.cursor.index(),
         })
+    }
+}
+
+impl<'a> TokenIterator<'a> for Lexer<'a> {
+    fn next_token(&mut self) -> Result<Span<Token<'a>>, crate::Error> {
+        match self.layers.pop() {
+            None => {
+                // Skip whitespace
+                self.skip_white_space();
+
+                if self.potential_markup {
+                    self.potential_markup = false;
+
+                    if self.cursor.peek_raw() == Some(b'<') {
+                        self.parse_start_tag()
+                    } else {
+                        self.next_default_context()
+                    }
+                } else {
+                    self.next_default_context()
+                }
+            },
+            Some(Layer::KeyOrStartTagEndOrSelfClose) => {
+                self.skip_white_space();
+
+                Ok(Span {
+                    start: self.cursor.index(),
+                    value: match self.cursor.peek_raw() {
+                        Some(b'>') => {
+                            unsafe { self.cursor.advance_unchecked(); }
+                            self.layers.push(Layer::TextOrInsert);
+                            Token::MarkupStartTagEnd
+                        }
+                        Some(b'/') => {
+                            unsafe { self.cursor.advance_unchecked(); }
+                            self.skip_white_space();
+
+                            match self.cursor.next() {
+                                Some(b'>') => Token::MarkupClose,
+                                _ => todo!()
+                            }
+                        }
+                        Some(char) if char.is_ascii_alphabetic() || char == b'_' => {
+                            self.layers.push(Layer::Value);
+                            Token::MarkupKey(self.parse_id()?)
+                        }
+                        _ => todo!()
+                    },
+                    end: self.cursor.index(),
+                })
+            },
+            Some(Layer::Value) => {
+                self.skip_white_space();
+
+                match self.cursor.next() {
+                    Some(b'=') => {}
+                    _ => todo!()
+                }
+
+                self.skip_white_space();
+
+                self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
+
+                Ok(Span {
+                    start: self.cursor.index(),
+                    value: match self.cursor.next() {
+                        Some(b'"') => Token::String(self.parse_string()?),
+                        Some(b'{') => {
+                            self.layers.push(Layer::Insert);
+                            self.potential_markup = true;
+                            Token::Symbol(Symbol::LeftBrace)
+                        }
+                        _ => todo!()
+                    },
+                    end: self.cursor.index(),
+                })
+            },
+            Some(Layer::Insert) => {
+                let token = self.next_default_context()?;
+
+                match &token.value {
+                    Token::Symbol(Symbol::LeftBrace) => {
+                        self.layers.push(Layer::Insert);
+                        self.layers.push(Layer::Insert);
+                    }
+                    Token::Symbol(Symbol::RightBrace) => {}
+                    _ => self.layers.push(Layer::Insert),
+                }
+
+                Ok(token)
+            }
+            Some(Layer::TextOrInsert) => {
+                self.skip_white_space();
+
+                let start = self.cursor.index();
+
+                let mut text = self.cursor.begin_recording();
+                loop {
+                    match text.cursor.peek_raw() {
+                        Some(b'<' | b'{') => break,
+                        Some(_) => unsafe { text.cursor.advance_char()?; }
+                        None => todo!(),
+                    }
+                }
+                let text = text.stop();
+
+                Ok(if text.len() == 0 {
+                    // If there is no text, we have to yield something.
+
+                    match self.cursor.next() {
+                        // Yield an end tag or a nested element start
+                        Some(b'<') => {
+                            self.skip_white_space();
+
+                            match self.cursor.peek_raw() {
+                                None => todo!(), // UnexpectedEndOfInputError::NestedMarkupStart
+
+                                // End tag
+                                Some(b'/') => {
+                                    unsafe { self.cursor.advance_unchecked() }
+                                    self.parse_end_tag()?
+                                },
+
+                                // Nested element
+                                Some(_) => {
+                                    self.layers.push(Layer::TextOrInsert);
+                                    self.parse_start_tag()?
+                                }
+                            }
+                        }
+
+                        // Yield an insert start
+                        Some(b'{') => {
+                            self.layers.push(Layer::TextOrInsert);
+                            self.layers.push(Layer::Insert);
+                            self.potential_markup = true;
+
+                            Span {
+                                start: self.cursor.index() - 1,
+                                value: Token::Symbol(Symbol::LeftBrace),
+                                end: self.cursor.index(),
+                            }
+                        }
+
+                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
+                        _ => unsafe { unreachable_unchecked() }
+                    }
+                } else {
+                    // There is some text, so we yield the text and prepare the next layer state.
+
+                    match self.cursor.peek_raw() {
+                        Some(b'<') => {
+                            unsafe { self.cursor.advance_unchecked(); }
+
+                            self.skip_white_space();
+
+                            match self.cursor.peek_raw() {
+                                None => todo!(), // UnexpectedEndOfInputError::NestedMarkupStart
+
+                                // End tag
+                                Some(b'/') => {
+                                    unsafe { self.cursor.advance_unchecked(); }
+                                    self.layers.push(Layer::EndTag)
+                                },
+
+                                // Nested element
+                                _ => {
+                                    // Add context
+                                    self.layers.push(Layer::TextOrInsert);
+                                    self.layers.push(Layer::StartTag);
+                                }
+                            }
+                        }
+                        Some(b'{') => self.layers.push(Layer::TextOrInsert),
+
+                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
+                        _ => unsafe { unreachable_unchecked() }
+                    }
+
+                    Span {
+                        start,
+                        value: Token::MarkupText(text),
+                        end: self.cursor.index(),
+                    }
+                })
+            },
+            Some(Layer::EndTag) => self.parse_end_tag(),
+            Some(Layer::StartTag) => self.parse_start_tag(),
+        }
     }
 }
