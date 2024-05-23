@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use phf::phf_map;
 use crate::Span;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token<'a> {
     Char(char),
     Identifier(&'a str),
@@ -11,7 +11,7 @@ pub enum Token<'a> {
     LineComment(&'a str),
     Symbol(Symbol),
     Keyword(Keyword),
-    String(&'a str),
+    String(String),
     MarkupStartTag(&'a str),
     MarkupKey(&'a str),
     MarkupStartTagEnd,

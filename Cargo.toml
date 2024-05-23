@@ -10,3 +10,4 @@ lto = "fat"
 
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
+colored = "2.1.0"

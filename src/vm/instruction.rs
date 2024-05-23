@@ -1,5 +1,5 @@
 use std::mem::transmute;
-use crate::vm::{Error, Value};
+use crate::vm::Error;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]

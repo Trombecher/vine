@@ -3,11 +3,12 @@ pub mod bp;
 pub mod error;
 mod tests;
 
+use std::hint::unreachable_unchecked;
+use std::mem::swap;
 use crate::lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::Span;
 
 use ast::*;
-use error::*;
 
 pub struct Parser<'s, T: TokenIterator<'s>> {
     token_iterator: T,
@@ -23,6 +24,27 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
         })
     }
 
+    /// Takes the string out of the last token.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that there is a string in the last token.
+    #[inline]
+    unsafe fn take_string_unchecked(&mut self) -> String {
+        let mut s = Token::EndOfInput; // dummy token
+        swap(&mut s, &mut self.last_token.value);
+
+        if let Token::String(s) = s {
+            s
+        } else {
+            // SAFETY: We swapped a `self.last_token.value` (which we know it's a string)
+            // with a dummy value. After the swap, there is a Token::String in `s`,
+            // which we can unwrap unchecked.
+
+            unreachable_unchecked()
+        }
+    }
+
     #[inline]
     pub fn token_iterator(&self) -> &T {
         &self.token_iterator
@@ -30,8 +52,13 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
     #[inline]
     fn next_token(&mut self) -> Result<(), crate::Error> {
-        self.last_token = self.token_iterator.next_token()?;
-        Ok(())
+        match self.token_iterator.next_token() {
+            Ok(x) => {
+                self.last_token = x;
+                Ok(())
+            },
+            Err(x) => Err(x),
+        }
     }
 
     #[inline]
@@ -57,10 +84,8 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
             items.push(TopLevelItem {
                 is_public,
-                statement: self.try_parse_statement()?.ok_or(crate::Error::Parser(
-                    // TODO: error
-                    Error::UnexpectedToken(UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock)
-                ))?,
+                // UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock
+                statement: self.try_parse_statement()?.ok_or_else(|| todo!())?,
             });
 
             self.next_token()?;
@@ -185,9 +210,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                 
                 match &self.last_token.value {
                     Token::Symbol(Symbol::LeftParenthesis) => {}
-                    _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                        UnexpectedTokenError::ExpectedLeftParenthesis
-                    )))
+                    _ => todo!("UnexpectedTokenError::ExpectedLeftParenthesis")
                 }
 
                 let (parameters, has_this_parameter) = self.parse_function_parameters()?;
@@ -202,9 +225,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 match &self.last_token.value {
                     Token::Symbol(Symbol::LeftBrace) => {}
-                    _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                        UnexpectedTokenError::NamedFunctionBodiesMustBeSurroundedByBraces
-                    )))
+                    _ => todo!("UnexpectedTokenError::NamedFunctionBodiesMustBeSurroundedByBraces")
                 }
 
                 let body = Box::new(Span {
@@ -237,7 +258,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
-                    _ => todo!("expected id after use")
+                    token => todo!("expected id after use {:?}", token)
                 };
 
                 Some(StatementKind::Use(self.parse_use(id)?))
@@ -255,9 +276,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 let id = match &self.last_token.value {
                     Token::Identifier(identifier) => *identifier,
-                    _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                        todo!()
-                    )))
+                    _ => todo!("ut")
                 };
 
                 self.next_token()?;
@@ -450,9 +469,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     }
                 }
                 Token::Symbol(Symbol::RightBrace) => break,
-                _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                    UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock
-                ))),
+                _ => todo!("UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock")
             }
         }
 
@@ -485,8 +502,8 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                                 MarkupChild::Element(self.parse_markup_element(tag_name, start)?)
                             }
                             Token::MarkupEndTag(tag_name) => {
-                                if tag_name != &identifier {
-                                    return Err(crate::Error::Parser(Error::TagNamesDoNotMatch));
+                                if *tag_name != identifier {
+                                    todo!("Error::TagNamesDoNotMatch {:?} != {:?}", tag_name, identifier)
                                 }
                                 self.next_token()?;
                                 break;
@@ -513,7 +530,9 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
             let value = match &self.last_token.value {
                 Token::Symbol(Symbol::LeftBrace) => Expression::Scope(self.parse_scope()?),
-                Token::String(s) => Expression::String(s),
+                Token::String(_) => {
+                    Expression::String(unsafe { self.take_string_unchecked() })
+                },
                 token => unreachable!("Got token: {:?}. This token should not have been generated by the lexer.", token)
             };
 
@@ -558,9 +577,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
             let identifier = match &self.last_token.value {
                 Token::Identifier(identifier) => *identifier,
-                _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                    UnexpectedTokenError::ExpectedIdentifierOrLeftParenthesis
-                )))
+                _ => todo!("UnexpectedTokenError::ExpectedIdentifierOrLeftParenthesis")
             };
             
             self.next_token()?;
@@ -651,10 +668,10 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     self.next_token()?;
                     number
                 }
-                Token::String(string) => {
-                    let string = Expression::String(string);
+                Token::String(_) => {
+                    let string = unsafe { self.take_string_unchecked() };
                     self.next_token()?;
-                    string
+                    Expression::String(string)
                 }
                 Token::Symbol(Symbol::LeftBrace) => {
                     let scope = Expression::Scope(self.parse_scope()?);
@@ -913,7 +930,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                                 value: Box::new(self.parse_expression(bp::RELATIONAL.1)?),
                             }
                         } else {
-                            return Err(crate::Error::Parser(Error::InvalidAssignmentTarget));
+                            todo!("Error::InvalidAssignmentTarget")
                         }
                     }
 
@@ -963,9 +980,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                             match &self.last_token.value {
                                 Token::Symbol(Symbol::RightParenthesis) => {}
                                 Token::Symbol(Symbol::Comma) => self.next_token()?,
-                                _ => return Err(crate::Error::Parser(Error::UnexpectedToken(
-                                    todo!()
-                                )))
+                                _ => todo!("UnexpectedToken")
                             }
                         }
 

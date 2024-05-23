@@ -21,14 +21,14 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::collections::HashSet;
 use std::iter::Copied;
 use std::mem::{swap, transmute};
-use std::ptr::{NonNull, null, slice_from_raw_parts};
+use std::ptr::{NonNull, slice_from_raw_parts};
 use std::slice;
 use crate::vm::instruction::Instruction;
 use crate::vm::stack::Stack;
 
-const NUMBER_TYPE: *const u8 = &0_u8 as *const u8;
-const NIL_TYPE: *const u8 = null();
-const ARRAY_TYPE: *const u8 = &0_u8 as *const u8;
+const NUMBER_TYPE: u64 = 0;
+const NIL_TYPE: u64 = 1;
+const ARRAY_TYPE: u64 = 2;
 
 #[derive(Copy, Clone)]
 union ValueValue {
@@ -38,8 +38,8 @@ union ValueValue {
 }
 
 #[repr(align(8))]
-struct Object {
-    is_used: bool,
+pub struct Object {
+    pub is_used: bool,
     // here are some hidden values
 }
 
@@ -51,7 +51,7 @@ impl Object {
 }
 
 #[derive(Clone, Copy)]
-pub struct Value(*const u8, ValueValue);
+pub struct Value(u64, ValueValue);
 
 impl Value {
     #[inline]
@@ -91,7 +91,7 @@ impl Value {
     #[inline]
     pub fn get_object(&self) -> Option<NonNull<Object>> {
         match self.0 {
-            NUMBER_TYPE | NUMBER_TYPE => None,
+            NUMBER_TYPE | NIL_TYPE => None,
             _ => Some(unsafe { self.1.ptr }),
         }
     }
@@ -278,9 +278,9 @@ impl<'a> VM<'a> {
         let ptr = NonNull::new(unsafe {
             alloc(Object::layout(*ty as u64))
         } as *mut Object).expect("Allocation has produces a null pointer (bad)");
-
+        
         self.allocated_objects.insert(ptr);
-        Value(ty, unsafe { transmute(ptr) })
+        Value(ty as usize as u64, unsafe { transmute(ptr) })
     }
 
     pub fn run_gc(&mut self) {
@@ -468,10 +468,16 @@ impl<'a> VM<'a> {
             
             Instruction::CreateObject => {
                 let ty = &self.type_table[self.get_u64()? as usize] as *const u8;
+                if (ty as usize as u64) < 2 {
+                    panic!("Hmmm");
+                }
                 self.a = unsafe { self.alloc(ty) };
             }
             Instruction::CreateObjectOffset => {
                 let ty = &self.type_table[self.offset_table[self.get_u8()? as usize] as usize] as *const u8;
+                if (ty as usize as u64) < 2 {
+                    panic!("Hmmm");
+                }
                 self.a = unsafe { self.alloc(ty) };
             }
             Instruction::ReadProperty0 => {

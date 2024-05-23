@@ -3,7 +3,6 @@ mod tests;
 use std::hint::unreachable_unchecked;
 use std::marker::PhantomData;
 use std::mem::transmute;
-use std::ops::{Deref, DerefMut};
 use std::ptr::slice_from_raw_parts;
 
 pub struct Cursor<'a> {
@@ -23,6 +22,11 @@ pub struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
+    #[inline]
+    pub fn cursor(&self) -> *const u8 {
+        self.cursor
+    }
+    
     #[inline]
     pub fn new(slice: &[u8]) -> Self {
         Self {

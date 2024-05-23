@@ -33,18 +33,25 @@ const HINTS = {
 
 await write("../mod.rs", `//! This file was automatically generated.
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Display, Formatter};
 
 #[derive(PartialEq, Copy, Clone)]
 #[repr(u8)]
 pub enum Error {${formattedCodes
-    .map(error => `\n    /// ${error.description}${error.context ? `\n    ///\n    /// Context: The error occurred ${error.context}` : ""}\n    ${error.format},`)
+    .map(error => `${error.hint ? `\n    /// **${error.hint}**\n    /// ` : ""}\n    /// ${error.description}${error.context ? `\n    ///\n    /// Context: The error occurred ${error.context}` : ""}\n    ${error.format},`)
     .join("\n")}
 }
 
 #[derive(PartialEq, Copy, Clone)]
 #[repr(u8)]
 pub enum Source {${Object.values(SOURCES).map(source => `\n    ${source},`).join("")}
+}
+
+impl Source {
+    pub fn as_str(self) -> &'static str {
+        match self {${Object.entries(SOURCES).map(([s, en]) => `\n            Source::${en} => "${s}",`).join("")}
+        }
+    }
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -58,19 +65,19 @@ impl Hint {
     Object
         .entries(HINTS)
         .map(([format, enumeration]) =>
-            `\n            Hint::${enumeration} => "${format}",`)
+            `\n            Hint::${enumeration} => "${format}. ",`)
         .join("")
 }
         }
     }
 }
 
-impl Debug for Error {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {${
     formattedCodes
         .map(error =>
-            `\n            Error::${error.format} => f.write_str("${error.description}"),`)
+            `\n            Error::${error.format} => f.write_str(${JSON.stringify(error.description)}),`)
         .join("")
 }
         }

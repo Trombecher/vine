@@ -3,16 +3,17 @@
 #![feature(iter_advance_by)]
 #![feature(layout_for_ptr)]
 #![feature(const_alloc_layout)]
-#![allow(warnings)] // TODO: disallow in the future
+#![feature(ptr_sub_ptr)]
+#![allow(unused)]
 
 use std::fmt::Debug;
 
 pub mod chars;
 pub mod lex;
-// pub mod parse;
-// pub mod resolve;
-// pub mod vm;
-// pub mod transpile;
+pub mod parse;
+pub mod resolve;
+pub mod vm;
+pub mod transpile;
 mod error;
 pub use error::Error;
 
