@@ -129,7 +129,11 @@ pub enum StatementKind<'s> {
         ty: Type<'s>,
     },
     Use(Use<'s>),
-    Module(Module<'s>)
+    RootUse(UseChild<'s>),
+    Module {
+        id: &'s str,
+        content: Option<ModuleContent<'s>>
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -164,10 +168,7 @@ pub enum StatementOrExpression<'s> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Module<'s> {
-    pub id: &'s str,
-    pub items: Option<Vec<TopLevelItem<'s>>>
-}
+pub struct ModuleContent<'s>(pub Vec<TopLevelItem<'s>>);
 
 #[derive(Debug, PartialEq)]
 pub struct TopLevelItem<'s> {

@@ -5,10 +5,15 @@ mod tests;
 use std::hint::unreachable_unchecked;
 use std::mem::transmute;
 use std::ptr::slice_from_raw_parts;
-use super::chars::Cursor;
+use parse_tools::bytes;
 use token::{KEYWORDS, Symbol, Token};
-use crate::lex::token::TokenIterator;
-use super::{Error, Span};
+use crate::{
+    lex::token::TokenIterator,
+    Error,
+    Span
+};
+
+use parse_tools::bytes::Cursor;
 
 pub enum Layer {
     /// This layer expects `key=`, `/>` or `>`.
@@ -49,6 +54,26 @@ const fn try_to_hex(byte: u8) -> Option<u8> {
     }
 }
 
+impl Into<Error> for bytes::Error {
+    fn into(self) -> Error {
+        match self {
+            bytes::Error::EncounteredContinuationByte => Error::E0000,
+            bytes::Error::Missing2ndOf2 => Error::E0001,
+            bytes::Error::Invalid2ndOf2 => Error::E0001,
+            bytes::Error::Missing2ndOf3 => Error::E0003,
+            bytes::Error::Invalid2ndOf3 => Error::E0003,
+            bytes::Error::Missing3rdOf3 => Error::E0005,
+            bytes::Error::Invalid3rdOf3 => Error::E0005,
+            bytes::Error::Missing2ndOf4 => Error::E0007,
+            bytes::Error::Invalid2ndOf4 => Error::E0007,
+            bytes::Error::Missing3rdOf4 => Error::E0009,
+            bytes::Error::Invalid3rdOf4 => Error::E0009,
+            bytes::Error::Missing4thOf4 => Error::E0011,
+            bytes::Error::Invalid4thOf4 => Error::E0011,
+        }
+    }
+}
+
 impl<'a> Lexer<'a> {
     pub fn new(cursor: Cursor<'a>) -> Self {
         Self {
@@ -59,7 +84,7 @@ impl<'a> Lexer<'a> {
     }
     
     fn unescape_char(&mut self) -> Result<char, Error> {
-        match self.cursor.next() {
+        match self.cursor.next_lfn() {
             None => Err(Error::E0013),
             Some(b'0') => Ok('\0'),     // Null character
             Some(b'\\') => Ok('\\'),    // Backslash
@@ -73,13 +98,13 @@ impl<'a> Lexer<'a> {
             Some(b'\'') => Ok('\''),    // Single quote
             Some(b'[') => Ok('\u{1B}'), // Escape
             Some(b'x') => {             // Hexadecimal code
-                match self.cursor.next() {
+                match self.cursor.next_lfn() {
                     None => Err(Error::E0021),
                     Some(x) => match try_to_hex(x) {
                         None => Err(Error::E0022),
                         Some(8..) => Err(Error::E0023),
                         Some(x) => {
-                            match self.cursor.next() {
+                            match self.cursor.next_lfn() {
                                 None => Err(Error::E0024),
                                 Some(y) => match try_to_hex(y) {
                                     None => Err(Error::E0025),
@@ -91,8 +116,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             Some(b'u') => {             // Unicode code point
-                match self.cursor.next() {
-                    None => todo!(),
+                match self.cursor.next_lfn() {
                     Some(b'{') => {}
                     _ => todo!(),
                 }
@@ -108,7 +132,7 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn parse_number_dec(&mut self, mut number: f64) -> Result<Token<'a>, Error> {
         loop {
-            match self.cursor.next_raw() {
+            match self.cursor.next() {
                 Some(b'_') => {}
                 Some(b'0') => number *= 10.,
                 Some(b'1') => number = number * 10. + 1.,
@@ -126,7 +150,7 @@ impl<'a> Lexer<'a> {
                 },
                 Some(x) if x.is_ascii_alphabetic() => return Err(Error::E0017),
                 Some(_) => {
-                    self.cursor.rewind_u8();
+                    self.cursor.rewind();
                     break
                 }
                 None => break,
@@ -138,7 +162,7 @@ impl<'a> Lexer<'a> {
     
     #[inline]
     fn parse_number_dec_tail(&mut self, mut number: f64) -> Result<f64, Error> {
-        match self.cursor.next_raw() {
+        match self.cursor.next() {
             Some(b'0') => {},
             Some(b'1') => number += 0.1,
             Some(b'2') => number += 0.2,
@@ -150,8 +174,8 @@ impl<'a> Lexer<'a> {
             Some(b'8') => number += 0.8,
             Some(b'9') => number += 0.9,
             _ => {
-                self.cursor.rewind_u8();
-                self.cursor.rewind_u8();
+                self.cursor.rewind();
+                self.cursor.rewind();
 
                 return Ok(number)
             },
@@ -160,7 +184,7 @@ impl<'a> Lexer<'a> {
         let mut multiplier = 0.1;
 
         loop {
-            number += match self.cursor.next() {
+            number += match self.cursor.next_lfn() {
                 Some(b'_') => continue,
                 Some(b'0') => {
                     multiplier *= 0.1;
@@ -215,7 +239,7 @@ impl<'a> Lexer<'a> {
         let mut s = String::with_capacity(32);
 
         loop {
-            match self.cursor.peek_raw() {
+            match self.cursor.peek() {
                 Some(b'"') => {
                     unsafe { self.cursor.advance_unchecked(); }
                     break Ok(s)
@@ -229,7 +253,7 @@ impl<'a> Lexer<'a> {
                     let start = self.cursor.cursor();
                     
                     if let Err(e) = self.cursor.advance_char() {
-                        break Err(e)
+                        break Err(e.into())
                     }
                     
                     unsafe {
@@ -244,12 +268,12 @@ impl<'a> Lexer<'a> {
         let recorder = self.cursor.begin_recording();
 
         loop {
-            match recorder.cursor.next() {
+            match recorder.cursor.next_lfn() {
                 Some(x) if x.is_ascii_alphanumeric() || x == b'_' => {}
                 Some(128..=255) => return Err(Error::E0020),
                 None => break,
                 _ => {
-                    recorder.cursor.rewind_ascii();
+                    recorder.cursor.rewind_lfn();
                     break
                 },
             }
@@ -262,11 +286,11 @@ impl<'a> Lexer<'a> {
         let recorder = self.cursor.begin_recording();
 
         loop {
-            match recorder.cursor.next() {
+            match recorder.cursor.next_lfn() {
                 None | Some(b'\n') => break,
                 Some(128..=255) => {
-                    recorder.cursor.rewind_ascii();
-                    recorder.cursor.advance_char()?;
+                    recorder.cursor.rewind_lfn();
+                    recorder.cursor.advance_char().map_err(|e| e.into())?;
                 }
                 _ => {}
             }
@@ -307,7 +331,7 @@ impl<'a> Lexer<'a> {
         
         self.skip_white_space();
         
-        match self.cursor.next() {
+        match self.cursor.next_lfn() {
             Some(b'>') => Ok(Span {
                 value: Token::MarkupEndTag(tag_name),
                 start,
@@ -319,7 +343,7 @@ impl<'a> Lexer<'a> {
     
     fn skip_white_space(&mut self) {
         loop {
-            match self.cursor.peek_raw() {
+            match self.cursor.peek() {
                 Some(x) if x.is_ascii_whitespace() => {
                     unsafe { self.cursor.advance_unchecked() }
                 }
@@ -332,7 +356,7 @@ impl<'a> Lexer<'a> {
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {{
                 unsafe { self.cursor.advance_unchecked() };
-                match self.cursor.peek_raw() {
+                match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         $eq
@@ -344,12 +368,12 @@ impl<'a> Lexer<'a> {
 
         let start = self.cursor.index();
         
-        let token = match self.cursor.peek_raw() {
+        let token = match self.cursor.peek() {
             None => Token::EndOfInput,
             Some(b'0') => {
                 unsafe { self.cursor.advance_unchecked() };
                 
-                match self.cursor.next() {
+                match self.cursor.next_lfn() {
                     Some(b'x') => todo!("hex numbers"), // self.parse_number::<16>(0.)?,
                     Some(b'o') => todo!("octal numbers"), // self.parse_number::<8>(0.)?,
                     Some(b'b') => todo!("binary numbers"), // self.parse_number::<2>(0.)?,
@@ -366,7 +390,7 @@ impl<'a> Lexer<'a> {
                     Some(b'8') => self.parse_number_dec(8.)?,
                     Some(b'9') => self.parse_number_dec(9.)?,
                     Some(_) => {
-                        self.cursor.rewind_ascii();
+                        self.cursor.rewind_lfn();
                         Token::Number(0.)
                     }
                     None => Token::Number(0.)
@@ -412,7 +436,7 @@ impl<'a> Lexer<'a> {
                 unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::LeftAngleEquals
@@ -426,7 +450,7 @@ impl<'a> Lexer<'a> {
                 
                 self.potential_markup = true;
 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::RightAngleEquals
@@ -447,7 +471,7 @@ impl<'a> Lexer<'a> {
                 unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
                 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::MinusEquals
@@ -463,7 +487,7 @@ impl<'a> Lexer<'a> {
                 unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
                 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::StarEquals
@@ -475,7 +499,7 @@ impl<'a> Lexer<'a> {
             Some(b'/') => {
                 self.potential_markup = true;
                 
-                match self.cursor.peek_raw() {
+                match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Token::Symbol(Symbol::SlashEquals)
@@ -483,7 +507,7 @@ impl<'a> Lexer<'a> {
                     Some(b'/') => {
                         unsafe { self.cursor.advance_unchecked() };
                         
-                        match self.cursor.peek_raw() {
+                        match self.cursor.peek() {
                             Some(b'/') => {
                                 unsafe { self.cursor.advance_unchecked() };
                                 Token::DocComment(self.parse_comment()?)
@@ -502,7 +526,7 @@ impl<'a> Lexer<'a> {
                 unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
                 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::PipeEquals
@@ -515,7 +539,7 @@ impl<'a> Lexer<'a> {
                 unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::AmpersandEquals
@@ -582,7 +606,7 @@ impl<'a> Lexer<'a> {
             Some(b':') => {
                 unsafe { self.cursor.advance_unchecked() };
 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b':') => return Err(Error::E0027),
                     _ => Symbol::Colon
                 })
@@ -590,7 +614,7 @@ impl<'a> Lexer<'a> {
             Some(b'!') => {
                 unsafe { self.cursor.advance_unchecked() };
                 
-                match self.cursor.peek_raw() {
+                match self.cursor.peek() {
                     Some(b'=') => {
                         unsafe { self.cursor.advance_unchecked() };
                         self.potential_markup = true;
@@ -603,7 +627,7 @@ impl<'a> Lexer<'a> {
             Some(b'?') => {
                 unsafe { self.cursor.advance_unchecked() };
                 
-                Token::Symbol(match self.cursor.peek_raw() {
+                Token::Symbol(match self.cursor.peek() {
                     Some(b'.') => {
                         unsafe { self.cursor.advance_unchecked() };
                         Symbol::QuestionMarkDot
@@ -614,7 +638,7 @@ impl<'a> Lexer<'a> {
             Some(b'\'') => {
                 unsafe { self.cursor.advance_unchecked() };
                 
-                let char = match self.cursor.next() {
+                let char = match self.cursor.next_lfn() {
                     None => return Err(Error::E0030),
                     Some(b'\\') => {
                         self.unescape_char()?
@@ -622,7 +646,7 @@ impl<'a> Lexer<'a> {
                     Some(char) => char.into(),
                 };
 
-                match self.cursor.next() {
+                match self.cursor.next_lfn() {
                     Some(b'\'') => {}
                     None => return Err(Error::E0031),
                     _ => return Err(Error::E0032)
@@ -668,7 +692,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                 if self.potential_markup {
                     self.potential_markup = false;
 
-                    if self.cursor.peek_raw() == Some(b'<') {
+                    if self.cursor.peek() == Some(b'<') {
                         unsafe { self.cursor.advance_unchecked() }
                         self.parse_start_tag()
                     } else {
@@ -683,7 +707,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
 
                 Ok(Span {
                     start: self.cursor.index(),
-                    value: match self.cursor.peek_raw() {
+                    value: match self.cursor.peek() {
                         Some(b'>') => {
                             unsafe { self.cursor.advance_unchecked(); }
                             self.layers.push(Layer::TextOrInsert);
@@ -693,7 +717,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                             unsafe { self.cursor.advance_unchecked(); }
                             self.skip_white_space();
 
-                            match self.cursor.next() {
+                            match self.cursor.next_lfn() {
                                 Some(b'>') => Token::MarkupClose,
                                 _ => return Err(Error::E0033)
                             }
@@ -710,7 +734,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
             Some(Layer::Value) => {
                 self.skip_white_space();
 
-                match self.cursor.next() {
+                match self.cursor.next_lfn() {
                     Some(b'=') => {}
                     _ => return Err(Error::E0035)
                 }
@@ -721,7 +745,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
 
                 Ok(Span {
                     start: self.cursor.index(),
-                    value: match self.cursor.next() {
+                    value: match self.cursor.next_lfn() {
                         Some(b'"') => Token::String(self.parse_string()?),
                         Some(b'{') => {
                             self.layers.push(Layer::Insert);
@@ -754,9 +778,9 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
 
                 let text = self.cursor.begin_recording();
                 loop {
-                    match text.cursor.peek_raw() {
+                    match text.cursor.peek() {
                         Some(b'<' | b'{') => break,
-                        Some(_) => text.cursor.advance_char()?,
+                        Some(_) => text.cursor.advance_char().map_err(|e| e.into())?,
                         None => return Err(Error::E0037),
                     }
                 }
@@ -765,12 +789,12 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                 Ok(if text.len() == 0 {
                     // If there is no text, we have to yield something.
 
-                    match self.cursor.next() {
+                    match self.cursor.next_lfn() {
                         // Yield an end tag or a nested element start
                         Some(b'<') => {
                             self.skip_white_space();
 
-                            match self.cursor.peek_raw() {
+                            match self.cursor.peek() {
                                 None => return Err(Error::E0038),
 
                                 // End tag
@@ -806,13 +830,13 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                 } else {
                     // There is some text, so we yield the text and prepare the next layer state.
 
-                    match self.cursor.peek_raw() {
+                    match self.cursor.peek() {
                         Some(b'<') => {
                             unsafe { self.cursor.advance_unchecked(); }
 
                             self.skip_white_space();
 
-                            match self.cursor.peek_raw() {
+                            match self.cursor.peek() {
                                 None => return Err(Error::E0038),
 
                                 // End tag

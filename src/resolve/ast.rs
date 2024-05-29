@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::parse::ast::Operation;
 use crate::Span;
 
@@ -13,30 +14,15 @@ pub enum Type {
 }
 
 #[derive(Debug)]
-pub enum Item {
-    Declaration {
-        is_mutable: bool,
-        ty: Option<Type>
-    },
-}
-
-pub enum TypeDeclaration {
-    Class {
-        
-    },
-    Enum(Vec<f64>)
-}
-
-#[derive(Debug)]
-pub enum Expression<'i> {
+pub enum Expression<'t> {
     Operation {
-        left: Box<Span<Expression<'i>>>,
+        left: Box<Span<Expression<'t>>>,
         operation: Operation,
-        right: Box<Span<Expression<'i>>>,
+        right: Box<Span<Expression<'t>>>,
     },
     // Assignment {}
-    Not(Box<Span<Expression<'i>>>),
-    Return(Box<Span<Expression<'i>>>),
+    Not(Box<Span<Expression<'t>>>),
+    Return(Box<Span<Expression<'t>>>),
     Continue,
     Break,
     // Function {}
@@ -44,7 +30,7 @@ pub enum Expression<'i> {
     String(String),
     // Scope(Vec<Span<StatementOrExpression>>),
     // Markup(MarkupElement<'s>)
-    Identifier(&'i Item),
+    Identifier(&'t Item<'t>),
     False,
     True,
     This,
@@ -52,8 +38,8 @@ pub enum Expression<'i> {
     // Access,
     // OptionalAccess,
     Call {
-        target: Span<&'i Item>,
-        arguments: Vec<Span<Expression<'i>>>
+        target: Span<&'t Item<'t>>,
+        arguments: Vec<Span<Expression<'t>>>
     },
     If {
     }
@@ -64,7 +50,20 @@ pub enum StatementOrExpression {
     
 }
 
-pub struct If<'i> {
-    pub condition: Box<Span<Expression<'i>>>,
-    pub body: Span<Vec<Span<Expression<'i>>>>,
+#[derive(Debug)]
+pub struct If<'t> {
+    pub condition: Box<Span<Expression<'t>>>,
+    pub body: Span<Vec<Span<Expression<'t>>>>,
+}
+
+#[derive(Debug)]
+pub struct Module<'t>(pub HashMap<&'t str, Item<'t>>);
+
+#[derive(Debug)]
+pub enum Item<'t> {
+    Module(Module<'t>),
+    Declaration {
+        is_mutable: bool,
+        value: Expression<'t>
+    }
 }

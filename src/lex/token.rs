@@ -1,6 +1,7 @@
 use std::fmt::Debug;
+use std::slice::Iter;
 use phf::phf_map;
-use crate::Span;
+use crate::{Error, Span};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token<'a> {

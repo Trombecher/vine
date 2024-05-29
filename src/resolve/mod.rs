@@ -1,18 +1,23 @@
 //! This module contains the AST for name resolution.
 
 pub mod ast;
-pub mod error;
-mod deps;
 
 use std::collections::HashMap;
-use crate::parse::ast as parse_ast;
+use std::io;
+use parse_tools::bytes::Cursor;
+use crate::lex::Lexer;
+use crate::parse::{ast as parse_ast, ParseContext};
+use crate::parse::ast::ModuleContent;
+use crate::resolve::ast::Module;
 
-pub fn get_dependencies(module: parse_ast::Module) {
+pub fn process<'t>(root_path: &str) -> Result<Module, Vec<crate::Error>> {
+    let mut modules = HashMap::<String, (Box<[u8]>, ModuleContent)>::new();
     
-}
-
-pub fn resolve(module: parse_ast::Module) -> HashMap<&str, ()> {
-    let item_map = HashMap::new();
+    let data = Box::new(*b"let x = 20;");
+    let mut parser = ParseContext::new(Lexer::new(Cursor::new(data.as_slice()))).unwrap();
+    let module_content = parser.parse_module().unwrap();
     
-    item_map
+    modules.insert("".to_string(), (data, module_content));
+    
+    todo!()
 }

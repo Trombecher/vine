@@ -5,7 +5,7 @@ use std::slice;
 use crate::lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::{Error, Span};
 use crate::parse::ast::{Expression, FunctionSignature, ItemPath, Parameter, StatementOrExpression, Type, TypeParameter};
-use crate::parse::{bp, Parser};
+use crate::parse::{bp, ParseContext};
 
 impl<'a, T> TokenIterator<'a> for T where T: Iterator<Item = Token<'a>> {
     fn next_token(&mut self) -> Result<Span<Token<'a>>, Error> {
@@ -16,8 +16,8 @@ impl<'a, T> TokenIterator<'a> for T where T: Iterator<Item = Token<'a>> {
     }
 }
 
-fn test<const N: usize, F: FnOnce(&mut Parser<'static, Copied<slice::Iter<Token<'static>>>>) -> Result<(), Error>>(tokens: [Token<'static>; N], test: F) {
-    let mut parser = Parser::new(tokens.iter().copied()).unwrap();
+fn test<const N: usize, F: FnOnce(&mut ParseContext<'static, Copied<slice::Iter<Token<'static>>>>) -> Result<(), Error>>(tokens: [Token<'static>; N], test: F) {
+    let mut parser = ParseContext::new(tokens.iter().copied()).unwrap();
     if let Err(e) = test(&mut parser) {
         panic!("Error: {:?}\n\nLast token: {:?}", e, parser.last_token);
     }
@@ -25,7 +25,7 @@ fn test<const N: usize, F: FnOnce(&mut Parser<'static, Copied<slice::Iter<Token<
 
 #[test]
 fn scope() {
-    let scope = Parser::new([
+    let scope = ParseContext::new([
         Token::Symbol(Symbol::LeftBrace),
         Token::Number(10.0),
         Token::Symbol(Symbol::RightBrace),
@@ -39,7 +39,7 @@ fn scope() {
 
 #[test]
 fn tps() {
-    let tps = Parser::new([
+    let tps = ParseContext::new([
         Token::Symbol(Symbol::LeftAngle),
         Token::Identifier("T"),
         Token::Symbol(Symbol::Comma),
@@ -62,7 +62,7 @@ fn tps() {
 
 #[test]
 fn ex_fn() {
-    fn handle(parser: &mut Parser<'static, Copied<slice::Iter<Token<'static>>>>) -> Result<(), Error> {
+    fn handle(parser: &mut ParseContext<'static, Copied<slice::Iter<Token<'static>>>>) -> Result<(), Error> {
         assert_eq!(
             parser.parse_expression(bp::COMMA_AND_SEMICOLON)?,
             Span::zero(Expression::Function {

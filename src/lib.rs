@@ -8,13 +8,11 @@
 
 use std::fmt::Debug;
 
-pub mod chars;
 pub mod lex;
 pub mod parse;
-pub mod resolve;
 pub mod vm;
 pub mod transpile;
-mod error;
+pub mod error;
 pub use error::Error;
 
 #[derive(Debug, PartialEq)]

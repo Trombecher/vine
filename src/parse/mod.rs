@@ -1,23 +1,22 @@
 pub mod ast;
 pub mod bp;
-pub mod error;
 mod tests;
 
 use std::hint::unreachable_unchecked;
 use std::mem::swap;
 use crate::lex::token::{Keyword, Symbol, Token, TokenIterator};
-use crate::Span;
+use crate::{Error, Span};
 
 use ast::*;
 
-pub struct Parser<'s, T: TokenIterator<'s>> {
+pub struct ParseContext<'s, T: TokenIterator<'s>> {
     token_iterator: T,
     last_token: Span<Token<'s>>,
 }
 
-impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
+impl<'s, T: TokenIterator<'s>> ParseContext<'s, T> {
     #[inline]
-    pub fn new(mut token_iterator: T) -> Result<Parser<'s, T>, crate::Error> {
+    pub fn new(mut token_iterator: T) -> Result<ParseContext<'s, T>, Error> {
         Ok(Self {
             last_token: token_iterator.next_token()?,
             token_iterator,
@@ -51,12 +50,12 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
     }
 
     #[inline]
-    fn next_token(&mut self) -> Result<(), crate::Error> {
+    fn next_token(&mut self) -> Result<(), Error> {
         match self.token_iterator.next_token() {
             Ok(x) => {
                 self.last_token = x;
                 Ok(())
-            },
+            }
             Err(x) => Err(x),
         }
     }
@@ -68,7 +67,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
     /// Assumes that the first token of the module has already been generated.
     /// Ends on [Symbol::RightBrace] or [Token::EndOfInput].
-    pub fn parse_module(&mut self, id: &'s str) -> Result<Module<'s>, crate::Error> {
+    pub fn parse_module(&mut self) -> Result<ModuleContent<'s>, Error> {
         let mut items = Vec::new();
 
         loop {
@@ -84,26 +83,24 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
             items.push(TopLevelItem {
                 is_public,
-                // UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock
-                statement: self.try_parse_statement()?.ok_or_else(|| todo!())?,
+                statement: self.try_parse_statement()?.ok_or_else(|| Error::E0039)?,
             });
 
             self.next_token()?;
         }
 
-        Ok(Module {
-            id,
-            items: Some(items),
-        })
+        Ok(ModuleContent(items))
     }
-    
+
+    /// Parses type parameters.
+    ///
     /// First token is `<` or other. Ends on the token after `>`.
-    fn parse_tps(&mut self) -> Result<Vec<TypeParameter<'s>>, crate::Error> {
+    fn parse_tps(&mut self) -> Result<Vec<TypeParameter<'s>>, Error> {
         match &self.last_token.value {
-            Token::Symbol(Symbol::LeftAngle) => {},
+            Token::Symbol(Symbol::LeftAngle) => {}
             _ => return Ok(Vec::new()),
         };
-        
+
         let mut tps = Vec::new();
 
         self.next_token()?;
@@ -112,7 +109,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
             let id = match &self.last_token.value {
                 Token::Identifier(id) => *id,
                 Token::Symbol(Symbol::RightAngle) => break,
-                _ => todo!(),
+                _ => return Err(Error::E0040),
             };
 
             tps.push(TypeParameter {
@@ -124,15 +121,15 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
             match &self.last_token.value {
                 Token::Symbol(Symbol::Colon) => todo!("traits"),
                 Token::Symbol(Symbol::Comma) => self.next_token()?,
-                _ => {},
+                _ => {}
             }
         }
 
         self.next_token()?;
-        
+
         Ok(tps)
     }
-    
+
     /// Tries to parse a statement.
     ///
     /// # Tokens
@@ -140,8 +137,8 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
     /// Expects the first token of the statement to already been consumed.
     /// If it matches nothing, `None` will be returned.
     ///
-    /// Ends on [Symbol::Semicolon] or [Symbol::RightBrace].
-    pub fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'s>>>, crate::Error> {
+    /// Ends on [Symbol::Semicolon] or [Symbol::RightBrace] if [Some].
+    pub fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'s>>>, Error> {
         let start = self.last_token.start;
 
         let mut annotations = Vec::new();
@@ -156,7 +153,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
             let id = match &self.last_token.value {
                 Token::Identifier(id) => *id,
-                _ => todo!()
+                _ => return Err(Error::E0042)
             };
 
             annotations.push(Annotation {
@@ -173,44 +170,46 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
-                    _ => todo!()
+                    _ => return Err(Error::E0071),
                 };
 
                 self.next_token()?;
 
-                Some(StatementKind::Module(match &self.last_token.value {
-                    Token::Symbol(Symbol::LeftBrace) => {
-                        self.next_token()?;
+                Some(StatementKind::Module {
+                    id,
+                    content: match &self.last_token.value {
+                        Token::Symbol(Symbol::LeftBrace) => {
+                            self.next_token()?;
 
-                        let module = self.parse_module(id)?;
-                        match &self.last_token.value {
-                            Token::Symbol(Symbol::RightBrace) => {}
-                            _ => todo!()
+                            let module = self.parse_module()?;
+
+                            match &self.last_token.value {
+                                Token::Symbol(Symbol::RightBrace) => {}
+                                _ => return Err(Error::E0072)
+                            }
+
+                            Some(module)
                         }
-                        module
-                    }
-                    Token::Symbol(Symbol::Semicolon) => Module {
-                        id,
-                        items: None,
+                        Token::Symbol(Symbol::Semicolon) => None,
+                        _ => return Err(Error::E0073),
                     },
-                    _ => todo!()
-                }))
+                })
             }
             Token::Keyword(Keyword::Fn) => {
                 self.next_token()?;
 
                 let tps = self.parse_tps()?;
-                
+
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
-                    _ => todo!()
+                    _ => return Err(Error::E0074),
                 };
 
                 self.next_token()?;
-                
+
                 match &self.last_token.value {
                     Token::Symbol(Symbol::LeftParenthesis) => {}
-                    _ => todo!("UnexpectedTokenError::ExpectedLeftParenthesis")
+                    _ => return Err(Error::E0076),
                 }
 
                 let (parameters, has_this_parameter) = self.parse_function_parameters()?;
@@ -219,14 +218,18 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 let return_type = Some(match &self.last_token.value {
                     Token::Symbol(Symbol::LeftBrace) => Type::Nil,
-                    Token::Symbol(Symbol::MinusRightAngle) => self.parse_type()?,
-                    _ => todo!()
-                });
+                    Token::Symbol(Symbol::MinusRightAngle) => {
+                        let ty = self.parse_type()?;
+                        
+                        match &self.last_token.value {
+                            Token::Symbol(Symbol::LeftBrace) => {}
+                            _ => return Err(Error::E0077)
+                        }
 
-                match &self.last_token.value {
-                    Token::Symbol(Symbol::LeftBrace) => {}
-                    _ => todo!("UnexpectedTokenError::NamedFunctionBodiesMustBeSurroundedByBraces")
-                }
+                        ty
+                    },
+                    _ => return Err(Error::E0075)
+                });
 
                 let body = Box::new(Span {
                     start: self.last_token.start,
@@ -256,12 +259,13 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
             Token::Keyword(Keyword::Use) => {
                 self.next_token()?;
 
-                let id = match &self.last_token.value {
-                    Token::Identifier(id) => *id,
-                    token => todo!("expected id after use {:?}", token)
-                };
-
-                Some(StatementKind::Use(self.parse_use(id)?))
+                match &self.last_token.value {
+                    Token::Identifier(id) => Some(StatementKind::Use(self.parse_use(*id)?)),
+                    Token::Symbol(Symbol::Dot) => {
+                        Some(StatementKind::RootUse(self.try_parse_use_child()?.ok_or_else(|| Error::E0047)?))
+                    }
+                    token => return Err(Error::E0048),
+                }
             }
             Token::Keyword(Keyword::Let) => {
                 self.next_token()?;
@@ -276,7 +280,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 let id = match &self.last_token.value {
                     Token::Identifier(identifier) => *identifier,
-                    _ => todo!("ut")
+                    _ => return Err(Error::E0050),
                 };
 
                 self.next_token()?;
@@ -291,7 +295,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                         self.next_token()?;
                         Some(Box::new(self.parse_expression(bp::COMMA_AND_SEMICOLON)?))
                     }
-                    token => todo!("{:?}", token)
+                    _ => None,
                 };
 
                 Some(StatementKind::Declaration {
@@ -306,17 +310,17 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 // Parse type parameters
                 let tps = self.parse_tps()?;
-                
+
                 let id = match &self.last_token.value {
                     Token::Identifier(id) => *id,
-                    _ => todo!("struct: expected identifier")
+                    _ => return Err(Error::E0050),
                 };
 
                 self.next_token()?;
 
                 match &self.last_token.value {
                     Token::Symbol(Symbol::LeftParenthesis) => {}
-                    _ => todo!()
+                    _ => return Err(Error::E0052),
                 }
 
                 let mut fields = Vec::new();
@@ -325,7 +329,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                 loop {
                     let start = self.last_token.start;
-                    
+
                     let is_public = match &self.last_token.value {
                         Token::Symbol(Symbol::RightParenthesis) => break,
                         Token::Keyword(Keyword::Pub) => {
@@ -337,7 +341,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                     let id = match &self.last_token.value {
                         Token::Identifier(id) => *id,
-                        _ => todo!()
+                        _ => return Err(Error::E0053),
                     };
 
                     self.next_token()?;
@@ -346,7 +350,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                         Token::Symbol(Symbol::Colon) => Some(self.parse_type()?),
                         _ => None,
                     };
-                    
+
                     fields.push(Span {
                         start,
                         value: StructField {
@@ -360,7 +364,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     match &self.last_token.value {
                         Token::Symbol(Symbol::Comma) => self.next_token()?,
                         Token::Symbol(Symbol::RightParenthesis) => {}
-                        _ => todo!()
+                        _ => return Err(Error::E0054),
                     }
                 }
 
@@ -370,7 +374,12 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     fields,
                 })
             }
-            _ => None
+            _ => {
+                if annotations.len() != 0 {
+                    return Err(Error::E0041);
+                }
+                None
+            }
         };
 
         Ok(statement_kind.map(|statement_kind| Span {
@@ -383,20 +392,10 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
         }))
     }
 
-    /// Expects the first token to be the identifier. Ends on [Symbol::RightBrace] or [Symbol::Semicolon].
-    ///
-    /// # Syntax
-    ///
-    /// ```vine
-    /// use x; // no child
-    /// use x.y; // single child
-    /// use x.{y, z}; // multiple children
-    /// use x.*; // all children
-    /// ```
-    fn parse_use(&mut self, id: &'s str) -> Result<Use<'s>, crate::Error> {
-        self.next_token()?;
-
-        let child: Option<UseChild<'s>> = match &self.last_token.value {
+    /// Expects the first token to be generated. If it returns `None`, it does nothing,
+    /// otherwise it ends on either [Symbol::Comma], [Symbol::RightBrace] or [Symbol::Semicolon].
+    fn try_parse_use_child(&mut self) -> Result<Option<UseChild<'s>>, Error> {
+        Ok(match &self.last_token.value {
             Token::Symbol(Symbol::Semicolon)
             | Token::Symbol(Symbol::Comma)
             | Token::Symbol(Symbol::RightBrace) => None,
@@ -414,13 +413,13 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                             match &self.last_token.value {
                                 Token::Identifier(id) => children.push(self.parse_use(*id)?),
                                 Token::Symbol(Symbol::RightBrace) => break,
-                                _ => todo!()
+                                _ => return Err(Error::E0043),
                             }
 
                             match &self.last_token.value {
                                 Token::Symbol(Symbol::Comma) => self.next_token()?,
                                 Token::Symbol(Symbol::RightBrace) => {}
-                                _ => todo!()
+                                _ => return Err(Error::E0044),
                             }
                         }
 
@@ -428,26 +427,37 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     }
                     Token::Symbol(Symbol::Star) => {
                         self.next_token()?;
-
-                        match &self.last_token.value {
-                            Token::Symbol(Symbol::Semicolon) => Some(UseChild::All),
-                            _ => todo!()
-                        }
+                        Some(UseChild::All)
                     }
-                    _ => todo!("Use child error")
+                    _ => return Err(Error::E0045)
                 }
             }
-            token => todo!("{:?}", token)
-        };
+            token => return Err(Error::E0046)
+        })
+    }
+
+    /// Expects the first token to be the identifier. Ends on either [Symbol::Comma], [Symbol::RightBrace] or [Symbol::Semicolon].
+    ///
+    /// # Syntax
+    ///
+    /// ```vine
+    /// use x; // no child
+    /// use x.y; // single child
+    /// use x.{y, z}; // multiple children
+    /// use x.*; // all children
+    /// ```
+    #[inline]
+    fn parse_use(&mut self, id: &'s str) -> Result<Use<'s>, Error> {
+        self.next_token()?;
 
         Ok(Use {
             id,
-            child,
+            child: self.try_parse_use_child()?,
         })
     }
 
     /// Assumes that the last token is `{`. Ends on `}`.
-    fn parse_scope(&mut self) -> Result<Vec<Span<StatementOrExpression<'s>>>, crate::Error> {
+    fn parse_scope(&mut self) -> Result<Vec<Span<StatementOrExpression<'s>>>, Error> {
         let mut body = Vec::new();
 
         self.next_token()?;
@@ -469,14 +479,14 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     }
                 }
                 Token::Symbol(Symbol::RightBrace) => break,
-                _ => todo!("UnexpectedTokenError::ExpectedSemicolonOrRightBraceWhileParsingEndOfBlock")
+                _ => return Err(Error::E0049)
             }
         }
 
         Ok(body)
     }
 
-    fn parse_markup_element(&mut self, identifier: &'s str, start: u64) -> Result<MarkupElement<'s>, crate::Error> {
+    fn parse_markup_element(&mut self, identifier: &'s str, start: u64) -> Result<MarkupElement<'s>, Error> {
         let mut attributes = Vec::new();
 
         let children = loop {
@@ -503,7 +513,8 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                             }
                             Token::MarkupEndTag(tag_name) => {
                                 if *tag_name != identifier {
-                                    todo!("Error::TagNamesDoNotMatch {:?} != {:?}", tag_name, identifier)
+                                    // TODO: Display tag names.
+                                    return Err(Error::E0055);
                                 }
                                 self.next_token()?;
                                 break;
@@ -532,7 +543,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                 Token::Symbol(Symbol::LeftBrace) => Expression::Scope(self.parse_scope()?),
                 Token::String(_) => {
                     Expression::String(unsafe { self.take_string_unchecked() })
-                },
+                }
                 token => unreachable!("Got token: {:?}. This token should not have been generated by the lexer.", token)
             };
 
@@ -547,7 +558,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
     }
 
     /// Assumes that the last token is `(`. Always ends on `)`.
-    fn parse_function_parameters(&mut self) -> Result<(Vec<Parameter<'s>>, bool), crate::Error> {
+    fn parse_function_parameters(&mut self) -> Result<(Vec<Parameter<'s>>, bool), Error> {
         let mut parameters = Vec::new();
         let mut has_this_parameter = false;
 
@@ -567,7 +578,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     match &self.last_token.value {
                         Token::Symbol(Symbol::Comma) => self.next_token()?,
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => todo!()
+                        _ => return Err(Error::E0056),
                     }
 
                     continue;
@@ -577,19 +588,19 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
             let identifier = match &self.last_token.value {
                 Token::Identifier(identifier) => *identifier,
-                _ => todo!("UnexpectedTokenError::ExpectedIdentifierOrLeftParenthesis")
+                _ => return Err(Error::E0057)
             };
-            
+
             self.next_token()?;
 
             let ty = match &self.last_token.value {
                 Token::Symbol(Symbol::Colon) => Some(self.parse_type()?),
                 _ => None,
             };
-            
+
             match &self.last_token.value {
                 Token::Symbol(Symbol::Comma) => self.next_token()?,
-                _ => {},
+                _ => {}
             };
 
             parameters.push(Parameter {
@@ -603,7 +614,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
     }
 
     /// Assumes that the first token was not consumed. Consumes next.
-    fn parse_type(&mut self) -> Result<Type<'s>, crate::Error> {
+    fn parse_type(&mut self) -> Result<Type<'s>, Error> {
         self.next_token()?;
 
         Ok(match &self.last_token.value {
@@ -624,10 +635,10 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                             match &self.last_token.value {
                                 Token::Identifier(id) => path.push(*id),
-                                _ => todo!()
+                                _ => return Err(Error::E0058)
                             }
                         }
-                        Token::Symbol(Symbol::LeftAngle) => todo!("Generics"),
+                        Token::Symbol(Symbol::LeftAngle) => todo!("type parameters"),
                         _ => break
                     }
                 }
@@ -640,11 +651,11 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
             Token::Keyword(Keyword::Fn) => {
                 todo!("Function")
             }
-            token => todo!("{:?}", token)
+            token => return Err(Error::E0059),
         })
     }
 
-    fn parse_statement_or_expression(&mut self, min_bp: u8) -> Result<Span<StatementOrExpression<'s>>, crate::Error> {
+    fn parse_statement_or_expression(&mut self, min_bp: u8) -> Result<Span<StatementOrExpression<'s>>, Error> {
         Ok(if let Some(statement) = self.try_parse_statement()? {
             statement
                 .map(|s| StatementOrExpression::Statement(s))
@@ -657,7 +668,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
     /// Assumes that the first token was already consumed.
     /// Ends on [Symbol::Semicolon] or [Symbol::Comma] or [Symbol::RightParenthesis]
     /// or [Symbol::RightBrace] or [Symbol::RightBracket] or [Symbol::LeftBrace] or [Token::EndOfInput].
-    fn parse_expression(&mut self, min_bp: u8) -> Result<Span<Expression<'s>>, crate::Error> {
+    fn parse_expression(&mut self, min_bp: u8) -> Result<Span<Expression<'s>>, Error> {
         let start = self.last_token.start;
 
         let mut left_side = Span {
@@ -688,26 +699,28 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                     self.next_token()?;
 
                     let tps = self.parse_tps()?;
-                    
+
                     match &self.last_token.value {
-                        Token::Symbol(Symbol::LeftParenthesis) => {},
-                        _ => todo!()
+                        Token::Symbol(Symbol::LeftParenthesis) => {}
+                        _ => return Err(Error::E0060),
                     }
-                    
+
                     let (parameters, has_this_parameter) = self.parse_function_parameters()?;
-                    
+
                     self.next_token()?;
-                    
+
                     let return_type = match &self.last_token.value {
-                        Token::Symbol(Symbol::MinusRightAngle) => Some(self.parse_type()?),
+                        Token::Symbol(Symbol::MinusRightAngle) => {
+                            let ty = self.parse_type()?;
+                            match &self.last_token.value {
+                                Token::Symbol(Symbol::LeftBrace) => {}
+                                _ => return Err(Error::E0061),
+                            }
+                            Some(ty)
+                        },
                         _ => None
                     };
                     
-                    match &self.last_token.value {
-                        Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => todo!()
-                    }
-
                     Expression::Function {
                         signature: FunctionSignature {
                             return_type,
@@ -741,7 +754,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                     match &self.last_token.value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => todo!()
+                        _ => return Err(Error::E0062)
                     }
 
                     let body = self.parse_scope()?;
@@ -770,7 +783,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                                             end: self.last_token.end,
                                         });
                                     }
-                                    token => todo!("Else error {:?}", token)
+                                    token => return Err(Error::E0063),
                                 }
 
                                 self.next_token()?;
@@ -781,7 +794,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                                 match &self.last_token.value {
                                     Token::Symbol(Symbol::LeftBrace) => {}
-                                    _ => todo!()
+                                    _ => return Err(Error::E0064),
                                 }
 
                                 else_ifs.push(If {
@@ -833,7 +846,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                     match &self.last_token.value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => todo!()
+                        _ => return Err(Error::E0065),
                     }
 
                     let body = self.parse_scope()?;
@@ -848,7 +861,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                         },
                     }
                 }
-                token => todo!("{:?}", token),
+                token => return Err(Error::E0066),
             },
             end: self.last_token.end,
         };
@@ -930,7 +943,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                                 value: Box::new(self.parse_expression(bp::RELATIONAL.1)?),
                             }
                         } else {
-                            todo!("Error::InvalidAssignmentTarget")
+                            return Err(Error::E0067)
                         }
                     }
 
@@ -951,7 +964,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
 
                         let identifier = match &self.last_token.value {
                             Token::Identifier(identifier) => *identifier,
-                            _ => todo!(),
+                            _ => return Err(Error::E0068),
                         };
 
                         self.next_token()?;
@@ -980,7 +993,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                             match &self.last_token.value {
                                 Token::Symbol(Symbol::RightParenthesis) => {}
                                 Token::Symbol(Symbol::Comma) => self.next_token()?,
-                                _ => todo!("UnexpectedToken")
+                                _ => return Err(Error::E0069)
                             }
                         }
 
@@ -991,7 +1004,7 @@ impl<'s, T: TokenIterator<'s>> Parser<'s, T> {
                             arguments,
                         }
                     }
-                    token => todo!("{:?}", token),
+                    token => return Err(Error::E0070),
                 },
                 end: self.last_token.end,
             };
