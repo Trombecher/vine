@@ -1,0 +1,9 @@
+use std.num.Factors;
+
+fn main() {
+    let x = 2..3;
+
+    for factor in 0.factors() {
+        println("F: {factor}");
+    }
+}

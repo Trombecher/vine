@@ -78,7 +78,8 @@ pub enum Expression<'s> {
     Object(Vec<(&'s str, Expression<'s>)>),
     Access(Access<'s>),
     OptionalAccess(Access<'s>),
-    
+    Array(Vec<Expression<'s>>),
+
     // Primitives
     Number(f64),
     String(String),

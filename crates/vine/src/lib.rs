@@ -13,6 +13,8 @@ pub mod parse;
 pub mod vm;
 pub mod transpile;
 pub mod error;
+pub mod resolve;
+
 pub use error::Error;
 
 #[derive(Debug, PartialEq)]

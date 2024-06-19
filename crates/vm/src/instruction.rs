@@ -1,9 +1,12 @@
 use std::mem::transmute;
-use crate::vm::Error;
+use phf::phf_map;
+
+use crate::Error;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub enum Instruction {
+    Unreachable = 0x00,
     NoOperation,
 
     // Control flow
@@ -325,3 +328,16 @@ impl TryFrom<u8> for Instruction {
         }
     }
 }
+
+pub static INSTRUCTION_MAP: phf::Map<&'static str, Instruction> = phf_map!(
+    "unreachable" => Instruction::Unreachable,
+    "noop" => Instruction::NoOperation,
+    "push_a" => Instruction::PushA,
+    "push_b" => Instruction::PushB,
+    "push_r" => Instruction::PushR,
+    "+" => Instruction::Add,
+    "-" => Instruction::Subtract,
+    "*" => Instruction::Multiply,
+    "%" => Instruction::Remainder,
+    "/" => Instruction::Divide,
+);

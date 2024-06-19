@@ -11,7 +11,7 @@ fn main() {
     let now = Instant::now();
 
     let mut parser = ParseContext::new(Lexer::new(Cursor::new(source_file.as_slice()))).unwrap();
-    
+
     match parser.parse_module() {
         Ok(module) => {
             println!("{:?}\n{:#?}", now.elapsed(), module);

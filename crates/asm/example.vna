@@ -1,0 +1,7 @@
+entry main {
+    load_a "Enter your text to upper-case: "
+    stdout.write
+    stdin.read_line
+    to_upper_case
+    stdout.write_lf
+}

@@ -14,8 +14,10 @@
 //! This means that developers can use JavaScript and TypeScript libraries while developing in Vine.
 
 pub mod instruction;
-mod stack;
+pub mod stack;
 mod tests;
+pub mod parse;
+pub mod ast;
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::collections::HashSet;
@@ -23,8 +25,8 @@ use std::iter::Copied;
 use std::mem::{swap, transmute};
 use std::ptr::{NonNull, slice_from_raw_parts};
 use std::slice;
-use crate::vm::instruction::Instruction;
-use crate::vm::stack::Stack;
+use crate::instruction::Instruction;
+use crate::stack::Stack;
 
 const NUMBER_TYPE: u64 = 0;
 const NIL_TYPE: u64 = 1;

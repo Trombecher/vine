@@ -1,0 +1,23 @@
+impl num {
+    // ...
+
+    /// Creates a new factors iterator.
+    pub fn factors(this) -> Factors {
+        Factors(this, 1)
+    }
+}
+
+pub struct Factors(n: num, mut i: num);
+
+pub fn Factors.next(this) -> num? {
+    while this.i <= this.n {
+        if this.n % this.i == 0 {
+            this.i += 1;
+            return 0;
+        }
+
+        this.i += 1;
+    }
+
+    ()
+}

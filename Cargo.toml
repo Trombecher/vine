@@ -1,14 +1,7 @@
-[package]
-name = "vine"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[profile.release]
-lto = "fat"
-
-[dependencies]
-phf = { version = "0.11.2", features = ["macros"] }
-parse_tools = { path = "../parse_tools" }
-crossterm = "0.27.0"
+members = [ "crates/asm", "crates/set",
+    "crates/vine",
+    "crates/vm"
+]
