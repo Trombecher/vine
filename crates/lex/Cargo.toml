@@ -1,0 +1,9 @@
+[package]
+name = "lex"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parse_tools = { path = "../../../parse_tools" }
+phf = { version = "0.11.2", features = ["macros"] }
+error = { path = "../error" }

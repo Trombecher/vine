@@ -2,7 +2,7 @@ use std::io;
 use std::io::{Stdout, Write};
 use crossterm::{queue, QueueableCommand};
 use crossterm::style::{Print, PrintStyledContent, Stylize};
-use crate::Error;
+use vine::error::Error;
 
 pub fn format(error: Error, stdout: &mut Stdout) -> io::Result<()> {
     queue!(stdout,

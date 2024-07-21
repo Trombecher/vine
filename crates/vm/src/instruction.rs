@@ -1,5 +1,4 @@
 use std::mem::transmute;
-use phf::phf_map;
 
 use crate::Error;
 
@@ -305,14 +304,21 @@ pub enum Instruction {
     ReadStdin,
     ReadStdinLine,
     
-    WriteFile,
-    ReadFile,
-    FileExists,
     CreateDirectory,
-    ReadDirectory,
-    DeleteFile,
-    DeleteEmptyDirectory,
-    DeleteDirectoryRecursively,
+    CreateFile,
+    // Exists
+    IsFile,
+    IsDirectory,
+    WriteFile,
+    ReadFileOrDirectory,
+    DeleteFileOrDirectory,
+    SizeOfFileOrDirectory,
+    MoveFileOrDirectory,
+    CopyFileOrDirectory,
+    GetCreatedOfFileOrDirectory,
+    
+    MarkFileOrDirectoryAsTemporary,
+    MarkFileOrDirectoryAsPermanent,
     
     LastInstruction
 }
@@ -329,15 +335,9 @@ impl TryFrom<u8> for Instruction {
     }
 }
 
-pub static INSTRUCTION_MAP: phf::Map<&'static str, Instruction> = phf_map!(
-    "unreachable" => Instruction::Unreachable,
-    "noop" => Instruction::NoOperation,
-    "push_a" => Instruction::PushA,
-    "push_b" => Instruction::PushB,
-    "push_r" => Instruction::PushR,
-    "+" => Instruction::Add,
-    "-" => Instruction::Subtract,
-    "*" => Instruction::Multiply,
-    "%" => Instruction::Remainder,
-    "/" => Instruction::Divide,
-);
+impl Into<u8> for Instruction {
+    #[inline]
+    fn into(self) -> u8 {
+        self as u8
+    }
+}

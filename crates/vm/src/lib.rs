@@ -16,8 +16,6 @@
 pub mod instruction;
 pub mod stack;
 mod tests;
-pub mod parse;
-pub mod ast;
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::collections::HashSet;
@@ -99,7 +97,7 @@ impl Value {
     }
 }
 
-pub struct VM<'a> {
+pub struct VM<'a, const MAX_STACK_SIZE: usize> {
     /// General purpose register
     a: Value,
 
@@ -126,7 +124,7 @@ pub struct VM<'a> {
     static_table: &'a [Value],
 
     /// A stack for maintaining values.
-    stack: Stack,
+    stack: Stack<MAX_STACK_SIZE>,
     
     allocated_objects: HashSet<NonNull<Object>>,
 }
@@ -147,8 +145,9 @@ pub enum FileFormatError {
     InvalidMagicBytes([u8; 8]),
 }
 
-impl<'a> VM<'a> {
-    pub fn from(mut iter: Copied<slice::Iter<'a, u8>>) -> Result<VM<'a>, FileFormatError> {
+impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
+    /* 
+    pub fn from(mut iter: Copied<slice::Iter<'a, u8>>) -> Result<VM<'a, MAX_STACK_SIZE>, FileFormatError> {
         let magic_bytes = iter.next_chunk::<8>()
             .map_err(|_| FileFormatError::UnexpectedEndOfInput)?;
 
@@ -184,7 +183,7 @@ impl<'a> VM<'a> {
             stack: Stack::new(),
             allocated_objects: Default::default(),
         })
-    }
+    }*/
 
     #[inline]
     pub fn new(
@@ -193,7 +192,7 @@ impl<'a> VM<'a> {
         offset_table: &'a [u64],
         static_table: &'a [Value],
         type_table: &'a [u8]
-    ) -> VM<'a> {
+    ) -> VM<'a, MAX_STACK_SIZE> {
         Self {
             a: Value::nil(),
             b: Value::nil(),

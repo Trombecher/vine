@@ -1,7 +1,65 @@
-entry main {
-    load_a "Enter your text to upper-case: "
-    stdout.write
-    stdin.read_line
-    to_upper_case
-    stdout.write_lf
+// Expects an integer in A.
+fn $fib {
+    push_r // Push n onto the stack
+
+    load_a1
+    load_b0
+    load_r0
+
+    $start
+    swap_top_a
+    jnz non_zero
+    ret
+
+    .non_zero
+    dec
+    swap_top_a
+
+    add
+
+    push_a
+    pop_into_r
+
+    swap_br
+    swap_ar
+
+    jump $start
+}
+
+// Expects an integer in A.
+fn $fib_array {
+    push_a
+
+    vec_new
+    load_b0
+    vec_push
+    load_b1
+    vec_push
+    load_r 2
+
+    top_into_a
+    vec_size // puts the vec size into R
+    load_b1
+    swap_ar
+    sub
+    swap_ab
+    swap_ar
+    vec_get
+
+    // do it with b too
+
+    add
+    swap_ab
+    top_into_a
+    vec_push
+}
+
+entry {
+    load_a "fib() of: "
+    print
+    readln
+    string_to_int
+    call $fib
+    swap_ar
+    println
 }

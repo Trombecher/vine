@@ -1,53 +1,52 @@
-pub extern mod console {
-    pub extern fn log(...args: Any[]);
-}
+@!target(web)
 
-pub extern mod document {
-    pub extern fn activeElement() -> Element;
-}
+// Variables
 
-pub struct Map<K, V>();
+@js(const)
+pub extern Infinity: number
 
-impl Map<K, V> {
-    pub fn clear() {};
+@js(const)
+pub extern NaN: number
 
-    pub fn get(key: K) -> V? {};
+pub extern undefined: ()
 
-    pub fn set(key: K, value: V) {};
+// Functions
 
-    pub fn has(key: K) -> bool {};
+pub extern eval(): fn() -> any
 
-    pub fn iter() -> Entries {};
-}
+@pure
+pub extern isFinite: fn(value: any) -> bool
 
-pub struct MapIterator();
+@pure
+pub extern isNaN: fn(value: any) -> bool
 
-impl Iterator for MapIterator {}
+pub extern parseFloat: fn(value: any) -> number
 
-pub extern "js" struct Set<T>;
+pub extern parseInt: fn(value: str, radix: number?) -> number
 
-extern "js" impl<T> Set<T> {
-    pub fn add(this, value: T) -> bool;
+@js_may_throw(URIError)
+pub extern decodeURI: fn(value: any) -> str
 
-    pub fn clear(this);
+@refer("https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/decodeURIComponent")
+@js(may_throw(URIError))
+pub extern decodeURIComponent: fn(value: any) -> str
 
-    pub fn delete(this, value: T) -> bool;
+@refer("https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURI")
+@js(may_throw(URIError))
+pub extern encodeURI: fn(value: any) -> str
 
-    pub fn difference(this, other: Set<T>) -> Set<T>;
+@refer("https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent")
+@js(may_throw(URIError))
+pub extern encodeURIComponent: fn(value: any) -> str
 
-    pub fn iter() -> SetIterator;
+// Objects
 
-    pub fn has(value: T) -> bool;
+@js(construct() -> Object)
+@callable()
+pub extern Object (
+    @js(may_throw(TypeError))
+    assign: fn(target: object, ...sources: object[])
+)
 
-    pub fn intersection(this, other: Set<T>) -> Set<T>;
-
-    pub fn is_disjoint_from(this, other: Set<T>) -> bool;
-
-    pub fn is_subset_of(this, other: Set<T>) -> bool;
-
-    pub fn is_superset_of(this, other: Set<T>) -> bool;
-
-    pub fn symmetric_difference(this, other: Set<T>) -> Set<T>;
-}
-
-pub struct SetIterator {}
+pub extern Function (
+)

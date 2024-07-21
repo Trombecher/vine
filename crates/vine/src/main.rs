@@ -2,7 +2,7 @@ use std::fs::read;
 use std::io::stdout;
 use std::time::Instant;
 use parse_tools::bytes::Cursor;
-use vine::error::format::format;
+use error::format::format;
 use vine::lex::Lexer;
 use vine::parse::ParseContext;
 

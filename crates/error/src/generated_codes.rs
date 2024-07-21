@@ -1,7 +1,5 @@
 //! This file was automatically generated.
 
-pub mod format;
-
 use std::fmt::{Display, Formatter};
 
 #[derive(PartialEq, Copy, Clone, Debug)]

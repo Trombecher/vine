@@ -14,9 +14,7 @@ const formattedCodes = Object
         format: `E${code.padStart(4, "0")}`
     }));
 
-await write("../mod.rs", `//! This file was automatically generated.
-
-pub mod format;
+await write("../src/generated_codes.rs", `//! This file was automatically generated.
 
 use std::fmt::{Display, Formatter};
 

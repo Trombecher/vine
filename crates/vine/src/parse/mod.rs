@@ -4,7 +4,7 @@ mod tests;
 
 use std::hint::unreachable_unchecked;
 use std::mem::swap;
-use crate::lex::token::{Keyword, Symbol, Token, TokenIterator};
+use lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::{Error, Span};
 
 use ast::*;

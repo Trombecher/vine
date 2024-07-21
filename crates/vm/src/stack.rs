@@ -1,19 +1,19 @@
 use std::intrinsics::transmute;
 use std::mem::MaybeUninit;
 use std::slice::from_raw_parts;
-use crate::vm::{Error, Value};
+use crate::{Error, Value};
 
-pub struct Stack {
+pub struct Stack<const MAX_SIZE: usize> {
     size: usize,
-    buffer: [MaybeUninit<Value>; 1024],
+    buffer: [MaybeUninit<Value>; MAX_SIZE],
 }
 
-impl Stack {
+impl<const MAX_SIZE: usize> Stack<MAX_SIZE> {
     #[inline]
     pub fn new() -> Self {
         Self {
             size: 0,
-            buffer: MaybeUninit::uninit_array::<1024>(),
+            buffer: unsafe { MaybeUninit::<[MaybeUninit<Value>; MAX_SIZE]>::uninit().assume_init() }
         }
     }
 

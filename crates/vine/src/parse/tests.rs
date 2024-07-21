@@ -2,7 +2,7 @@
 
 use std::iter::Copied;
 use std::slice;
-use crate::lex::token::{Keyword, Symbol, Token, TokenIterator};
+use lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::{Error, Span};
 use crate::parse::ast::{Expression, FunctionSignature, ItemPath, Parameter, StatementOrExpression, Type, TypeParameter};
 use crate::parse::{bp, ParseContext};

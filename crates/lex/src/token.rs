@@ -1,7 +1,5 @@
 use std::fmt::Debug;
-use std::slice::Iter;
 use phf::phf_map;
-use crate::{Error, Span};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token<'a> {
@@ -19,6 +17,7 @@ pub enum Token<'a> {
     MarkupClose,
     MarkupText(&'a str),
     MarkupEndTag(&'a str),
+    LineBreak,
     EndOfInput,
 }
 
@@ -30,6 +29,7 @@ pub enum Keyword {
     Continue,
     Else,
     Enum,
+    Extern,
     False,
     Fn,
     For,
@@ -65,6 +65,7 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "continue" => Keyword::Continue,
     "else" => Keyword::Else,
     "enum" => Keyword::Enum,
+    "extern" => Keyword::Extern,
     "false" => Keyword::False,
     "fn" => Keyword::Fn,
     "for" => Keyword::For,
@@ -137,8 +138,5 @@ pub enum Symbol {
     LeftBrace,
     RightBrace,
     At,
-}
-
-pub trait TokenIterator<'a> {
-    fn next_token(&mut self) -> Result<Span<Token<'a>>, crate::Error>;
+    AtExclamationMark,
 }
