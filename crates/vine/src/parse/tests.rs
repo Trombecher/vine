@@ -4,8 +4,9 @@ use std::iter::Copied;
 use std::slice;
 use lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::{Error, Span};
-use crate::parse::ast::{Expression, FunctionSignature, ItemPath, Parameter, StatementOrExpression, Type, TypeParameter};
-use crate::parse::{bp, ParseContext};
+use parse::ast::{Expression, FunctionSignature, ItemPath, Parameter, StatementOrExpression, Type, TypeParameter};
+use parse::bp;
+use crate::parse::ParseContext;
 
 impl<'a, T> TokenIterator<'a> for T where T: Iterator<Item = Token<'a>> {
     fn next_token(&mut self) -> Result<Span<Token<'a>>, Error> {

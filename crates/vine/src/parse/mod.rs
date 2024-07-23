@@ -1,13 +1,10 @@
-pub mod ast;
-pub mod bp;
 mod tests;
 
-use std::hint::unreachable_unchecked;
-use std::mem::swap;
 use lex::token::{Keyword, Symbol, Token, TokenIterator};
 use crate::{Error, Span};
 
-use ast::*;
+use parse::ast::*;
+use parse::bp;
 
 pub struct ParseContext<'s, T: TokenIterator<'s>> {
     token_iterator: T,
@@ -21,27 +18,6 @@ impl<'s, T: TokenIterator<'s>> ParseContext<'s, T> {
             last_token: token_iterator.next_token()?,
             token_iterator,
         })
-    }
-
-    /// Takes the string out of the last token.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that there is a string in the last token.
-    #[inline]
-    unsafe fn take_string_unchecked(&mut self) -> String {
-        let mut s = Token::EndOfInput; // dummy token
-        swap(&mut s, &mut self.last_token.value);
-
-        if let Token::String(s) = s {
-            s
-        } else {
-            // SAFETY: We swapped a `self.last_token.value` (which we know it's a string)
-            // with a dummy value. After the swap, there is a Token::String in `s`,
-            // which we can unwrap unchecked.
-
-            unreachable_unchecked()
-        }
     }
 
     #[inline]

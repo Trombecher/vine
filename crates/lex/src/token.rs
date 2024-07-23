@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 use phf::phf_map;
+use error::Error;
+use crate::Span;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token<'a> {
@@ -10,12 +12,24 @@ pub enum Token<'a> {
     LineComment(&'a str),
     Symbol(Symbol),
     Keyword(Keyword),
-    String(String),
+
+    /// The contained text needs processing:
+    ///
+    /// - Validate escape sequences
+    /// - Normalize line breaks
+    String(&'a str),
+
     MarkupStartTag(&'a str),
     MarkupKey(&'a str),
     MarkupStartTagEnd,
     MarkupClose,
+
+    /// The contained text needs processing.
+    ///
+    /// Although the leading whitespace is removed, the trailing whitespace needs to be removed
+    /// and internal whitespace needs to be collapsed.
     MarkupText(&'a str),
+
     MarkupEndTag(&'a str),
     LineBreak,
     EndOfInput,
@@ -139,4 +153,8 @@ pub enum Symbol {
     RightBrace,
     At,
     AtExclamationMark,
+}
+
+pub trait TokenIterator<'a> {
+    fn next_token(&mut self) -> Result<Span<'a, Token<'a>>, Error>;
 }

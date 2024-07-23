@@ -3,21 +3,21 @@
 use parse_tools::bytes::Cursor;
 use error::Error;
 use crate::{Lexer, Span};
-use crate::token::{Keyword, Symbol, Token};
+use crate::token::{Keyword, Symbol, Token, TokenIterator};
 
 macro_rules! match_tokens {
     ($source:literal, $tokens:expr) => {
         use crate::Lexer;
         use parse_tools::bytes::Cursor;
-        
+
         static TEXT: &'static str = $source;
-        
+
         let tokens = $tokens;
         let mut lexer = Lexer::new(Cursor::new(TEXT.as_bytes()));
-        
+
         for correct_token in tokens {
             let lexer_token = lexer.next_token().unwrap();
-            
+
             assert_eq!(
                 (
                     correct_token.value,
@@ -33,7 +33,7 @@ macro_rules! match_tokens {
                 )
             );
         }
-    
+
         assert_eq!(lexer.next_token(), Ok(Span {
             value: Token::EndOfInput,
             source: &TEXT[TEXT.len()..TEXT.len()]
@@ -95,7 +95,7 @@ fn lex() {
                 source: &TEXT[31..32]
             },
             Span {
-                value: Token::String("yo".to_string()),
+                value: Token::String("yo"),
                 source: &TEXT[33..37]
             },
             Span {
@@ -127,22 +127,4 @@ fn parse_start_tag_e0015() {
         Err(Error::E0015),
         Lexer::new(Cursor::new(TEXT.as_bytes())).parse_start_tag(),
     );
-}
-
-#[test]
-fn output() {
-    let mut lexer = Lexer::new(Cursor::new(" fn return_any() -> any { 20 }".as_bytes()));
-    
-    loop {
-        match lexer.next_token() {
-            Ok(Span { value: Token::EndOfInput, .. }) => break,
-            Ok(token) => {
-                println!("{:?}", token);
-            }
-            Err(error) => {
-                println!("{:?}", error);
-                break
-            }
-        }
-    }
 }

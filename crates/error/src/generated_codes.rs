@@ -1,7 +1,5 @@
 //! This file was automatically generated.
 
-use std::fmt::{Display, Formatter};
-
 #[derive(PartialEq, Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum Error {
@@ -106,12 +104,12 @@ pub enum Error {
     /// Context: The error occurred in a markup end tag.
     E0026 = 26,
 
-    /// Vine does not have the Rust and C++ like :: path separator. Just use a dot.
+    /// Vine does not have the Rust and C++ like :: path separator; just use a dot.
     E0027 = 27,
 
-    /// .
+    /// Illegal character.
     ///
-    /// Context: The error occurred while trying to match a new token.
+    /// Context: The error occurred while trying to construct a new token.
     E0028 = 28,
 
     /// Expected a number, found an alphabetic character.
@@ -402,8 +400,8 @@ impl Error {
             Error::E0024 => "Expected second hex digit.",
             Error::E0025 => "Invalid hex digit (0-9A-F).",
             Error::E0026 => "Expected `>`.",
-            Error::E0027 => "Vine does not have the Rust and C++ like :: path separator. Just use a dot.",
-            Error::E0028 => ".",
+            Error::E0027 => "Vine does not have the Rust and C++ like :: path separator; just use a dot.",
+            Error::E0028 => "Illegal character.",
             Error::E0029 => "Expected a number, found an alphabetic character.",
             Error::E0030 => "Expected a character.",
             Error::E0031 => "Expected a single quote to close the character literal.",
@@ -557,7 +555,7 @@ impl Error {
             Error::E0025 => Some("in the second digit of a string literal hex escape code."),
             Error::E0026 => Some("in a markup end tag."),
             Error::E0027 => None,
-            Error::E0028 => Some("while trying to match a new token."),
+            Error::E0028 => Some("while trying to construct a new token."),
             Error::E0029 => Some("while lexing the tail of a floating point decimal number."),
             Error::E0030 => Some("while lexing a character literal."),
             Error::E0031 => Some("while lexing a character literal."),

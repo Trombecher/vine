@@ -25,7 +25,7 @@ impl Into<Error> for bytes::Error {
     }
 }
 
-fn get_lines_and_columns(source: &str, byte_offset: usize) -> (usize, usize) {
+pub fn get_lines_and_columns(source: &str, byte_offset: usize) -> (usize, usize) {
     let mut lines = 0;
     let mut columns = 0;
     let mut i = 0;
@@ -38,6 +38,8 @@ fn get_lines_and_columns(source: &str, byte_offset: usize) -> (usize, usize) {
         match cursor.peek() {
             Some(b'\r') => {
                 lines += 1;
+                columns = 0;
+                
                 unsafe { cursor.advance_unchecked() }
 
                 if let Some(b'\n') = cursor.peek() {
@@ -47,15 +49,13 @@ fn get_lines_and_columns(source: &str, byte_offset: usize) -> (usize, usize) {
             }
             Some(b'\n') => {
                 lines += 1;
+                columns = 0;
+                
                 unsafe { cursor.advance_unchecked() }
-            }
-            Some(0x80..=0xff) => {
-                columns += 1;
-                unsafe { cursor.advance_char_unchecked() }
             }
             Some(_) => {
                 columns += 1;
-                unsafe { cursor.advance_unchecked() }
+                unsafe { cursor.advance_char_unchecked() }
             }
             None => break
         }

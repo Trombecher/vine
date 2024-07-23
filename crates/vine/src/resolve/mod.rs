@@ -3,11 +3,11 @@
 pub mod ast;
 
 use std::collections::HashMap;
-use std::{io, slice};
 use parse_tools::bytes::Cursor;
+use parse::ast as parse_ast;
 use crate::lex::Lexer;
-use crate::parse::{ast as parse_ast, ParseContext};
-use crate::parse::ast::{ModuleContent, StatementKind, TopLevelItem};
+use crate::parse::ParseContext;
+use parse::ast::{ModuleContent, StatementKind, TopLevelItem};
 use crate::resolve::ast::Module;
 
 pub fn process<'t>(root_path: &str) -> Result<Module, Vec<crate::Error>> {

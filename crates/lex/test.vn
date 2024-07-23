@@ -1,0 +1,7 @@
+use aena.Div
+
+fn main() -> Div {
+    <Div key={"Hii!"}>
+        Hiii
+    </Div>
+}

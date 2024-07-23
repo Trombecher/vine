@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::parse::ast::Operation;
+use parse::ast::Operation;
 use crate::Span;
 
 #[derive(Debug)]

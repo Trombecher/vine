@@ -16,8 +16,6 @@ const formattedCodes = Object
 
 await write("../src/generated_codes.rs", `//! This file was automatically generated.
 
-use std::fmt::{Display, Formatter};
-
 #[derive(PartialEq, Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum Error {${formattedCodes

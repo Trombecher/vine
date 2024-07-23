@@ -104,12 +104,12 @@ export const RAW_ERRORS: Readonly<Record<number, RawError>> = {
     },
     27: {
         source: "lexer",
-        description: "Vine does not have the Rust and C++ like :: path separator. Just use a dot.",
+        description: "Vine does not have the Rust and C++ like :: path separator; just use a dot.",
     },
     28: {
         source: "lexer",
-        description: ".",
-        context: "while trying to match a new token.",
+        description: "Illegal character.",
+        context: "while trying to construct a new token.",
     },
     29: {
         source: "lexer",

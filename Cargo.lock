@@ -133,6 +133,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "parse"
+version = "0.1.0"
+dependencies = [
+ "error",
+ "lex",
+ "parse_tools",
+]
+
+[[package]]
 name = "parse_tools"
 version = "0.1.0"
 
