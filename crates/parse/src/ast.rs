@@ -1,4 +1,5 @@
 use lex::Span;
+use lex::token::Keyword;
 
 /// A binary operation.
 #[derive(Debug, PartialEq, Clone)]
@@ -72,7 +73,7 @@ pub enum Expression<'a> {
         variable: &'a str,
         iter: Box<Expression<'a>>,
     },
-    Scope(Vec<Span<'a, StatementOrExpression<'a>>>),
+    Block(Vec<Span<'a, StatementOrExpression<'a>>>),
     
     // Objects And Paths
     Object(Vec<(&'a str, Expression<'a>)>),
@@ -230,18 +231,21 @@ pub enum MarkupChild<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Parameter<'a> {
-    pub identifier: &'a str,
+    pub id: &'a str,
     pub is_mutable: bool,
-    pub ty: Option<Type<'a>>,
+    pub ty: Span<'a, Type<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type<'a> {
     Never,
-    Nil,
     Number,
     Boolean,
+    Char,
+    Object,
     String,
+    Any,
+    Nil,
     Function(Box<FunctionSignature<'a>>),
     ItemPath {
         generics: Vec<ItemPath<'a>>,
@@ -249,9 +253,25 @@ pub enum Type<'a> {
     },
 }
 
+impl<'a> TryFrom<Keyword> for Type<'a> {
+    type Error = ();
+
+    fn try_from(value: Keyword) -> Result<Self, Self::Error> {
+        match value {
+            Keyword::Num => Ok(Self::Number),
+            Keyword::Str => Ok(Self::String),
+            Keyword::Bool => Ok(Self::Boolean),
+            Keyword::Char => Ok(Self::Char),
+            Keyword::Obj => Ok(Self::Object),
+            Keyword::Any => Ok(Self::Any),
+            _ => Err(())
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionSignature<'a> {
-    pub return_type: Option<Type<'a>>,
+    pub return_type: Span<'a, Type<'a>>,
     pub parameters: Vec<Parameter<'a>>,
     pub has_this_parameter: bool,
     pub tps: Vec<TypeParameter<'a>>,

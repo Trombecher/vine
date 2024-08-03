@@ -1,3 +1,9 @@
+//! # Vine Lexer Module
+//! 
+//! This module contains the code to iterate over the tokens of a buffer (string).
+//! 
+//! **The lexer will NOT produce two adjacent line break tokens.**
+
 #![feature(ptr_sub_ptr)]
 #![feature(str_from_raw_parts)]
 #![feature(const_ptr_sub_ptr)]
@@ -9,6 +15,7 @@ use parse_tools::bytes::Cursor;
 
 use error::Error;
 use token::{KEYWORDS, Symbol, Token};
+use warning::Warning;
 use crate::token::{TokenIterator, unescape_char, UnprocessedString};
 
 mod tests;
@@ -39,6 +46,14 @@ impl<'a, T: Debug + Clone> Span<'a, T> {
             source: from_raw_parts(first, end.sub_ptr(first)),
         }
     }
+    
+    #[inline]
+    pub fn map<U: Debug + Clone>(self, map: impl FnOnce(T) -> U) -> Span<'a, U> {
+        Span {
+            value: map(self.value),
+            source: self.source,
+        }
+    }
 }
 
 pub struct Lexer<'a> {
@@ -54,6 +69,8 @@ pub struct Lexer<'a> {
 
     /// A stack of layers to manage 
     layers: Vec<Layer>,
+
+    pub warnings: Vec<Span<'a, Warning>>
 }
 
 #[inline]
@@ -87,6 +104,7 @@ impl<'a> Lexer<'a> {
             potential_markup: false,
             layers: Vec::new(),
             cursor: Cursor::new(slice),
+            warnings: Vec::new(),
         }
     }
 
@@ -325,14 +343,18 @@ impl<'a> Lexer<'a> {
                     if let Some(b'\n') = self.cursor.peek() {
                         unsafe { self.cursor.advance_unchecked() }
                     }
-
-                    break Some(unsafe {
+                    
+                    let result = Some(unsafe {
                         Span::from_ends(
                             Token::LineBreak,
                             first,
                             self.cursor.cursor()
                         )
-                    })
+                    });
+                    
+                    self.skip_whitespace(); // Skip additional whitespace
+
+                    break result
                 }
                 Some(b'\n') => {
                     let source = unsafe {
@@ -340,7 +362,9 @@ impl<'a> Lexer<'a> {
                     };
 
                     unsafe { self.cursor.advance_unchecked() }
-
+                    
+                    self.skip_whitespace(); // Skip additional whitespace
+                    
                     break Some(Span { value: Token::LineBreak, source })
                 }
                 Some(x) if x.is_ascii_whitespace() => unsafe {
@@ -396,15 +420,6 @@ impl<'a> Lexer<'a> {
 
         let token: Token = match self.cursor.peek() {
             None => Token::EndOfInput,
-            Some(b'\r') => {
-                unsafe { self.cursor.advance_unchecked() }
-                if let Some(b'\n') = self.cursor.peek() {}
-                Token::LineBreak
-            }
-            Some(b'\n') => {
-                unsafe { self.cursor.advance_unchecked() }
-                Token::LineBreak
-            }
             Some(b'0') => {
                 unsafe { self.cursor.advance_unchecked() };
 
@@ -953,5 +968,20 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
             Some(Layer::EndTag) => self.parse_end_tag(),
             Some(Layer::StartTag) => self.parse_start_tag(),
         }
+    }
+
+    #[inline]
+    fn warnings(&self) -> &[Span<'a, Warning>] {
+        &self.warnings
+    }
+
+    #[inline]
+    fn warnings_mut(&mut self) -> &mut Vec<Span<'a, Warning>> {
+        &mut self.warnings
+    }
+
+    #[inline]
+    fn consume_warnings(self) -> Vec<Span<'a, Warning>> {
+        self.warnings
     }
 }

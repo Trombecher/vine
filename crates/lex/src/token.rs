@@ -1,7 +1,10 @@
 use std::fmt::Debug;
+
 use parse_tools::bytes::Cursor;
 use phf::phf_map;
+
 use error::Error;
+use warning::Warning;
 use crate::{Span, try_to_hex};
 
 #[inline]
@@ -80,7 +83,7 @@ impl<'a> UnprocessedString<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 #[repr(u8)]
 pub enum Token<'a> {
     /// The contained text needs processing.
@@ -156,14 +159,15 @@ pub enum Keyword {
     While,
     Underscore,
     Use,
-    
-    // Optional primitive types:
-    
-    // Num,
-    // Str,
-    // Bool,
-    // Char,
-    // Object,
+
+    // Built-in types
+
+    Num,
+    Str,
+    Bool,
+    Char,
+    Obj,
+    Any,
 }
 
 pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
@@ -192,6 +196,13 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "while" => Keyword::While,
     "_" => Keyword::Underscore,
     "use" => Keyword::Use,
+    
+    "num" => Keyword::Num,
+    "str" => Keyword::Str,
+    "bool" => Keyword::Bool,
+    "char" => Keyword::Char,
+    "obj" => Keyword::Obj,
+    "any" => Keyword::Any,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -250,4 +261,13 @@ pub enum Symbol {
 
 pub trait TokenIterator<'a> {
     fn next_token(&mut self) -> Result<Span<'a, Token<'a>>, Error>;
+    
+    /// Returns a view of all warnings gathered so far.
+    fn warnings(&self) -> &[Span<'a, Warning>];
+    
+    /// Returns a mutable reference to the warnings.
+    fn warnings_mut(&mut self) -> &mut Vec<Span<'a, Warning>>;
+    
+    /// Consumes the iterator.
+    fn consume_warnings(self) -> Vec<Span<'a, Warning>>;
 }

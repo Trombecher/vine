@@ -7,3 +7,4 @@ edition = "2021"
 parse_tools = { path = "../../../parse_tools" }
 phf = { version = "0.11.2", features = ["macros"] }
 error = { path = "../error" }
+warning = { path = "../warning" }

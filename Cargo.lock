@@ -73,6 +73,7 @@ dependencies = [
  "error",
  "parse_tools",
  "phf",
+ "warning",
 ]
 
 [[package]]
@@ -139,6 +140,7 @@ dependencies = [
  "error",
  "lex",
  "parse_tools",
+ "warning",
 ]
 
 [[package]]
@@ -317,6 +319,10 @@ version = "0.1.0"
 dependencies = [
  "phf",
 ]
+
+[[package]]
+name = "warning"
+version = "0.1.0"
 
 [[package]]
 name = "wasi"

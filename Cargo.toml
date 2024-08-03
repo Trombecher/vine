@@ -4,4 +4,4 @@ resolver = "2"
 members = [ "crates/asm", "crates/error", "crates/js", "crates/lex", "crates/parse", "crates/queue", "crates/set",
     "crates/vine",
     "crates/vm"
-]
+, "crates/warning"]
