@@ -20,6 +20,6 @@ cd crates/error/generate
 bun index.ts
 ```
 
-to generate the error codes. There should now be an up-to-date `crates/error/lib.rs` file.
+to generate the error codes. There should now be an up-to-date `crates/error/src/generated_codes.rs` file.
 
 Now you are ready to _cd_ into any crate in `crates/` and try to run the crate via `cargo run`. This project needs nightly, but it should automatically install.
