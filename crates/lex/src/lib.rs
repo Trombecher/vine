@@ -1,15 +1,15 @@
 #![feature(ptr_sub_ptr)]
 #![feature(str_from_raw_parts)]
+#![feature(const_ptr_sub_ptr)]
 
 use std::fmt::Debug;
 use std::hint::unreachable_unchecked;
 use std::str::from_raw_parts;
-
 use parse_tools::bytes::Cursor;
 
 use error::Error;
 use token::{KEYWORDS, Symbol, Token};
-use crate::token::TokenIterator;
+use crate::token::{TokenIterator, unescape_char, UnprocessedString};
 
 mod tests;
 pub mod token;
@@ -24,6 +24,7 @@ pub enum Layer {
     StartTag,
 }
 
+/// Links the value back to a slice of the source file.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Span<'a, T: Debug + Clone> {
     pub value: T,
@@ -41,8 +42,17 @@ impl<'a, T: Debug + Clone> Span<'a, T> {
 }
 
 pub struct Lexer<'a> {
+    /// The start of the slice.
+    start: *const u8,
+
+    /// The underlying iterator over the bytes.
     cursor: Cursor<'a>,
+
+    /// Signals [Layer::Insert] or no layer that the following '<'
+    /// may be interpreted as the start of a markup element.
     potential_markup: bool,
+
+    /// A stack of layers to manage 
     layers: Vec<Layer>,
 }
 
@@ -70,62 +80,18 @@ const fn try_to_hex(byte: u8) -> Option<u8> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(cursor: Cursor<'a>) -> Self {
+    /// Constructs a new [Lexer].
+    pub const fn new(slice: &'a [u8]) -> Self {
         Self {
-            cursor,
+            start: slice.as_ptr(),
             potential_markup: false,
             layers: Vec::new(),
+            cursor: Cursor::new(slice),
         }
     }
 
-    pub fn cursor_offset(&self) -> usize {
-        self.cursor.offset()
-    }
-
-    fn unescape_char(&mut self) -> Result<char, Error> {
-        match self.cursor.next_lfn() {
-            None => Err(Error::E0013),
-            Some(b'0') => Ok('\0'),     // Null character
-            Some(b'\\') => Ok('\\'),    // Backslash
-            Some(b'f') => Ok('\u{0c}'), // Form feed
-            Some(b't') => Ok('\t'),     // Horizontal tab
-            Some(b'r') => Ok('\r'),     // Carriage return
-            Some(b'n') => Ok('\n'),     // Line feed / new line
-            Some(b'b') => Ok('\u{07}'), // Bell
-            Some(b'v') => Ok('\u{0b}'), // Vertical tab
-            Some(b'"') => Ok('"'),      // Double quote
-            Some(b'\'') => Ok('\''),    // Single quote
-            Some(b'[') => Ok('\u{1B}'), // Escape
-            Some(b'x') => {
-                // Hexadecimal code
-                match self.cursor.next_lfn() {
-                    None => Err(Error::E0021),
-                    Some(x) => match try_to_hex(x) {
-                        None => Err(Error::E0022),
-                        Some(8..) => Err(Error::E0023),
-                        Some(x) => match self.cursor.next_lfn() {
-                            None => Err(Error::E0024),
-                            Some(y) => match try_to_hex(y) {
-                                None => Err(Error::E0025),
-                                Some(y) => Ok(((x << 4) + y) as char),
-                            },
-                        },
-                    },
-                }
-            }
-            Some(b'u') => {
-                // Unicode code point
-                match self.cursor.next_lfn() {
-                    Some(b'{') => {}
-                    _ => todo!(),
-                }
-
-                let code_point = 0_u32;
-
-                Ok(char::try_from(code_point).map_err(|_| todo!())?)
-            }
-            _ => Err(Error::E0014),
-        }
+    pub const fn cursor_offset(&self) -> usize {
+        unsafe { self.cursor.cursor().sub_ptr(self.start) }
     }
 
     /// Parses a decimal number.
@@ -232,7 +198,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Expects the next byte to be after the quote.
-    pub(crate) fn parse_string(&mut self) -> Result<&'a str, Error> {
+    pub(crate) fn parse_string(&mut self) -> Result<UnprocessedString<'a>, Error> {
         let first = self.cursor.cursor();
 
         loop {
@@ -244,7 +210,7 @@ impl<'a> Lexer<'a> {
                     unsafe { self.cursor.advance_unchecked() }
 
                     break Ok(unsafe {
-                        from_raw_parts(first, end.sub_ptr(first))
+                        UnprocessedString::from_raw(from_raw_parts(first, end.sub_ptr(first)))
                     })
                 }
                 Some(b'\\') => {
@@ -428,7 +394,7 @@ impl<'a> Lexer<'a> {
 
         let start = self.cursor.cursor();
 
-        let token = match self.cursor.peek() {
+        let token: Token = match self.cursor.peek() {
             None => Token::EndOfInput,
             Some(b'\r') => {
                 unsafe { self.cursor.advance_unchecked() }
@@ -535,6 +501,7 @@ impl<'a> Lexer<'a> {
                 })
             }
             Some(b'/') => {
+                unsafe { self.cursor.advance_unchecked() };
                 self.potential_markup = true;
 
                 match self.cursor.peek() {
@@ -677,10 +644,11 @@ impl<'a> Lexer<'a> {
             }
             Some(b'\'') => {
                 unsafe { self.cursor.advance_unchecked() };
-
+                
                 let char = match self.cursor.next_lfn() {
                     None => return Err(Error::E0030),
-                    Some(b'\\') => self.unescape_char()?,
+                    Some(b'\\') => unescape_char(&mut self.cursor)?,
+                    Some(b'\n') => todo!(),
                     Some(char) => char.into(),
                 };
 
@@ -733,6 +701,7 @@ impl<'a> Lexer<'a> {
         self.skip_whitespace();
 
         let identifier = self.parse_id()?;
+
         if KEYWORDS.contains_key(identifier) {
             return Err(Error::E0015);
         }
@@ -896,7 +865,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                     from_raw_parts(first, self.cursor.cursor().sub_ptr(first))
                 };
 
-                Ok(if text.len() == 0 {
+                if text.len() == 0 {
                     // If there is no text, we have to yield something.
 
                     match self.cursor.next_lfn() {
@@ -910,13 +879,13 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                                 // End tag
                                 Some(b'/') => {
                                     unsafe { self.cursor.advance_unchecked() }
-                                    self.parse_end_tag()?
+                                    self.parse_end_tag()
                                 }
 
                                 // Nested element
                                 Some(_) => {
                                     self.layers.push(Layer::TextOrInsert);
-                                    self.parse_start_tag()?
+                                    self.parse_start_tag()
                                 }
                             }
                         }
@@ -927,13 +896,13 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            unsafe {
+                            Ok(unsafe {
                                 Span::from_ends(
                                     Token::Symbol(Symbol::LeftBrace),
                                     self.cursor.cursor().sub(1),
                                     self.cursor.cursor(),
                                 )
-                            }
+                            })
                         }
 
                         // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
@@ -975,11 +944,11 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                         _ => unsafe { unreachable_unchecked() },
                     }
 
-                    Span {
+                    Ok(Span {
                         value: Token::MarkupText(text),
                         source: text,
-                    }
-                })
+                    })
+                }
             }
             Some(Layer::EndTag) => self.parse_end_tag(),
             Some(Layer::StartTag) => self.parse_start_tag(),

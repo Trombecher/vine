@@ -1,6 +1,0 @@
-use esnext.console;
-use dom.document;
-
-fn print_title() {
-    console.log(document.title)
-}

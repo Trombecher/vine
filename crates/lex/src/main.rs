@@ -1,14 +1,13 @@
 #![feature(ptr_sub_ptr)]
 
 use std::fs;
-use parse_tools::bytes::Cursor;
 use error::get_lines_and_columns;
 use lex::{Lexer, Span};
 use lex::token::{Token, TokenIterator};
 
 fn main() {
-    let source = fs::read_to_string("test.vn").unwrap();
-    let mut lexer = Lexer::new(Cursor::new(source.as_bytes()));
+    let source = fs::read_to_string("../../examples/app.vn").unwrap();
+    let mut lexer = Lexer::new(source.as_bytes());
 
     loop {
         match lexer.next_token() {

@@ -82,7 +82,7 @@ pub enum Expression<'a> {
 
     // Primitives
     Number(f64),
-    String(&'a str),
+    String(String),
     Identifier(&'a str),
     False,
     True,

@@ -1,0 +1,9 @@
+[package]
+name = "parse"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+error = { path = "../error" }
+lex = { path = "../lex"}
+parse_tools = { path = "../../../parse_tools" }

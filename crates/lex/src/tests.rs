@@ -1,9 +1,8 @@
 #![cfg(test)]
 
-use parse_tools::bytes::Cursor;
 use error::Error;
 use crate::{Lexer, Span};
-use crate::token::{Keyword, Symbol, Token, TokenIterator};
+use crate::token::{Keyword, Symbol, Token, TokenIterator, UnprocessedString};
 
 macro_rules! match_tokens {
     ($source:literal, $tokens:expr) => {
@@ -13,7 +12,7 @@ macro_rules! match_tokens {
         static TEXT: &'static str = $source;
 
         let tokens = $tokens;
-        let mut lexer = Lexer::new(Cursor::new(TEXT.as_bytes()));
+        let mut lexer = Lexer::new(TEXT.as_bytes());
 
         for correct_token in tokens {
             let lexer_token = lexer.next_token().unwrap();
@@ -95,7 +94,7 @@ fn lex() {
                 source: &TEXT[31..32]
             },
             Span {
-                value: Token::String("yo"),
+                value: Token::String(unsafe { UnprocessedString::from_raw("yo") }),
                 source: &TEXT[33..37]
             },
             Span {
@@ -115,7 +114,7 @@ fn parse_start_tag() {
             value: Token::MarkupStartTag("tag_name"),
             source: &TEXT[0..8],
         }),
-        Lexer::new(Cursor::new(TEXT.as_bytes())).parse_start_tag(),
+        Lexer::new(TEXT.as_bytes()).parse_start_tag(),
     );
 }
 
@@ -125,6 +124,6 @@ fn parse_start_tag_e0015() {
 
     assert_eq!(
         Err(Error::E0015),
-        Lexer::new(Cursor::new(TEXT.as_bytes())).parse_start_tag(),
+        Lexer::new(TEXT.as_bytes()).parse_start_tag(),
     );
 }
