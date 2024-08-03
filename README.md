@@ -13,7 +13,17 @@ Because this is a Rust project, go ahead and [install Rust](https://www.rust-lan
 
 Then you need to install [Bun](https://bun.sh/). Why? Because the Rust code for the error codes needs to be generated from TypeScript.
 
-After you cloned this repo, run
+After you cloned this repo, you need to also clone [this](https://github.com/Trombecher/parse-tools) repo and place it right next to the folder of this repo:
+
+```
+...
+parse_tools/ <- notice the '_' instead of '-' (!)
+...
+vine/
+...
+```
+
+The cd into this repo and run
 
 ```shell
 cd crates/error/generate
