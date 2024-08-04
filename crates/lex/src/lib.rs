@@ -11,7 +11,7 @@
 use std::fmt::Debug;
 use std::hint::unreachable_unchecked;
 use std::str::from_raw_parts;
-use parse_tools::bytes::Cursor;
+use bytes::Cursor;
 
 use error::Error;
 use token::{KEYWORDS, Symbol, Token};

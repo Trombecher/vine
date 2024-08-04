@@ -7,4 +7,3 @@ edition = "2021"
 error = { path = "../error" }
 warning = { path = "../warning" }
 lex = { path = "../lex"}
-parse_tools = { path = "../../../parse_tools" }

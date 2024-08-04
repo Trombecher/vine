@@ -6,7 +6,7 @@ version = 3
 name = "asm"
 version = "0.1.0"
 dependencies = [
- "parse_tools",
+ "bytes",
  "phf",
  "set",
  "vm",
@@ -23,6 +23,10 @@ name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
+
+[[package]]
+name = "bytes"
+version = "0.1.0"
 
 [[package]]
 name = "cfg-if"
@@ -59,7 +63,7 @@ dependencies = [
 name = "error"
 version = "0.1.0"
 dependencies = [
- "parse_tools",
+ "bytes",
 ]
 
 [[package]]
@@ -70,8 +74,8 @@ version = "0.1.0"
 name = "lex"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "error",
- "parse_tools",
  "phf",
  "warning",
 ]
@@ -139,13 +143,8 @@ version = "0.1.0"
 dependencies = [
  "error",
  "lex",
- "parse_tools",
  "warning",
 ]
-
-[[package]]
-name = "parse_tools"
-version = "0.1.0"
 
 [[package]]
 name = "phf"
@@ -308,8 +307,8 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 name = "vine"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "crossterm",
- "parse_tools",
  "phf",
 ]
 

@@ -7,4 +7,4 @@ edition = "2021"
 phf = "0.11.2"
 vm = {path = "../vm"}
 set = {path = "../set"}
-parse_tools = {path = "../../../parse_tools"}
+bytes = { path = "../bytes" }

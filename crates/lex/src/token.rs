@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use parse_tools::bytes::Cursor;
+use bytes::Cursor;
 use phf::phf_map;
 
 use error::Error;

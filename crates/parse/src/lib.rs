@@ -60,13 +60,11 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     ///    ^
     /// ```
     ///
-    /// Expects the next token to be the marked.
+    /// Expects the next token to be the marked. Ends on the non-lb token after `>`.
     pub fn parse_type_parameter_declarations(&mut self) -> Result<Vec<TypeParameter<'a>>, Error> {
         let mut params = Vec::new();
 
         loop {
-            self.iter.skip_lb()?;
-
             match self.iter.peek().value {
                 Token::Identifier(id) => params.push(TypeParameter {
                     id,
@@ -76,14 +74,18 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 _ => todo!()
             } // TODO: Add traits
 
-            self.iter.skip_lb()?;
+            self.iter.advance_skip_lb()?;
 
             match self.iter.peek().value {
                 Token::Symbol(Symbol::RightAngle) => break,
-                Token::Symbol(Symbol::Comma) => {}
+                Token::Symbol(Symbol::Comma) => {
+                    self.iter.advance_skip_lb()?;
+                },
                 _ => todo!()
             }
         }
+        
+        self.iter.advance_skip_lb()?;
 
         Ok(params)
     }
@@ -92,16 +94,17 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     fn parse_block(&mut self) -> Result<Span<'a, Vec<Span<'a, StatementOrExpression<'a>>>>, Error> {
         let start = self.iter.peek().source.as_ptr();
 
-        self.iter.advance()?;
+        self.iter.advance_skip_lb()?;
 
         let mut items = Vec::new();
 
         loop {
-            self.iter.skip_lb()?;
-
             match self.iter.peek().value {
                 Token::Symbol(Symbol::RightBrace) => break,
-                Token::Symbol(Symbol::Semicolon) => {}
+                Token::Symbol(Symbol::Semicolon) => {
+                    // TODO: warning: unnecessary semicolon
+                    self.iter.advance_skip_lb()?;
+                }
                 _ => {
                     if let Some(statement) = self.try_parse_statement()? {
                         items.push(statement.map(|s| StatementOrExpression::Statement(s)));
@@ -155,8 +158,32 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     /// Expects the first token of the statement to already been consumed.
     /// If it matches nothing, `None` will be returned.
     ///
-    /// Ends on the token after the statement. The caller must validate that token.
+    /// Ends on the next non-lb token after the statement. The caller must validate that token.
+    /// The caller is free to omit warnings for any semicolons encountered.
     pub(crate) fn try_parse_statement(&mut self) -> Result<Option<Span<'a, Statement<'a>>>, Error> {
+        macro_rules! after_brace {
+            ($end:expr) => {{
+                self.iter.advance()?;
+                
+                match self.iter.peek().value {
+                    Token::LineBreak => {
+                        // We do not care what this token is; the caller must handle it.
+                        self.iter.advance()?;
+                    }
+                    Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => {}
+                    Token::Symbol(Symbol::Semicolon) => {
+                        // Now it ends on the semicolon.
+                        $end = self.iter.peek().source;
+                        
+                        if self.iter.advance_skip_lb()? {
+                            // TODO: unnecessary semicolon, because this line break is sufficient
+                        }
+                    }
+                    _ => todo!()
+                }
+            }};
+        }
+        
         let start = self.iter.peek().source.as_ptr();
 
         let mut annotations = Vec::new();
@@ -182,7 +209,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             self.iter.advance()?;
         }
 
-        let statement_kind: Option<(StatementKind<'a>, &'a str)> = match self.iter.peek().value {
+        let statement_kind: Option<(StatementKind<'a>, &'a str)> = match &self.iter.peek().value {
             Token::Keyword(Keyword::Fn) => {
                 let function_start = self.iter.peek().source.as_ptr();
 
@@ -195,9 +222,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     Vec::new()
                 };
 
-                let mut id = match self.iter.peek().value {
-                    Token::Identifier(id) => id,
-                    _ => todo!()
+                let mut id = match &self.iter.peek().value {
+                    Token::Identifier(id) => *id,
+                    token => todo!("{:?}", token)
                 };
 
                 let mut fn_target = None;
@@ -288,9 +315,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 }
 
                 let body = self.parse_block()?;
-                let end = self.iter.peek().source;
-
-                self.iter.advance()?;
+                let mut end = self.iter.peek().source;
+                
+                after_brace!(end);
 
                 Some((
                     StatementKind::Declaration {
@@ -307,38 +334,68 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 },
                                 body: Box::new(body.map(|vec| Expression::Block(vec))),
                             },
-                            source: merge(function_start, end), // `}`
+                            source: merge(function_start, end),
                         })),
+                    },
+                    end,
+                ))
+            }
+            Token::Keyword(Keyword::Mod) => {
+                self.iter.advance_skip_lb()?;
+
+                let id = match self.iter.peek().value {
+                    Token::Identifier(id) => id,
+                    _ => return Err(Error::E0071)
+                };
+
+                let mut end: &'a str = self.iter.peek().source;
+                let line_break = self.iter.advance_skip_lb()?;
+                
+                let content: Option<_> = match &self.iter.peek().value {
+                    // Code: mod xyz { ... }
+                    Token::Symbol(Symbol::LeftBrace) => {
+                        self.iter.advance_skip_lb()?;
+                        
+                        let content = self.parse_module_content()?;
+
+                        // Validate that the module has ended on `}`:
+                        match self.iter.peek().value {
+                            Token::Symbol(Symbol::RightBrace) => {}
+                            _ => todo!()
+                        }
+
+                        // Span ends on the line break.
+                        end = self.iter.peek().source;
+                        
+                        after_brace!(end);
+                        
+                        Some(content)
+                    }
+                    Token::Symbol(Symbol::Semicolon) if !line_break => {
+                        if self.iter.advance_skip_lb()? {
+                            // TODO: warning
+                        }
+                        None
+                    }
+                    Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => None,
+                    _ if line_break => None,
+                    token => todo!("{:?}", token)
+                };
+                
+                Some((
+                    StatementKind::Module {
+                        id,
+                        content,
                     },
                     end
                 ))
             }
 
-            /*
-            Token::Keyword(Keyword::Mod) => {
-                self.iter.advance()?;
-
-                let id = match self.iter.peek()?.value {
-                    Token::Identifier(id) => id,
-                    _ => return Err(Error::E0071)
-                };
-
-                self.iter.advance()?;
-
-                Some(StatementKind::Module {
-                    id,
-                    content: match self.iter.peek() {
-                        Ok(_) => {}
-                        Err(_) => {}
-                    },
-                })
-            }
-             */
-
-            _ => {
+            token => {
                 if annotations.len() > 0 {
                     return Err(Error::E0041);
                 }
+                
                 None
             }
         };
@@ -429,47 +486,39 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         Ok(left_side)
     }
 
+    /// Expects that the first token after `{` was already consumed.
+    /// 
     /// Ends on `}` or [Token::EndOfInput].
-    pub fn parse_module_content(&mut self) -> Result<ModuleContent, Error> {
+    pub fn parse_module_content(&mut self) -> Result<ModuleContent<'a>, Error> {
         let mut items = Vec::new();
 
         loop {
             let is_public = match self.iter.peek().value {
+                // Ignore semicolons
+                Token::Symbol(Symbol::Semicolon) => {
+                    let source = self.iter.peek().source;
+                    self.iter.advance_skip_lb()?;
+
+                    self.iter.warnings_mut()
+                        .push(Span {
+                            value: Warning::UnnecessarySemicolon,
+                            source,
+                        });
+                    continue
+                }
                 Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => break,
                 Token::Keyword(Keyword::Pub) => {
-                    self.iter.skip_lb()?;
+                    self.iter.advance_skip_lb()?;
                     true
                 }
                 _ => false
             };
-
+            
             items.push(TopLevelItem {
                 is_public,
-                statement: self.try_parse_statement()?.expect("This has to be a statement"),
+                statement: self.try_parse_statement()?
+                    .expect("This has to be a statement"), // TODO: turn this into an error
             });
-
-            match &self.iter.peek().value {
-                Token::Symbol(Symbol::Semicolon) => {
-                    let source = self.iter.peek().source;
-                    self.iter.advance()?;
-                    
-                    match self.iter.peek().value {
-                        Token::LineBreak => {
-                            self.iter
-                                .warnings_mut()
-                                .push(Span {
-                                    value: Warning::UnnecessarySemicolon,
-                                    source,
-                                });
-                            self.iter.advance()?;
-                        },
-                        _ => {}
-                    }
-                },
-                Token::LineBreak => self.iter.advance()?,
-                Token::Symbol(Symbol::RightBrace) | Token::EndOfInput => break,
-                token => todo!("{:?}", token)
-            }
         }
 
         Ok(ModuleContent(items))

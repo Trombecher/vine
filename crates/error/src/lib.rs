@@ -1,8 +1,8 @@
 // pub mod format;
 mod generated_codes;
 
-use parse_tools::bytes;
-use parse_tools::bytes::Cursor;
+use bytes;
+use bytes::Cursor;
 pub use generated_codes::*;
 
 impl Into<Error> for bytes::Error {

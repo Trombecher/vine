@@ -10,5 +10,5 @@ lto = "fat"
 
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
-parse_tools = { path = "../../../parse_tools" }
+bytes = { path = "../bytes" }
 crossterm = "0.27.0"
