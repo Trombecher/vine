@@ -8,7 +8,9 @@ pub extern Infinity: number
 @js(const)
 pub extern NaN: number
 
-pub extern undefined: ()
+pub extern "js-id" undefined "undefined": Undefined
+
+pub extern "js-type" Undefined
 
 // Functions
 

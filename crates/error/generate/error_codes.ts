@@ -355,6 +355,10 @@ export const RAW_ERRORS: Readonly<Record<number, RawError>> = {
         source: "parser",
         description: "Expected `{`.",
         context: "in a function statement. After a return type, there must always be a braced function body."
+    },
+    78: {
+        source: "parser",
+        description: "Unexpected token"
     }
 };
 

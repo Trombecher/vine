@@ -97,8 +97,14 @@ pub enum Expression<'a> {
     },
     Call {
         target: Box<Span<'a, Expression<'a>>>,
-        arguments: Vec<Span<'a, Expression<'a>>>
+        arguments: CallArguments<'a>
     },
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum CallArguments<'a> {
+    Unnamed(Vec<Span<'a, Expression<'a>>>),
+    Named(Vec<(Span<'a, ()>, Span<'a, Expression<'a>>)>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -116,7 +122,7 @@ pub enum StatementKind<'a> {
     },
     Declaration {
         is_mutable: bool,
-        ty: Option<Type<'a>>,
+        ty: Option<Span<'a, Type<'a>>>,
         id: &'a str,
         value: Option<Box<Span<'a, Expression<'a>>>>,
     },
@@ -147,8 +153,9 @@ pub struct TypeParameter<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct StructField<'a> {
     pub is_public: bool,
+    pub is_mutable: bool,
     pub id: &'a str,
-    pub ty: Option<Type<'a>>,
+    pub ty: Span<'a, Type<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

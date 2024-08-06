@@ -7,7 +7,8 @@ use warning::Warning;
 /// Wraps a [TokenIterator] and buffers tokens.
 pub struct Buffered<'a, T: TokenIterator<'a>> {
     iter: T,
-    next_token: Span<'a, Token<'a>>
+    next_token: Span<'a, Token<'a>>,
+    next_next_token: Option<Span<'a, Token<'a>>>,
 }
 
 impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
@@ -16,6 +17,7 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
         Ok(Self {
             next_token: iter.next_token()?,
             iter,
+            next_next_token: None,
         })
     }
 
@@ -39,6 +41,17 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
         &self.next_token
     }
     
+    #[inline]
+    pub fn peek_after<'b>(&'b mut self) -> Result<&'b Span<'a, Token<'a>>, Error> {
+        if self.next_next_token.is_none() {
+            self.next_next_token = Some(self.iter.next_token()?);
+        }
+        
+        Ok(unsafe {
+            self.next_next_token.as_ref().unwrap_unchecked()
+        })
+    }
+    
     // /// Returns the next token.
     // #[inline]
     // pub fn next(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
@@ -58,7 +71,11 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
 
     #[inline]
     pub fn advance(&mut self) -> Result<(), Error> {
-        let _ = replace(&mut self.next_token, self.iter.next_token()?);
+        self.next_token = if let Some(next) = self.next_next_token.take() {
+            next
+        } else {
+            self.iter.next_token()?
+        };
         Ok(())
     }
     

@@ -356,6 +356,9 @@ pub enum Error {
     ///
     /// Context: The error occurred in a function statement. After a return type, there must always be a braced function body.
     E0077 = 77,
+
+    /// Unexpected token
+    E0078 = 78,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -451,6 +454,7 @@ impl Error {
             Error::E0075 => "Expected `{` or `->`.",
             Error::E0076 => "Expected `(`.",
             Error::E0077 => "Expected `{`.",
+            Error::E0078 => "Unexpected token",
         }
     }
     
@@ -528,6 +532,7 @@ impl Error {
             Error::E0075 => "E0075",
             Error::E0076 => "E0076",
             Error::E0077 => "E0077",
+            Error::E0078 => "E0078",
         }
     }
 
@@ -605,6 +610,7 @@ impl Error {
             Error::E0075 => Some("in a function statement. Help: if you want to use a bodyless function, split the function statement into declaration and expression."),
             Error::E0076 => Some("in a function statement (parameters)."),
             Error::E0077 => Some("in a function statement. After a return type, there must always be a braced function body."),
+            Error::E0078 => None,
         }
     }
 
@@ -682,6 +688,7 @@ impl Error {
             Error::E0075 => Source::Parser,
             Error::E0076 => Source::Parser,
             Error::E0077 => Source::Parser,
+            Error::E0078 => Source::Parser,
         }
     }
 }

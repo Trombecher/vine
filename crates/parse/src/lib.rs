@@ -26,32 +26,10 @@ fn merge(a_ptr: *const u8, b: &str) -> &str {
 }
 
 impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
+    #[inline]
     pub const fn new(iter: Buffered<'a, T>) -> ParseContext<'a, T> {
         Self { iter }
     }
-
-    /*
-    /// Takes the string out of the last token.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that there is a string in the last token.
-    #[inline]
-    unsafe fn take_string_unchecked(&mut self) -> Result<String, Error> {
-        let mut s = Token::EndOfInput; // dummy token
-        swap(&mut s, &mut self.iter.peek_mut()?.value);
-
-        if let Token::String(s) = s {
-            Ok(s)
-        } else {
-            // SAFETY: We swapped a `self.last_token.value` (which we know it's a string)
-            // with a dummy value. After the swap, there is a Token::String in `s`,
-            // which we can unwrap unchecked.
-
-            unreachable_unchecked()
-        }
-    }
-     */
 
     /// Parses type declarations like this:
     ///
@@ -102,6 +80,13 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             match self.iter.peek().value {
                 Token::Symbol(Symbol::RightBrace) => break,
                 Token::Symbol(Symbol::Semicolon) => {
+                    let source = self.iter.peek().source;
+                    
+                    self.iter.warnings_mut().push(Span {
+                        value: Warning::UnnecessarySemicolon,
+                        source,
+                    });
+                    
                     // TODO: warning: unnecessary semicolon
                     self.iter.advance_skip_lb()?;
                 }
@@ -142,8 +127,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
         let source = merge(start, self.iter.peek().source);
 
-        self.iter.advance()?; // TODO: move these into the match-statement
-        let lb = self.iter.skip_lb()?;
+        // TODO: move these into the match-statement
+        let lb = self.iter.advance_skip_lb()?;
 
         Ok((Span {
             value,
@@ -209,7 +194,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             self.iter.advance()?;
         }
 
-        let statement_kind: Option<(StatementKind<'a>, &'a str)> = match &self.iter.peek().value {
+        let statement_kind: Option<(StatementKind<'a>, &'a str)> = match self.iter.peek().value {
             Token::Keyword(Keyword::Fn) => {
                 let function_start = self.iter.peek().source.as_ptr();
 
@@ -390,8 +375,171 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     end
                 ))
             }
+            Token::Keyword(Keyword::Struct) => {
+                self.iter.advance_skip_lb()?;
+                
+                let tps = match self.iter.peek().value {
+                    Token::Symbol(Symbol::LeftAngle) => {
+                        self.iter.advance_skip_lb()?;
+                        self.parse_type_parameter_declarations()?
+                    }
+                    _ => Vec::new()
+                };
+                
+                let id = match self.iter.peek().value {
+                    Token::Identifier(id) => id,
+                    _ => todo!()
+                };
+                
+                let mut end = self.iter.peek().source;
+                let mut fields = Vec::new();
+                
+                let lb = self.iter.advance_skip_lb()?;
+                
+                match self.iter.peek().value {
+                    Token::Symbol(Symbol::LeftParenthesis) => {
+                        self.iter.advance_skip_lb()?;
+                        
+                        loop {
+                            let start = self.iter.peek().source.as_ptr();
+                            
+                            let is_public = match self.iter.peek().value {
+                                Token::Keyword(Keyword::Pub) => {
+                                    self.iter.advance_skip_lb()?;
+                                    true
+                                }
+                                Token::Symbol(Symbol::RightParenthesis) => break,
+                                _ => false
+                            };
 
-            token => {
+                            let is_mutable = if let Token::Keyword(Keyword::Mut) = self.iter.peek().value {
+                                self.iter.advance_skip_lb()?;
+                                true
+                            } else {
+                                false
+                            };
+                            
+                            let id = match &self.iter.peek().value {
+                                Token::Identifier(id) => *id,
+                                token => todo!("{:?}", token)
+                            };
+                            
+                            self.iter.advance_skip_lb()?;
+                            
+                            let (ty, lb) = match self.iter.peek().value {
+                                Token::Symbol(Symbol::Colon) => {
+                                    self.iter.advance_skip_lb()?;
+                                    self.parse_type()?
+                                }
+                                _ => todo!()
+                            };
+
+                            let end = self.iter.peek().source; // TODO: there is a bug here
+
+                            fields.push(Span {
+                                value: StructField {
+                                    is_public,
+                                    is_mutable,
+                                    id,
+                                    ty,
+                                },
+                                source: merge(start, end),
+                            });
+                            
+                            match &self.iter.peek().value {
+                                Token::Symbol(Symbol::Comma) => {
+                                    if self.iter.advance_skip_lb()? {
+                                        // TODO: unnecessary comma
+                                    }
+                                }
+                                Token::Symbol(Symbol::RightParenthesis) => break,
+                                _ if lb => {}
+                                token => todo!("{:?}", token)
+                            }
+                        }
+                    
+                        end = self.iter.peek().source;
+                        self.iter.advance_skip_lb()?;
+                    }
+                    _ if lb => {},
+                    _ => todo!()
+                }
+                
+                Some((
+                    StatementKind::Struct {
+                        id,
+                        tps,
+                        fields,
+                    },
+                    end
+                ))
+            }
+            Token::Keyword(Keyword::Let) => {
+                self.iter.advance_skip_lb()?;
+                
+                let is_mutable = match self.iter.peek().value {
+                    Token::Keyword(Keyword::Mut) => {
+                        self.iter.advance_skip_lb()?;
+                        true
+                    },
+                    _ => false,
+                };
+                
+                let id = match self.iter.peek().value {
+                    Token::Identifier(id) => id,
+                    _ => todo!(),
+                };
+                
+                let mut end = self.iter.peek().source;
+                
+                let mut lb = self.iter.advance_skip_lb()?;
+
+                let ty = match self.iter.peek().value {
+                    Token::Symbol(Symbol::Colon) => {
+                        self.iter.advance_skip_lb()?;
+                        let (ty, line) = self.parse_type()?;
+                        lb = line;
+                        Some(ty)
+                    }
+                    _ => None,
+                };
+                
+                let value = match self.iter.peek().value {
+                    Token::Symbol(Symbol::Equals) => {
+                        self.iter.advance_skip_lb()?;
+                        let expr = self.parse_expression(0)?;
+                        Some(expr)
+                    }
+                    _ => None
+                };
+                
+                match self.iter.peek().value {
+                    Token::Symbol(Symbol::RightParenthesis)
+                    | Token::Symbol(Symbol::Comma)
+                    | Token::Symbol(Symbol::RightBracket) => todo!(),
+                    Token::Symbol(Symbol::RightBrace)
+                    | Token::EndOfInput
+                    | Token::Symbol(Symbol::Semicolon) => {}
+                    _ => {} // Validated LineBreak via `parse_expression()`
+                }
+
+                end = if let Some(Span { source, .. }) = &value {
+                    source
+                } else {
+                    self.iter.peek().source // TODO: Major bug here
+                };
+                
+                Some((
+                    StatementKind::Declaration {
+                        is_mutable,
+                        ty,
+                        id,
+                        value: value.map(Box::new),
+                    },
+                    end
+                ))
+            }
+            _ => {
                 if annotations.len() > 0 {
                     return Err(Error::E0041);
                 }
@@ -467,10 +615,136 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 Token::Symbol(Symbol::Slash) => op!(Operation::PA(PAOperation::Division), bp::MULTIPLICATIVE),
                 Token::Symbol(Symbol::Percent) => op!(Operation::PA(PAOperation::Remainder), bp::MULTIPLICATIVE),
                 Token::Symbol(Symbol::StarStar) => op!(Operation::PA(PAOperation::Exponentiation), bp::EXPONENTIAL),
-                Token::Keyword(Keyword::Let) if line_breaks => todo!("Yes, this is allowed!"),
+                Token::Symbol(Symbol::LeftParenthesis) => {
+                    if bp::CALL < min_bp {
+                        break;
+                    }
+
+                    self.iter.advance_skip_lb()?;
+
+                    enum Res<'a> {
+                        Unnamed,
+                        Named(&'a str)
+                    }
+
+                    let res = match self.iter.peek().value {
+                        Token::Identifier(id) => {
+                            match self.iter.peek_after()?.value {
+                                Token::Symbol(Symbol::Equals) => {
+                                    // Skip the identifier and the =
+                                    self.iter.advance()?;
+                                    self.iter.advance()?;
+
+                                    Res::Named(id)
+                                },
+                                _ => Res::Unnamed
+                            }
+                        },
+                        _ => Res::Unnamed
+                    };
+
+                    let arguments: CallArguments<'a> = match res {
+                        Res::Unnamed => {
+                            let mut args = Vec::new();
+
+                            loop {
+                                match self.iter.peek().value {
+                                    Token::Symbol(Symbol::Comma) => {
+                                        self.iter.advance_skip_lb()?;
+                                        // TODO: unnecessary comma
+                                        continue
+                                    }
+                                    Token::Symbol(Symbol::RightParenthesis) => break,
+                                    _ => {}
+                                }
+
+                                let expr = self.parse_expression(0)?;
+
+                                match self.iter.peek().value {
+                                    Token::LineBreak => self.iter.advance()?,
+                                    Token::Symbol(Symbol::Comma) => {
+                                        if self.iter.advance_skip_lb()? {
+                                            // TODO: unnecessary comma
+                                        }
+                                    }
+                                    _ => {}
+                                }
+
+                                args.push(expr);
+                            }
+
+                            CallArguments::Unnamed(args)
+                        }
+                        Res::Named(mut arg) => {
+                            let mut args = Vec::new();
+
+                            macro_rules! parse_that {
+                                () => {{
+                                    let expr = self.parse_expression(0)?;
+
+                                    match self.iter.peek().value {
+                                        Token::LineBreak => self.iter.advance()?,
+                                        Token::Symbol(Symbol::Comma) => {
+                                            if self.iter.advance_skip_lb()? {
+                                                // TODO: unnecessary comma
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+        
+                                    args.push((
+                                        Span {
+                                            value: (),
+                                            source: arg,
+                                        },
+                                        expr
+                                    ));
+                                }};
+                            }
+
+                            parse_that!();
+                            
+                            loop {
+                                arg = match self.iter.peek().value {
+                                    Token::Symbol(Symbol::Comma) => {
+                                        self.iter.advance_skip_lb()?;
+                                        // TODO: unnecessary comma
+                                        continue
+                                    }
+                                    Token::Symbol(Symbol::RightParenthesis) => break,
+                                    Token::Identifier(id) => {
+                                        self.iter.advance_skip_lb()?;
+                                        
+                                        match self.iter.peek().value {
+                                            Token::Symbol(Symbol::Equals) => {}
+                                            _ => todo!("error")
+                                        }
+                                        
+                                        id
+                                    }
+                                    _ => todo!("error")
+                                };
+
+                                parse_that!();
+                            }
+
+                            CallArguments::Named(args)
+                        }
+                    };
+
+                    let last_source = self.iter.peek().source;
+                    
+                    self.iter.advance_skip_lb()?;
+
+                    (Expression::Call {
+                        target: Box::new(left_side),
+                        arguments,
+                    }, last_source)
+                }
                 Token::EndOfInput
                 | Token::Symbol(Symbol::RightBrace)
                 | Token::Symbol(Symbol::Semicolon)
+                | Token::Symbol(Symbol::Comma)
                 | Token::Symbol(Symbol::RightParenthesis)
                 | Token::Symbol(Symbol::RightBracket) => break,
                 _ if line_breaks => break,
