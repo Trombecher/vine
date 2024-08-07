@@ -136,6 +136,71 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         }, lb))
     }
 
+    /// Expects the . to not be consumed.
+    pub(crate) fn parse_use(&mut self, id: &'a str) -> Result<(Use<'a>, bool), Error> {
+        // TODO: I don't believe in this code. I'm certain there are some bugs here.
+        
+        let mut lb = self.iter.advance_skip_lb()?;
+        
+        let child = match self.iter.peek().value {
+            Token::Symbol(Symbol::Dot) => {
+                self.iter.advance_skip_lb()?;
+
+                Some(match self.iter.peek().value {
+                    Token::Symbol(Symbol::Star) => {
+                        lb = self.iter.advance_skip_lb()?;
+                        UseChild::All
+                    },
+                    Token::Symbol(Symbol::LeftParenthesis) => {
+                        self.iter.advance_skip_lb()?;
+                        
+                        let mut vec = Vec::new();
+
+                        loop {
+                            let (value, lb) = match self.iter.peek().value {
+                                Token::Identifier(id) => self.parse_use(id)?,
+                                Token::Symbol(Symbol::Comma) => {
+                                    // TODO: useless comma
+                                    continue
+                                },
+                                Token::Symbol(Symbol::RightParenthesis) => break,
+                                _ => todo!()
+                            };
+                            
+                            vec.push(value);
+
+                            match self.iter.peek().value {
+                                _ if lb => {}
+                                Token::Symbol(Symbol::Comma) => {
+                                    if self.iter.advance_skip_lb()? {
+                                        // TODO: unnecessary comma
+                                    }
+                                }
+                                _ => todo!()
+                            }
+                        }
+
+                        lb = self.iter.advance_skip_lb()?;
+                        
+                        UseChild::Multiple(vec)
+                    },
+                    Token::Identifier(id) => {
+                        let (u, p) = self.parse_use(id)?;
+                        lb = p;
+                        UseChild::Single(Box::new(u))
+                    },
+                    _ => todo!()
+                })
+            }
+            _ => None
+        };
+        
+        Ok((Use {
+            id,
+            child,
+        }, lb))
+    }
+    
     /// Tries to parse a statement.
     ///
     /// # Tokens
@@ -536,6 +601,33 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         id,
                         value: value.map(Box::new),
                     },
+                    end
+                ))
+            }
+            Token::Keyword(Keyword::Use) => {
+                self.iter.advance_skip_lb()?;
+                
+                let root_id = match self.iter.peek().value {
+                    Token::Identifier(id) => id,
+                    _ => todo!(),
+                };
+                
+                let mut end = self.iter.peek().source; // TODO: fix this bug
+                
+                let (u, lb) = self.parse_use(root_id)?;
+                
+                match self.iter.peek().value {
+                    _ if lb => {}
+                    Token::Symbol(Symbol::Semicolon) => {
+                        if self.iter.advance_skip_lb()? {
+                            // TODO: unnecessary semicolon
+                        }
+                    }
+                    _ => todo!()
+                }
+                
+                Some((
+                    StatementKind::Use(u),
                     end
                 ))
             }
