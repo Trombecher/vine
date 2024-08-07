@@ -5,6 +5,10 @@ use x.(
     a.*
 )
 
+for<T> {
+    
+}
+
 struct Point(x: num, y: num)
 
 fn main() {

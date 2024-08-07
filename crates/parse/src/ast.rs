@@ -113,11 +113,17 @@ pub struct If<'a> {
     pub body: Span<'a, Vec<Span<'a, StatementOrExpression<'a>>>>,
 }
 
+pub type TypeParameters<'a> = Vec<Span<'a, TypeParameter<'a>>>;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum StatementKind<'a> {
+    TypeParameterAlias {
+        tps: TypeParameters<'a>,
+        content: ModuleContent<'a>
+    },
     Enum {
         id: &'a str,
-        tps: Vec<TypeParameter<'a>>,
+        tps: TypeParameters<'a>,
         variants: Vec<(&'a str, Option<Span<'a, Expression<'a>>>)>,
     },
     Declaration {
@@ -128,12 +134,12 @@ pub enum StatementKind<'a> {
     },
     Struct {
         id: &'a str,
-        tps: Vec<TypeParameter<'a>>,
+        tps: TypeParameters<'a>,
         fields: Vec<Span<'a, StructField<'a>>>
     },
     TypeAlias {
         id: &'a str,
-        tps: Vec<TypeParameter<'a>>,
+        tps: TypeParameters<'a>,
         ty: Type<'a>,
     },
     Use(Use<'a>),
@@ -281,7 +287,7 @@ pub struct FunctionSignature<'a> {
     pub return_type: Span<'a, Type<'a>>,
     pub parameters: Vec<Parameter<'a>>,
     pub has_this_parameter: bool,
-    pub tps: Vec<TypeParameter<'a>>,
+    pub tps: TypeParameters<'a>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -39,21 +39,27 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     /// ```
     ///
     /// Expects the next token to be the marked. Ends on the non-lb token after `>`.
-    pub fn parse_type_parameter_declarations(&mut self) -> Result<Vec<TypeParameter<'a>>, Error> {
+    pub fn parse_type_parameter_declarations(&mut self) -> Result<TypeParameters<'a>, Error> {
         let mut params = Vec::new();
 
         loop {
             match self.iter.peek().value {
-                Token::Identifier(id) => params.push(TypeParameter {
-                    id,
-                    traits: vec![],
-                }),
+                Token::Identifier(id) => {
+                    params.push(Span {
+                        value: TypeParameter {
+                            id,
+                            traits: vec![],
+                        },
+                        source: self.iter.peek().source,
+                    }); // TODO: Add traits
+                },
                 Token::Symbol(Symbol::RightAngle) => break,
                 _ => todo!()
-            } // TODO: Add traits
+            }
 
             self.iter.advance_skip_lb()?;
 
+            // TODO: Add lf for tp separation
             match self.iter.peek().value {
                 Token::Symbol(Symbol::RightAngle) => break,
                 Token::Symbol(Symbol::Comma) => {
@@ -631,6 +637,36 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     end
                 ))
             }
+            Token::Keyword(Keyword::For) => {
+                if let Token::Symbol(Symbol::LeftAngle) = self.iter.peek_after()?.value {
+                    self.iter.advance()?;
+                    self.iter.advance_skip_lb()?;
+                    
+                    let tps = self.parse_type_parameter_declarations()?;
+                    
+                    self.iter.advance_skip_lb()?;
+                    
+                    let content = self.parse_module_content()?;
+                    
+                    match self.iter.peek().value {
+                        Token::Symbol(Symbol::RightBrace) => {}
+                        _ => todo!(),
+                    }
+                    
+                    let mut end = self.iter.peek().source;
+                    after_brace!(end);
+                    
+                    Some((
+                        StatementKind::TypeParameterAlias {
+                            tps,
+                            content,
+                        },
+                        end
+                    ))
+                } else {
+                    None
+                }
+            }
             _ => {
                 if annotations.len() > 0 {
                     return Err(Error::E0041);
@@ -725,7 +761,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 Token::Symbol(Symbol::Equals) => {
                                     // Skip the identifier and the =
                                     self.iter.advance()?;
-                                    self.iter.advance()?;
+                                    self.iter.advance_skip_lb()?;
 
                                     Res::Named(id)
                                 },

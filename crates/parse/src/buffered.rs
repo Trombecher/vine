@@ -1,4 +1,3 @@
-use std::mem::replace;
 use error::Error;
 use lex::Span;
 use lex::token::{Token, TokenIterator};
@@ -41,10 +40,17 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
         &self.next_token
     }
     
+    /// Returns a shared reference to the token after the token [Self::peek] would return.
+    /// In the process of generating a new token, a line break is skipped.
     #[inline]
     pub fn peek_after<'b>(&'b mut self) -> Result<&'b Span<'a, Token<'a>>, Error> {
         if self.next_next_token.is_none() {
             self.next_next_token = Some(self.iter.next_token()?);
+            
+            // Skip a line break
+            if let Token::LineBreak = unsafe { self.next_next_token.as_ref().unwrap_unchecked() }.value {
+                self.next_next_token = Some(self.iter.next_token()?);
+            }
         }
         
         Ok(unsafe {
