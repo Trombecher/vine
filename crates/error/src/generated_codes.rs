@@ -359,6 +359,9 @@ pub enum Error {
 
     /// Unexpected token
     E0078 = 78,
+
+    /// Binary number literal must contain at least one digit (0 or 1).
+    E0079 = 79,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -455,6 +458,7 @@ impl Error {
             Error::E0076 => "Expected `(`.",
             Error::E0077 => "Expected `{`.",
             Error::E0078 => "Unexpected token",
+            Error::E0079 => "Binary number literal must contain at least one digit (0 or 1).",
         }
     }
     
@@ -533,6 +537,7 @@ impl Error {
             Error::E0076 => "E0076",
             Error::E0077 => "E0077",
             Error::E0078 => "E0078",
+            Error::E0079 => "E0079",
         }
     }
 
@@ -611,6 +616,7 @@ impl Error {
             Error::E0076 => Some("in a function statement (parameters)."),
             Error::E0077 => Some("in a function statement. After a return type, there must always be a braced function body."),
             Error::E0078 => None,
+            Error::E0079 => None,
         }
     }
 
@@ -689,6 +695,7 @@ impl Error {
             Error::E0076 => Source::Parser,
             Error::E0077 => Source::Parser,
             Error::E0078 => Source::Parser,
+            Error::E0079 => Source::Lexer,
         }
     }
 }

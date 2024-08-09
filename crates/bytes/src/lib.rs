@@ -220,7 +220,7 @@ impl<'a> Cursor<'a> {
         }
     }
     
-    /// Advances the cursor one byte.
+    /// Advances the cursor by one byte.
     /// 
     /// # Safety
     /// 
@@ -228,6 +228,16 @@ impl<'a> Cursor<'a> {
     #[inline]
     pub unsafe fn advance_unchecked(&mut self) {
         self.cursor = self.cursor.add(1)
+    }
+
+    /// Advances the cursor by n bytes.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the next n bytes are valid to skip over.
+    #[inline]
+    pub unsafe fn advance_n_unchecked(&mut self, n: usize) {
+        self.cursor = self.cursor.add(n);
     }
 
     #[inline]

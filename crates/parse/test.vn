@@ -1,16 +1,8 @@
-use a.b
-use x.(
-    y
-    z
-    a.*
-)
+// Yoooo
 
-for<T> {
-    
-}
+// multiple
 
-struct Point(x: num, y: num)
-
+/// This is a doc comment
 fn main() {
-    let mut start = Point(0, 1)
+    main()
 }

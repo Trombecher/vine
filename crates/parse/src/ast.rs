@@ -122,22 +122,26 @@ pub enum StatementKind<'a> {
         content: ModuleContent<'a>
     },
     Enum {
+        doc_comments: Vec<&'a str>,
         id: &'a str,
         tps: TypeParameters<'a>,
         variants: Vec<(&'a str, Option<Span<'a, Expression<'a>>>)>,
     },
     Declaration {
+        doc_comments: Vec<&'a str>,
         is_mutable: bool,
         ty: Option<Span<'a, Type<'a>>>,
         id: &'a str,
         value: Option<Box<Span<'a, Expression<'a>>>>,
     },
     Struct {
+        doc_comments: Vec<&'a str>,
         id: &'a str,
         tps: TypeParameters<'a>,
         fields: Vec<Span<'a, StructField<'a>>>
     },
     TypeAlias {
+        doc_comments: Vec<&'a str>,
         id: &'a str,
         tps: TypeParameters<'a>,
         ty: Type<'a>,
@@ -145,6 +149,7 @@ pub enum StatementKind<'a> {
     Use(Use<'a>),
     RootUse(UseChild<'a>),
     Module {
+        doc_comments: Vec<&'a str>,
         id: &'a str,
         content: Option<ModuleContent<'a>>
     }
@@ -291,4 +296,7 @@ pub struct FunctionSignature<'a> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ItemPath<'a>(pub Vec<&'a str>);
+pub struct ItemPath<'a> {
+    pub parents: Vec<&'a str>,
+    pub id: &'a str
+}

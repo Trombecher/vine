@@ -31,6 +31,34 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         Self { iter }
     }
 
+    /// Adds a warning with the span of the token returned by [Buffered::peek].
+    #[inline]
+    fn omit_single_token_warning(&mut self, warning: Warning) {
+        let source = self.iter.peek().source;
+        self.iter.warnings_mut().push(Span {
+            value: warning,
+            source,
+        })
+    }
+    
+    /// Uses [Buffered::advance_skip_lb] to advance the iterator while skipping a [Token::LineBreak].
+    /// If a line break was encountered, it adds the warning with the source of the token of [Buffered::peek]
+    /// before [Buffered::advance_skip_lb] was called.
+    #[inline]
+    fn opt_omit_unnecessary_delimiter_warning(&mut self, warning: Warning) -> Result<(), Error> {
+        // We need to capture this source outside,
+        // or else the borrow checker will get mad.
+        let source = self.iter.peek().source;
+        
+        if self.iter.advance_skip_lb()? {
+            self.iter.warnings_mut().push(Span {
+                value: warning,
+                source,
+            })
+        }
+        Ok(())
+    }
+
     /// Parses type declarations like this:
     ///
     /// ```text
@@ -86,14 +114,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             match self.iter.peek().value {
                 Token::Symbol(Symbol::RightBrace) => break,
                 Token::Symbol(Symbol::Semicolon) => {
-                    let source = self.iter.peek().source;
-                    
-                    self.iter.warnings_mut().push(Span {
-                        value: Warning::UnnecessarySemicolon,
-                        source,
-                    });
-                    
-                    // TODO: warning: unnecessary semicolon
+                    self.omit_single_token_warning(Warning::UnnecessarySemicolon);
                     self.iter.advance_skip_lb()?;
                 }
                 _ => {
@@ -124,9 +145,13 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
         let value = match &self.iter.peek().value {
             Token::Keyword(kw) if let Ok(ty) = Type::try_from(*kw) => ty,
-            Token::Identifier(id) => Type::ItemPath {
-                generics: vec![],
-                path: ItemPath(vec![id]),
+            Token::Identifier(id) => {
+                let path = self.parse_item_path(id)?;
+                
+                Type::ItemPath {
+                    path,
+                    generics: vec![], // TODO: add generics
+                }
             },
             token => todo!("{:?}", token)
         };
@@ -166,7 +191,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             let (value, lb) = match self.iter.peek().value {
                                 Token::Identifier(id) => self.parse_use(id)?,
                                 Token::Symbol(Symbol::Comma) => {
-                                    // TODO: useless comma
+                                    self.omit_single_token_warning(Warning::UnnecessaryComma);
+                                    self.iter.advance_skip_lb()?;
                                     continue
                                 },
                                 Token::Symbol(Symbol::RightParenthesis) => break,
@@ -178,10 +204,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             match self.iter.peek().value {
                                 _ if lb => {}
                                 Token::Symbol(Symbol::Comma) => {
-                                    if self.iter.advance_skip_lb()? {
-                                        // TODO: unnecessary comma
-                                    }
+                                    self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                 }
+                                Token::Symbol(Symbol::RightParenthesis) => break,
                                 _ => todo!()
                             }
                         }
@@ -205,6 +230,45 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             id,
             child,
         }, lb))
+    }
+    
+    /// Expects [Buffered::peek] to yield [Token::Identifier].
+    /// Ends on the token after the last path segment (greedy).
+    pub(crate) fn parse_item_path(&mut self, mut first_id: &'a str) -> Result<ItemPath<'a>, Error> {
+        self.iter.advance_skip_lb()?;
+
+        // This match-statement hell prevents unnecessary allocation of an empty vec.
+        let parents = match self.iter.peek().value {
+            Token::Symbol(Symbol::Dot) => {
+                let mut parents = Vec::new();
+
+                loop {
+                    parents.push(first_id);
+
+                    self.iter.advance_skip_lb()?;
+
+                    first_id = match self.iter.peek().value {
+                        Token::Identifier(id) => id,
+                        _ => todo!()
+                    };
+
+                    self.iter.advance_skip_lb()?;
+
+                    match self.iter.peek().value {
+                        Token::Symbol(Symbol::Dot) => {}
+                        _ => break,
+                    }
+                }
+
+                parents
+            }
+            _ => Vec::new(),
+        };
+        
+        Ok(ItemPath {
+            parents,
+            id: first_id,
+        })
     }
     
     /// Tries to parse a statement.
@@ -232,37 +296,61 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         $end = self.iter.peek().source;
                         
                         if self.iter.advance_skip_lb()? {
-                            // TODO: unnecessary semicolon, because this line break is sufficient
+                            self.iter.warnings_mut().push(Span {
+                                value: Warning::UnnecessarySemicolon,
+                                source: $end
+                            })
                         }
                     }
                     _ => todo!()
                 }
             }};
         }
-        
+
         let start = self.iter.peek().source.as_ptr();
+
+        let mut doc_comments = Vec::new();
+
+        // Against code repetition:
+        macro_rules! error_doc_comments {
+            () => {{
+                if doc_comments.len() > 0 {
+                    todo!("Error: you can only add doc comments to items; last token: {:?}", self.iter.peek())
+                }
+            }};
+        }
+
+        // Collect all doc comments.
+        loop {
+            match self.iter.peek().value {
+                Token::DocComment(doc_comment) => doc_comments.push(doc_comment),
+                _ => break,
+            }
+            self.iter.advance()?;
+        }
 
         let mut annotations = Vec::new();
 
+        // Collect all available annotations associated with the statement.
         loop {
             match self.iter.peek().value {
                 Token::Symbol(Symbol::At) => {}
                 _ => break
             }
 
-            self.iter.advance()?;
-
+            self.iter.advance_skip_lb()?;
+            
             let id = match self.iter.peek().value {
                 Token::Identifier(id) => id,
                 _ => todo!()
             };
 
+            let path = self.parse_item_path(id)?;
+            
             annotations.push(Annotation {
-                path: ItemPath(vec![id]),
-                arguments: vec![], // TODO: Path + arguments of annotations
+                path,
+                arguments: vec![], // TODO: arguments of annotations
             });
-
-            self.iter.advance()?;
         }
 
         let statement_kind: Option<(StatementKind<'a>, &'a str)> = match self.iter.peek().value {
@@ -377,6 +465,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 Some((
                     StatementKind::Declaration {
+                        doc_comments,
                         is_mutable: false,
                         ty: None,
                         id,
@@ -428,9 +517,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         Some(content)
                     }
                     Token::Symbol(Symbol::Semicolon) if !line_break => {
-                        if self.iter.advance_skip_lb()? {
-                            // TODO: warning
-                        }
+                        self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
                         None
                     }
                     Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => None,
@@ -442,6 +529,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     StatementKind::Module {
                         id,
                         content,
+                        doc_comments,
                     },
                     end
                 ))
@@ -519,9 +607,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             
                             match &self.iter.peek().value {
                                 Token::Symbol(Symbol::Comma) => {
-                                    if self.iter.advance_skip_lb()? {
-                                        // TODO: unnecessary comma
-                                    }
+                                    self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                 }
                                 Token::Symbol(Symbol::RightParenthesis) => break,
                                 _ if lb => {}
@@ -541,6 +627,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         id,
                         tps,
                         fields,
+                        doc_comments,
                     },
                     end
                 ))
@@ -561,15 +648,13 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     _ => todo!(),
                 };
                 
-                let mut end = self.iter.peek().source;
-                
                 let mut lb = self.iter.advance_skip_lb()?;
 
                 let ty = match self.iter.peek().value {
                     Token::Symbol(Symbol::Colon) => {
                         self.iter.advance_skip_lb()?;
-                        let (ty, line) = self.parse_type()?;
-                        lb = line;
+                        let (ty, new_lb) = self.parse_type()?;
+                        lb = new_lb;
                         Some(ty)
                     }
                     _ => None,
@@ -579,22 +664,24 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     Token::Symbol(Symbol::Equals) => {
                         self.iter.advance_skip_lb()?;
                         let expr = self.parse_expression(0)?;
+
+                        match self.iter.peek().value {
+                            Token::Symbol(Symbol::RightParenthesis)
+                            | Token::Symbol(Symbol::Comma)
+                            | Token::Symbol(Symbol::RightBracket) => todo!(),
+                            Token::Symbol(Symbol::RightBrace)
+                            | Token::EndOfInput
+                            | Token::Symbol(Symbol::Semicolon) => {}
+                            _ => {} // Validated LineBreak via `parse_expression()`
+                        }
+                        
                         Some(expr)
                     }
-                    _ => None
+                    _ if lb => None,
+                    _ => todo!()
                 };
-                
-                match self.iter.peek().value {
-                    Token::Symbol(Symbol::RightParenthesis)
-                    | Token::Symbol(Symbol::Comma)
-                    | Token::Symbol(Symbol::RightBracket) => todo!(),
-                    Token::Symbol(Symbol::RightBrace)
-                    | Token::EndOfInput
-                    | Token::Symbol(Symbol::Semicolon) => {}
-                    _ => {} // Validated LineBreak via `parse_expression()`
-                }
 
-                end = if let Some(Span { source, .. }) = &value {
+                let end = if let Some(Span { source, .. }) = &value {
                     source
                 } else {
                     self.iter.peek().source // TODO: Major bug here
@@ -602,6 +689,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 
                 Some((
                     StatementKind::Declaration {
+                        doc_comments,
                         is_mutable,
                         ty,
                         id,
@@ -611,6 +699,10 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 ))
             }
             Token::Keyword(Keyword::Use) => {
+                if doc_comments.len() > 0 {
+                    todo!("Error: cannot add a doc comment to a use-statement")
+                }
+
                 self.iter.advance_skip_lb()?;
                 
                 let root_id = match self.iter.peek().value {
@@ -623,13 +715,12 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 let (u, lb) = self.parse_use(root_id)?;
                 
                 match self.iter.peek().value {
+                    Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => {}
                     _ if lb => {}
                     Token::Symbol(Symbol::Semicolon) => {
-                        if self.iter.advance_skip_lb()? {
-                            // TODO: unnecessary semicolon
-                        }
+                        self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
                     }
-                    _ => todo!()
+                    _ => todo!("{:?}", self.iter.peek().value)
                 }
                 
                 Some((
@@ -638,6 +729,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 ))
             }
             Token::Keyword(Keyword::For) => {
+                error_doc_comments!();
+
                 if let Token::Symbol(Symbol::LeftAngle) = self.iter.peek_after()?.value {
                     self.iter.advance()?;
                     self.iter.advance_skip_lb()?;
@@ -664,10 +757,18 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         end
                     ))
                 } else {
+                    error_doc_comments!();
+
+                    if annotations.len() > 0 {
+                        return Err(Error::E0041);
+                    }
+
                     None
                 }
             }
             _ => {
+                error_doc_comments!();
+
                 if annotations.len() > 0 {
                     return Err(Error::E0041);
                 }
@@ -778,8 +879,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             loop {
                                 match self.iter.peek().value {
                                     Token::Symbol(Symbol::Comma) => {
+                                        self.omit_single_token_warning(Warning::UnnecessaryComma);
                                         self.iter.advance_skip_lb()?;
-                                        // TODO: unnecessary comma
                                         continue
                                     }
                                     Token::Symbol(Symbol::RightParenthesis) => break,
@@ -791,9 +892,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 match self.iter.peek().value {
                                     Token::LineBreak => self.iter.advance()?,
                                     Token::Symbol(Symbol::Comma) => {
-                                        if self.iter.advance_skip_lb()? {
-                                            // TODO: unnecessary comma
-                                        }
+                                        self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                     }
                                     _ => {}
                                 }
@@ -813,9 +912,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                     match self.iter.peek().value {
                                         Token::LineBreak => self.iter.advance()?,
                                         Token::Symbol(Symbol::Comma) => {
-                                            if self.iter.advance_skip_lb()? {
-                                                // TODO: unnecessary comma
-                                            }
+                                            self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                         }
                                         _ => {}
                                     }
@@ -836,7 +933,6 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 arg = match self.iter.peek().value {
                                     Token::Symbol(Symbol::Comma) => {
                                         self.iter.advance_skip_lb()?;
-                                        // TODO: unnecessary comma
                                         continue
                                     }
                                     Token::Symbol(Symbol::RightParenthesis) => break,
@@ -898,14 +994,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             let is_public = match self.iter.peek().value {
                 // Ignore semicolons
                 Token::Symbol(Symbol::Semicolon) => {
-                    let source = self.iter.peek().source;
+                    self.omit_single_token_warning(Warning::UnnecessarySemicolon);
                     self.iter.advance_skip_lb()?;
-
-                    self.iter.warnings_mut()
-                        .push(Span {
-                            value: Warning::UnnecessarySemicolon,
-                            source,
-                        });
                     continue
                 }
                 Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => break,
@@ -915,7 +1005,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 }
                 _ => false
             };
-            
+
             items.push(TopLevelItem {
                 is_public,
                 statement: self.try_parse_statement()?

@@ -98,9 +98,6 @@ pub enum Token<'a> {
     /// A documentation comment.
     DocComment(&'a str),
 
-    /// A line comment.
-    LineComment(&'a str),
-
     /// A [Symbol].
     Symbol(Symbol),
 

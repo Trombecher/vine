@@ -64,14 +64,18 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
     //     Ok(replace(&mut self.next_token, self.iter.next_token()?))
     // }
 
-    /// Skips a potential line break. Returns `Ok(true)` if a line break was skipped, `Ok(false)` otherwise.
+    /// Skips a potential line break.
+    /// Returns `Ok(true)` if a line break was skipped or a [Token::EndOfInput] was encountered;
+    /// `Ok(false)` otherwise.
     #[inline]
     pub fn skip_lb(&mut self) -> Result<bool, Error> {
-        Ok(if let Token::LineBreak = self.peek().value {
-            self.advance()?;
-            true
-        } else {
-            false
+        Ok(match self.peek().value {
+            Token::LineBreak => {
+                self.advance()?;
+                true
+            },
+            Token::EndOfInput => true,
+            _ => false,
         })
     }
 

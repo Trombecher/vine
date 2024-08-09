@@ -359,6 +359,10 @@ export const RAW_ERRORS: Readonly<Record<number, RawError>> = {
     78: {
         source: "parser",
         description: "Unexpected token"
+    },
+    79: {
+        source: "lexer",
+        description: "Binary number literal must contain at least one digit (0 or 1)."
     }
 };
 

@@ -1,22 +1,22 @@
 //! # Vine Lexer Module
-//! 
+//!
 //! This module contains the code to iterate over the tokens of a buffer (string).
-//! 
+//!
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
 #![feature(ptr_sub_ptr)]
 #![feature(str_from_raw_parts)]
 #![feature(const_ptr_sub_ptr)]
 
+use bytes::Cursor;
 use std::fmt::Debug;
 use std::hint::unreachable_unchecked;
 use std::str::from_raw_parts;
-use bytes::Cursor;
 
+use crate::token::{unescape_char, TokenIterator, UnprocessedString};
 use error::Error;
-use token::{KEYWORDS, Symbol, Token};
+use token::{Symbol, Token, KEYWORDS};
 use warning::Warning;
-use crate::token::{TokenIterator, unescape_char, UnprocessedString};
 
 mod tests;
 pub mod token;
@@ -46,7 +46,7 @@ impl<'a, T: Debug + Clone> Span<'a, T> {
             source: from_raw_parts(first, end.sub_ptr(first)),
         }
     }
-    
+
     #[inline]
     pub fn map<U: Debug + Clone>(self, map: impl FnOnce(T) -> U) -> Span<'a, U> {
         Span {
@@ -70,7 +70,7 @@ pub struct Lexer<'a> {
     /// A stack of layers to manage 
     layers: Vec<Layer>,
 
-    pub warnings: Vec<Span<'a, Warning>>
+    pub warnings: Vec<Span<'a, Warning>>,
 }
 
 #[inline]
@@ -144,7 +144,7 @@ impl<'a> Lexer<'a> {
     ///
     /// Expects `peek()` to output `Some(b'.')` on function call.
     #[inline]
-    fn parse_number_dec_tail(&mut self, mut number: f64) -> Result<f64, Error> {
+    pub(crate) fn parse_number_dec_tail(&mut self, mut number: f64) -> Result<f64, Error> {
         match self.cursor.peek_n(1) {
             Some(b'0') => {}
             Some(b'1') => number += 0.1,
@@ -159,8 +159,7 @@ impl<'a> Lexer<'a> {
             _ => return Ok(number)
         }
 
-        unsafe { self.cursor.advance_unchecked() } // TODO: maybe merge?
-        unsafe { self.cursor.advance_unchecked() }
+        unsafe { self.cursor.advance_n_unchecked(2) }
 
         let mut multiplier = 0.1;
 
@@ -229,7 +228,7 @@ impl<'a> Lexer<'a> {
 
                     break Ok(unsafe {
                         UnprocessedString::from_raw(from_raw_parts(first, end.sub_ptr(first)))
-                    })
+                    });
                 }
                 Some(b'\\') => {
                     unsafe { self.cursor.advance_unchecked() }
@@ -241,44 +240,6 @@ impl<'a> Lexer<'a> {
             }
         }
     }
-
-    /*
-    pub(crate) fn parse_string(&mut self) -> Result<String, Error> {
-        let mut s = String::with_capacity(32);
-
-        loop {
-            match self.cursor.peek() {
-                Some(b'"') => {
-                    unsafe {
-                        self.cursor.advance_unchecked();
-                    }
-                    break Ok(s);
-                }
-                Some(b'\\') => {
-                    unsafe {
-                        self.cursor.advance_unchecked();
-                    }
-                    s.push(self.unescape_char()?);
-                }
-                None => break Err(Error::E0019),
-                Some(_) => {
-                    let start = self.cursor.cursor();
-
-                    if let Err(e) = self.cursor.advance_char() {
-                        break Err(e.into());
-                    }
-
-                    unsafe {
-                        s.push_str(transmute(slice_from_raw_parts(
-                            start,
-                            self.cursor.cursor().sub_ptr(start),
-                        )))
-                    }
-                }
-            }
-        }
-    }
-     */
 
     pub(crate) fn parse_id(&mut self) -> Result<&'a str, Error> {
         let first = self.cursor.cursor();
@@ -298,25 +259,8 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn parse_comment(&mut self) -> Result<&'a str, Error> {
-        let first = self.cursor.cursor();
-
-        loop {
-            match self.cursor.peek() {
-                None | Some(b'\n') | Some(b'\r') => break,
-                Some(128..=255) => {
-                    self.cursor.advance_char().map_err(|e| e.into())?;
-                }
-                _ => unsafe { self.cursor.advance_unchecked() }
-            }
-        }
-
-        Ok(unsafe {
-            from_raw_parts(first, self.cursor.cursor().sub_ptr(first))
-        })
-    }
-
-    pub fn skip_whitespace(&mut self) {
+    #[inline]
+    pub(crate) fn skip_whitespace(&mut self) {
         loop {
             match self.cursor.peek() {
                 Some(x) if x.is_ascii_whitespace() => unsafe {
@@ -327,52 +271,81 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Skips whitespace until a line break or a non-whitespace character was encountered.
-    /// It normalizes all line termination sequences (LF, CRLF, CR).
-    ///
-    /// In case a line break was encountered, it consumes the line break returns [Some] with the line feed token;
-    /// else it does not consume the character and returns [None].
+    /// Skips whitespace and line comments. It returns the first line break encountered, if any.
     #[must_use]
     pub fn skip_whitespace_line(&mut self) -> Option<Span<'a, Token<'a>>> {
-        loop {
-            match self.cursor.peek() {
-                Some(b'\r') => {
-                    let first = self.cursor.cursor();
-                    unsafe { self.cursor.advance_unchecked() }
+        let mut lb: Option<Span<'a, Token<'a>>> = None;
 
-                    if let Some(b'\n') = self.cursor.peek() {
-                        unsafe { self.cursor.advance_unchecked() }
-                    }
-                    
-                    let result = Some(unsafe {
+        macro_rules! handle_lf {
+            () => {{
+                let ptr = self.cursor.cursor();
+                unsafe { self.cursor.advance_unchecked() }
+
+                if lb.is_none() {
+                    lb = Some(Span {
+                        value: Token::LineBreak,
+                        source: unsafe { from_raw_parts(ptr, 1) }
+                    });
+                }
+            }};
+        }
+
+        macro_rules! handle_crlf {
+            () => {{
+                let ptr = self.cursor.cursor();
+                unsafe { self.cursor.advance_unchecked() }
+
+                if let Some(b'\n') = self.cursor.peek() {
+                    unsafe { self.cursor.advance_unchecked() }
+                }
+
+                if lb.is_none() {
+                    lb = Some(unsafe {
                         Span::from_ends(
                             Token::LineBreak,
-                            first,
-                            self.cursor.cursor()
+                            ptr,
+                            self.cursor.cursor(),
                         )
                     });
-                    
-                    self.skip_whitespace(); // Skip additional whitespace
-
-                    break result
                 }
-                Some(b'\n') => {
-                    let source = unsafe {
-                        from_raw_parts(self.cursor.cursor(), 1)
-                    };
+            }};
+        }
 
-                    unsafe { self.cursor.advance_unchecked() }
-                    
-                    self.skip_whitespace(); // Skip additional whitespace
-                    
-                    break Some(Span { value: Token::LineBreak, source })
-                }
+        loop {
+            match self.cursor.peek() {
+                Some(b'\r') => handle_crlf!(),
+                Some(b'\n') => handle_lf!(),
                 Some(x) if x.is_ascii_whitespace() => unsafe {
                     self.cursor.advance_unchecked()
                 },
-                _ => break None,
+                Some(b'/') if Some(b'/') == self.cursor.peek_n(1)
+                    && Some(b'/') != self.cursor.peek_n(2) => {
+                    // Skip comment
+
+                    unsafe { self.cursor.advance_n_unchecked(2) }
+
+                    loop {
+                        match self.cursor.peek() {
+                            Some(b'\n') => {
+                                handle_lf!();
+                                break
+                            }
+                            Some(b'\r') => {
+                                handle_crlf!();
+                                break
+                            }
+                            None => break,
+                            _ => {
+                                unsafe { self.cursor.advance_unchecked() }
+                            }
+                        }
+                    }
+                }
+                _ => break,
             }
         }
+
+        lb
     }
 
     /// Parses a binary number.
@@ -383,22 +356,38 @@ impl<'a> Lexer<'a> {
     fn parse_number_bin(&mut self) -> Result<Token<'a>, Error> {
         unsafe { self.cursor.advance_unchecked() }
 
-        let mut number = 0_f64;
-        let mut multiplier = 0.1_f64;
+        // Skip initial underscores
+        loop {
+            match self.cursor.peek() {
+                Some(b'_') => unsafe {
+                    self.cursor.advance_unchecked()
+                }
+                _ => break,
+            }
+        }
 
-        // TODO: Optimizations regarding floating point arithmetic.
+        // A number must have a digit
+        let mut number: u128 = match self.cursor.peek() {
+            Some(b'0') => 0,
+            Some(b'1') => 1,
+            _ => return Err(Error::E0079)
+        };
+
+        unsafe { self.cursor.advance_unchecked() }
 
         loop {
             match self.cursor.peek() {
-                Some(b'0' | b'_') => unsafe { self.cursor.advance_unchecked() },
+                Some(b'0') => number <<= 1,
                 Some(b'1') => {
-                    unsafe { self.cursor.advance_unchecked() }
-                    number += multiplier;
-                    multiplier /= 2.0;
+                    number <<= 1;
+                    number |= 1;
                 }
+                Some(b'_') => {}
                 Some(digit) if digit.is_ascii_alphanumeric() => return Err(Error::E0017),
-                _ => return Ok(Token::Number(number)),
+                _ => return Ok(Token::Number(number as f64)),
             }
+
+            unsafe { self.cursor.advance_unchecked() }
         }
     }
 
@@ -414,6 +403,61 @@ impl<'a> Lexer<'a> {
                     _ => $symbol,
                 }
             }};
+        }
+
+        // Skip simple line comments, since they are not useful to the compiler.
+        // But we have to yield something (recursion or a loop are not viable options),
+        // so we yield a Token::LineBreak and make sure that all immediate following
+        // line breaks are being skipped.
+        if Some(b'/') == self.cursor.peek()
+            && Some(b'/') == self.cursor.peek_n(1)
+            && Some(b'/') != self.cursor.peek_n(2) {
+            unsafe { self.cursor.advance_n_unchecked(2); }
+
+            return loop {
+                match self.cursor.peek() {
+                    None => break Ok(Span {
+                        value: Token::EndOfInput,
+                        source: unsafe {
+                            from_raw_parts(self.cursor.cursor(), 0)
+                        },
+                    }),
+                    Some(b'\n') => {
+                        let ptr = self.cursor.cursor();
+                        unsafe { self.cursor.advance_unchecked(); }
+
+                        // Skip additional whitespace & line breaks.
+                        self.skip_whitespace();
+
+                        break Ok(Span {
+                            value: Token::LineBreak,
+                            source: unsafe { from_raw_parts(ptr, 1) },
+                        })
+                    }
+                    Some(b'\r') => {
+                        let ptr = self.cursor.cursor();
+                        unsafe { self.cursor.advance_unchecked(); }
+
+                        // Capture LF in a CRLF sequence.
+
+                        let len: usize = if let Some(b'\n') = self.cursor.peek() {
+                            unsafe { self.cursor.advance_unchecked(); }
+                            2
+                        } else {
+                            1
+                        };
+
+                        // Skip additional whitespace & line breaks.
+                        self.skip_whitespace();
+
+                        break Ok(Span {
+                            value: Token::LineBreak,
+                            source: unsafe { from_raw_parts(ptr, len) },
+                        })
+                    }
+                    _ => unsafe { self.cursor.advance_unchecked() }
+                }
+            }
         }
 
         let start = self.cursor.cursor();
@@ -525,15 +569,47 @@ impl<'a> Lexer<'a> {
                         Token::Symbol(Symbol::SlashEquals)
                     }
                     Some(b'/') => {
-                        unsafe { self.cursor.advance_unchecked() };
+                        // SAFETY: We can skip two bytes here, since the "//?" case
+                        // is already covered while skipping single line comments.
+                        // Therefore, instead of any byte except of '/', the byte must be '/',
+                        // which means there is a byte, which justifies skipping two bytes here
+                        // instead of just one.
+                        unsafe { self.cursor.advance_n_unchecked(2) };
 
-                        match self.cursor.peek() {
-                            Some(b'/') => {
-                                unsafe { self.cursor.advance_unchecked() };
-                                Token::DocComment(self.parse_comment()?)
+                        let first = self.cursor.cursor();
+                        let end;
+
+                        loop {
+                            match self.cursor.peek() {
+                                None => {
+                                    end = self.cursor.cursor();
+                                    break
+                                },
+                                Some(b'\n') => {
+                                    end = self.cursor.cursor();
+                                    unsafe { self.cursor.advance_unchecked() }
+
+                                    break
+                                },
+                                Some(b'\r') => {
+                                    end = self.cursor.cursor();
+                                    unsafe { self.cursor.advance_unchecked() }
+
+                                    if Some(b'\n') == self.cursor.peek() {
+                                        unsafe { self.cursor.advance_unchecked() }
+                                    }
+                                    break
+                                }
+                                Some(128..=255) => {
+                                    self.cursor.advance_char().map_err(|e| e.into())?;
+                                }
+                                _ => unsafe { self.cursor.advance_unchecked() }
                             }
-                            _ => Token::LineComment(self.parse_comment()?),
                         }
+
+                        Token::DocComment(unsafe {
+                            from_raw_parts(first, end.sub_ptr(first))
+                        })
                     }
                     _ => Token::Symbol(Symbol::Slash),
                 }
@@ -659,7 +735,7 @@ impl<'a> Lexer<'a> {
             }
             Some(b'\'') => {
                 unsafe { self.cursor.advance_unchecked() };
-                
+
                 let char = match self.cursor.next_lfn() {
                     None => return Err(Error::E0030),
                     Some(b'\\') => unescape_char(&mut self.cursor)?,
@@ -762,7 +838,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
         match self.layers.pop() {
             None => {
                 if let Some(line_break) = self.skip_whitespace_line() {
-                    return Ok(line_break)
+                    return Ok(line_break);
                 }
 
                 if self.potential_markup {

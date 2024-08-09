@@ -10,6 +10,7 @@ fn main() -> Result<(), Error> {
     let file_content = fs::read("test.vn").unwrap();
 
     let mut context = ParseContext::new(Buffered::new(Lexer::new(&file_content))?);
+    context.iter.skip_lb()?; // Skip initial line break
     let module_content = context.parse_module_content()?;
     
     println!("Warnings:");
