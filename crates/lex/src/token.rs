@@ -78,7 +78,6 @@ impl<'a> UnprocessedString<'a> {
             }
         }
 
-        // I know I don't want to do this, but it is safe.
         Ok(string)
     }
 }
@@ -86,7 +85,6 @@ impl<'a> UnprocessedString<'a> {
 #[derive(Debug, PartialEq, Clone)]
 #[repr(u8)]
 pub enum Token<'a> {
-    /// The contained text needs processing.
     Char(char),
 
     /// An identifier token. Guaranteed to match against the regex `([a-zA-Z][a-zA-Z_0-9]*)|([a-zA-Z_][a-zA-Z_0-9]+)`.

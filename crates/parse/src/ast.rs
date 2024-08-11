@@ -76,7 +76,7 @@ pub enum Expression<'a> {
     Block(Vec<Span<'a, StatementOrExpression<'a>>>),
     
     // Objects And Paths
-    Object(Vec<(&'a str, Expression<'a>)>),
+    Instance(Vec<InstanceFieldInit<'a>>),
     Access(Access<'a>),
     OptionalAccess(Access<'a>),
     Array(Vec<Expression<'a>>),
@@ -99,6 +99,14 @@ pub enum Expression<'a> {
         target: Box<Span<'a, Expression<'a>>>,
         arguments: CallArguments<'a>
     },
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct InstanceFieldInit<'a> {
+    pub is_mutable: bool,
+    pub id: &'a str,
+    pub ty: Option<Span<'a, Type<'a>>>,
+    pub init: Span<'a, Expression<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -171,7 +179,7 @@ pub struct StructField<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Annotation<'a> {
-    pub path: ItemPath<'a>,
+    pub path: Span<'a, ItemPath<'a>>,
     pub arguments: Vec<Span<'a, Expression<'a>>>
 }
 
@@ -289,7 +297,7 @@ impl<'a> TryFrom<Keyword> for Type<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionSignature<'a> {
-    pub return_type: Span<'a, Type<'a>>,
+    pub return_type: Option<Span<'a, Type<'a>>>,
     pub parameters: Vec<Parameter<'a>>,
     pub has_this_parameter: bool,
     pub tps: TypeParameters<'a>,

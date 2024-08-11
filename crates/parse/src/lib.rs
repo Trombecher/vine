@@ -102,7 +102,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         Ok(params)
     }
 
-    /// Expects the `{` to be `peek()`. Ends on `}`.
+    /// Parses a block.
+    ///
+    /// Expects `peek()` to be [Symbol::LeftBrace]. Ends on [Symbol::RightBrace].
     fn parse_block(&mut self) -> Result<Span<'a, Vec<Span<'a, StatementOrExpression<'a>>>>, Error> {
         let start = self.iter.peek().source.as_ptr();
 
@@ -118,53 +120,55 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     self.iter.advance_skip_lb()?;
                 }
                 _ => {
+                    println!("going into s o expr with {:?}", self.iter.peek());
                     if let Some(statement) = self.try_parse_statement()? {
                         items.push(statement.map(|s| StatementOrExpression::Statement(s)));
+                        println!("going out of stmt with {:?}", self.iter.peek());
                     } else {
+                        println!("going into expr with {:?}", self.iter.peek());
                         items.push(self.parse_expression(0)?.map(|e| StatementOrExpression::Expression(e)));
+
+                        match self.iter.peek().value {
+                            Token::Symbol(Symbol::Semicolon) => {
+                                self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
+                            }
+                            Token::LineBreak => self.iter.advance()?,
+                            Token::Symbol(Symbol::RightBrace) => break,
+                            _ => todo!()
+                        }
                     }
                 }
             }
         }
 
-        Ok(unsafe {
-            Span::from_ends(
-                items,
-                start,
-                {
-                    let source = self.iter.peek().source;
-                    source.as_ptr().add(source.len())
-                },
-            )
+        Ok(Span {
+            value: items,
+            source: merge(start, self.iter.peek().source),
         })
     }
 
     /// Expects that the first token of the type is accessible via `peek()`. Ends on the token after the type.
-    pub(crate) fn parse_type(&mut self) -> Result<(Span<'a, Type<'a>>, bool), Error> {
-        let start = self.iter.peek().source.as_ptr();
+    pub(crate) fn parse_type(&mut self) -> Result<Span<'a, Type<'a>>, Error> {
+        let start = self.iter.peek().source;
 
-        let value = match &self.iter.peek().value {
-            Token::Keyword(kw) if let Ok(ty) = Type::try_from(*kw) => ty,
-            Token::Identifier(id) => {
-                let path = self.parse_item_path(id)?;
-                
-                Type::ItemPath {
-                    path,
-                    generics: vec![], // TODO: add generics
+        Ok(match &self.iter.peek().value {
+            Token::Keyword(kw) if let Ok(ty) = Type::try_from(*kw) => {
+                self.iter.advance()?;
+                Span {
+                    value: ty,
+                    source: start,
                 }
             },
+            Token::Identifier(id) => {
+                self.parse_item_path(id)?.map(|path| {
+                    Type::ItemPath {
+                        path,
+                        generics: vec![], // TODO: add generics
+                    }
+                })
+            },
             token => todo!("{:?}", token)
-        };
-
-        let source = merge(start, self.iter.peek().source);
-
-        // TODO: move these into the match-statement
-        let lb = self.iter.advance_skip_lb()?;
-
-        Ok((Span {
-            value,
-            source,
-        }, lb))
+        })
     }
 
     /// Expects the . to not be consumed.
@@ -234,7 +238,10 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     
     /// Expects [Buffered::peek] to yield [Token::Identifier].
     /// Ends on the token after the last path segment (greedy).
-    pub(crate) fn parse_item_path(&mut self, mut first_id: &'a str) -> Result<ItemPath<'a>, Error> {
+    pub(crate) fn parse_item_path(&mut self, mut first_id: &'a str) -> Result<Span<'a, ItemPath<'a>>, Error> {
+        let start = self.iter.peek().source;
+        let mut end = start;
+
         self.iter.advance_skip_lb()?;
 
         // This match-statement hell prevents unnecessary allocation of an empty vec.
@@ -252,9 +259,11 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         _ => todo!()
                     };
 
-                    self.iter.advance_skip_lb()?;
+                    end = first_id;
 
-                    match self.iter.peek().value {
+                    self.iter.advance()?;
+
+                    match self.iter.peek_non_lb()?.0.value {
                         Token::Symbol(Symbol::Dot) => {}
                         _ => break,
                     }
@@ -265,10 +274,61 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             _ => Vec::new(),
         };
         
-        Ok(ItemPath {
-            parents,
-            id: first_id,
+        Ok(Span {
+            value: ItemPath {
+                parents,
+                id: first_id,
+            },
+            source: merge(start.as_ptr(), end),
         })
+    }
+
+    /// Expects peek() to be the token after `(`. Ends on `)`.
+    pub(crate) fn parse_fn_parameters(&mut self) -> Result<Vec<Parameter<'a>>, Error> {
+        let mut parameters = Vec::<Parameter<'a>>::new();
+
+        loop {
+            let is_mutable = match self.iter.peek().value {
+                Token::Symbol(Symbol::RightParenthesis) => break,
+                Token::Keyword(Keyword::Mut) => {
+                    self.iter.advance_skip_lb()?;
+                    true
+                }
+                _ => false,
+            };
+
+            let id = match self.iter.peek().value {
+                Token::Identifier(id) => id,
+                _ => todo!()
+            };
+
+            self.iter.advance_skip_lb()?;
+
+            match self.iter.peek().value {
+                Token::Symbol(Symbol::Colon) => {}
+                _ => todo!()
+            }
+
+            self.iter.advance_skip_lb()?;
+
+            println!("going into type with: {:?}", self.iter.peek());
+
+            let ty = self.parse_type()?;
+
+
+            parameters.push(Parameter { id, is_mutable, ty });
+
+            let lb = self.iter.skip_lb()?;
+
+            match &self.iter.peek().value {
+                Token::Symbol(Symbol::RightParenthesis) => break,
+                Token::Symbol(Symbol::Comma) => self.iter.advance()?,
+                _ if lb => {}
+                token => todo!("{:?}", token)
+            }
+        }
+
+        Ok(parameters)
     }
     
     /// Tries to parse a statement.
@@ -391,68 +451,28 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     Token::Symbol(Symbol::Dot) => {
                         todo!("On struct function decl")
                     }
-                    token => todo!("{:?}", token)
+                    token => todo!("invalid token: {:?}", token)
                 }
 
                 self.iter.advance_skip_lb()?;
 
-                let mut parameters = Vec::<Parameter<'a>>::new();
-
-                loop {
-                    let is_mutable = match self.iter.peek().value {
-                        Token::Symbol(Symbol::RightParenthesis) => break,
-                        Token::Keyword(Keyword::Mut) => {
-                            self.iter.advance()?;
-                            self.iter.skip_lb()?;
-                            true
-                        }
-                        _ => false,
-                    };
-
-                    let id = match self.iter.peek().value {
-                        Token::Identifier(id) => id,
-                        _ => todo!()
-                    };
-
-                    self.iter.advance_skip_lb()?;
-
-                    match self.iter.peek().value {
-                        Token::Symbol(Symbol::Colon) => {}
-                        _ => todo!()
-                    }
-
-                    self.iter.advance_skip_lb()?;
-
-                    let (ty, line_break) = self.parse_type()?;
-
-                    parameters.push(Parameter { id, is_mutable, ty });
-
-                    match &self.iter.peek().value {
-                        Token::Symbol(Symbol::RightParenthesis) => break,
-                        Token::Symbol(Symbol::Comma) => self.iter.advance()?,
-                        _ if line_break => {}
-                        token => todo!("{:?}", token)
-                    }
-                }
-
-                // peek() = RightParenthesis
+                let parameters = self.parse_fn_parameters()?;
 
                 self.iter.advance_skip_lb()?;
 
-                let return_type: Span<'a, Type<'a>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek().value {
+                let return_type: Option<Span<'a, Type<'a>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek().value {
                     self.iter.advance_skip_lb()?;
-                    self.parse_type()?.0
+
+                    let ty = self.parse_type()?;
+                    self.iter.skip_lb()?;
+
+                    Some(ty)
                 } else {
-                    // Create an empty Type::Nil.
-                    Span {
-                        value: Type::Nil,
-                        source: unsafe {
-                            from_raw_parts(self.iter.peek().source.as_ptr(), 0)
-                        },
-                    }
+                    // No return type found (note: this is different from the empty type)
+                    None
                 };
 
-                // Validate that the block start with `{`
+                // Validate that the block starts with `{`
                 match self.iter.peek().value {
                     Token::Symbol(Symbol::LeftBrace) => {}
                     _ => todo!(),
@@ -585,7 +605,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             
                             self.iter.advance_skip_lb()?;
                             
-                            let (ty, lb) = match self.iter.peek().value {
+                            let ty = match self.iter.peek().value {
                                 Token::Symbol(Symbol::Colon) => {
                                     self.iter.advance_skip_lb()?;
                                     self.parse_type()?
@@ -593,7 +613,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 _ => todo!()
                             };
 
-                            let end = self.iter.peek().source; // TODO: there is a bug here
+                            let end = ty.source;
 
                             fields.push(Span {
                                 value: StructField {
@@ -604,7 +624,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 },
                                 source: merge(start, end),
                             });
-                            
+
+                            let lb = self.iter.skip_lb()?;
+
                             match &self.iter.peek().value {
                                 Token::Symbol(Symbol::Comma) => {
                                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -653,8 +675,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 let ty = match self.iter.peek().value {
                     Token::Symbol(Symbol::Colon) => {
                         self.iter.advance_skip_lb()?;
-                        let (ty, new_lb) = self.parse_type()?;
-                        lb = new_lb;
+                        let ty = self.parse_type()?;
+                        lb = self.iter.skip_lb()?;
                         Some(ty)
                     }
                     _ => None,
@@ -672,7 +694,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             Token::Symbol(Symbol::RightBrace)
                             | Token::EndOfInput
                             | Token::Symbol(Symbol::Semicolon) => {}
-                            _ => {} // Validated LineBreak via `parse_expression()`
+                            Token::LineBreak => self.iter.advance()?,
+                            _ => unreachable!()
                         }
                         
                         Some(expr)
@@ -786,32 +809,184 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         }))
     }
 
-    /// Expects the first token to have already been generated.
+    /// Parses an expression.
+    ///
+    /// Expects `peek()` to be the first token of the expression.
+    /// Ends on the following tokens:
+    ///
+    /// - [Token::EndOfInput], [Symbol::RightBrace], [Symbol::Semicolon],
+    /// [Symbol::Comma], [Symbol::RightParenthesis] or [Symbol::RightBracket].
+    /// In this case, a line break before may have been skipped.
+    /// - [Token::LineBreak]. In this case the token after the line break
+    /// was already generated and may be anything (did not continue the expression).
     pub fn parse_expression(&mut self, min_bp: u8) -> Result<Span<'a, Expression<'a>>, Error> {
         let first_source = self.iter.peek().source;
 
-        let (value, last_source) = match &self.iter.peek().value {
+        let mut left_side: Span<'a, Expression<'a>> = match &self.iter.peek().value {
             Token::String(s) => {
                 let s = s.process()?;
                 self.iter.advance()?;
-                (Expression::String(s), first_source)
+
+                Span {
+                    value: Expression::String(s),
+                    source: first_source,
+                }
             }
             Token::Number(n) => {
                 let n = *n;
                 self.iter.advance()?;
-                (Expression::Number(n), first_source)
+
+                Span {
+                    value: Expression::Number(n),
+                    source: first_source,
+                }
             }
             Token::Identifier(id) => {
                 let id = *id;
                 self.iter.advance()?;
-                (Expression::Identifier(id), first_source)
+                Span {
+                    value: Expression::Identifier(id),
+                    source: first_source,
+                }
+            }
+            Token::Symbol(Symbol::LeftParenthesis) => {
+                self.iter.advance_skip_lb()?;
+
+                let mut fields = Vec::new();
+
+                loop {
+                    let is_mutable = match self.iter.peek().value {
+                        Token::Symbol(Symbol::RightParenthesis) => break,
+                        Token::Symbol(Symbol::Comma) => {
+                            self.omit_single_token_warning(Warning::UnnecessaryComma);
+                            self.iter.advance_skip_lb()?;
+                            continue
+                        }
+                        Token::Keyword(Keyword::Mut) => {
+                            self.iter.advance_skip_lb()?;
+                            true
+                        },
+                        _ => false,
+                    };
+
+                    let id = match self.iter.peek().value {
+                        Token::Identifier(id) => id,
+                        _ => todo!("expected id or mut")
+                    };
+
+                    let mut lb = self.iter.advance_skip_lb()?;
+
+                    let ty = match self.iter.peek().value {
+                        Token::Symbol(Symbol::Colon) => {
+                            self.iter.advance_skip_lb()?;
+
+                            let ty = self.parse_type()?;
+                            lb = self.iter.skip_lb()?;
+                            Some(ty)
+                        }
+                        _ => None,
+                    };
+
+                    // (mut x = 20\n
+
+                    let init = match self.iter.peek().value {
+                        Token::Symbol(Symbol::Equals) => {
+                            self.iter.advance_skip_lb()?;
+                            self.parse_expression(0)?
+                        },
+                        Token::Symbol(Symbol::RightParenthesis)
+                        | Token::Symbol(Symbol::Comma) => Span {
+                            value: Expression::Identifier(id),
+                            source: id
+                        },
+                        _ if lb => Span {
+                            value: Expression::Identifier(id),
+                            source: id
+                        },
+                        _ => todo!("Error")
+                    };
+
+                    fields.push(InstanceFieldInit {
+                        is_mutable,
+                        id,
+                        ty,
+                        init,
+                    });
+
+                    match self.iter.peek().value {
+                        Token::Symbol(Symbol::Comma) => {
+                            let source = self.iter.peek().source;
+
+                            // Capture ",\n" and ",)" groups
+                            if self.iter.advance_skip_lb()? || match self.iter.peek().value {
+                                Token::Symbol(Symbol::RightParenthesis) => true,
+                                _ => false
+                            } {
+                                self.iter.warnings_mut().push(Span {
+                                    value: Warning::UnnecessaryComma,
+                                    source,
+                                })
+                            }
+                        }
+                        Token::LineBreak => self.iter.advance()?,
+                        _ => {} // Validity is checked at the start of the loop
+                    }
+                }
+
+                let end = self.iter.peek().source;
+
+                self.iter.advance()?;
+
+                Span {
+                    value: Expression::Instance(fields),
+                    source: merge(first_source.as_ptr(), end),
+                }
+            }
+            Token::Symbol(Symbol::LeftBrace) => {
+                let span = self.parse_block()?;
+                self.iter.advance()?;
+                span.map(|block| Expression::Block(block))
+            }
+            Token::Keyword(Keyword::Fn) => {
+                self.iter.advance_skip_lb()?;
+
+                let tps = match self.iter.peek().value {
+                    Token::Symbol(Symbol::LeftAngle) => {
+                        self.iter.advance_skip_lb()?;
+                        self.parse_type_parameter_declarations()?
+                    }
+                    _ => Vec::new(),
+                };
+
+                let parameters = match self.iter.peek().value {
+                    Token::Symbol(Symbol::LeftParenthesis) => {
+                        self.iter.advance_skip_lb()?;
+                        self.parse_fn_parameters()?
+                    }
+                    _ => todo!("Expected `(`")
+                };
+
+                self.iter.advance_skip_lb()?;
+
+                let (return_type, body) = match self.iter.peek().value {
+                    Token::Symbol(Symbol::MinusRightAngle) => todo!("Return type of function expression"),
+                    _ => (None, self.parse_expression(0)?),
+                };
+
+                Span {
+                    source: merge(first_source.as_ptr(), body.source),
+                    value: Expression::Function {
+                        signature: FunctionSignature {
+                            return_type,
+                            parameters,
+                            has_this_parameter: false,
+                            tps,
+                        },
+                        body: Box::new(body),
+                    },
+                }
             }
             token => todo!("Unexpected token: {:?}", token)
-        };
-
-        let mut left_side = Span {
-            value,
-            source: merge(first_source.as_ptr(), last_source),
         };
 
         macro_rules! op {
@@ -820,8 +995,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     break;
                 }
 
-                self.iter.advance()?;
                 self.iter.skip_lb()?;
+                self.iter.advance_skip_lb()?;
 
                 let right = self.parse_expression($bp.1)?;
                 let source = right.source;
@@ -835,20 +1010,40 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         }
 
         loop {
-            let line_breaks = self.iter.skip_lb()?;
+            // At this point, a line break must not have been skipped.
+            let (token, line_break) = self.iter.peek_non_lb()?;
 
-            let (value, last_source) = match &self.iter.peek().value {
+            let (value, last_source) = match &token.value {
+                // Potential assignment operations
                 Token::Symbol(Symbol::Plus) => op!(Operation::PA(PAOperation::Addition), bp::ADDITIVE),
                 Token::Symbol(Symbol::Minus) => op!(Operation::PA(PAOperation::Subtraction), bp::ADDITIVE),
                 Token::Symbol(Symbol::Star) => op!(Operation::PA(PAOperation::Multiplication), bp::MULTIPLICATIVE),
                 Token::Symbol(Symbol::Slash) => op!(Operation::PA(PAOperation::Division), bp::MULTIPLICATIVE),
                 Token::Symbol(Symbol::Percent) => op!(Operation::PA(PAOperation::Remainder), bp::MULTIPLICATIVE),
                 Token::Symbol(Symbol::StarStar) => op!(Operation::PA(PAOperation::Exponentiation), bp::EXPONENTIAL),
+                Token::Symbol(Symbol::Pipe) => op!(Operation::PA(PAOperation::BitwiseOr), bp::BITWISE_OR),
+                Token::Symbol(Symbol::Ampersand) => op!(Operation::PA(PAOperation::BitwiseAnd), bp::BITWISE_AND),
+                Token::Symbol(Symbol::Caret) => op!(Operation::PA(PAOperation::BitwiseExclusiveOr), bp::BITWISE_XOR),
+                Token::Symbol(Symbol::PipePipe) => op!(Operation::PA(PAOperation::LogicalOr), bp::LOGICAL_OR),
+                Token::Symbol(Symbol::AmpersandAmpersand) => op!(Operation::PA(PAOperation::LogicalAnd), bp::LOGICAL_AND),
+                Token::Symbol(Symbol::LeftAngleLeftAngle) => op!(Operation::PA(PAOperation::ShiftLeft), bp::SHIFT),
+                Token::Symbol(Symbol::RightAngleRightAngle) => op!(Operation::PA(PAOperation::ShiftRight), bp::SHIFT),
+
+                // Comparative operations
+                Token::Symbol(Symbol::EqualsEquals) => op!(Operation::Comp(ComparativeOperation::Equals), bp::EQUALITY),
+                Token::Symbol(Symbol::LeftAngle) => op!(Operation::Comp(ComparativeOperation::LessThan), bp::EQUALITY),
+                Token::Symbol(Symbol::RightAngle) => op!(Operation::Comp(ComparativeOperation::GreaterThan), bp::EQUALITY),
+                Token::Symbol(Symbol::ExclamationMarkEquals) => op!(Operation::Comp(ComparativeOperation::NotEquals), bp::EQUALITY),
+                Token::Symbol(Symbol::LeftAngleEquals) => op!(Operation::Comp(ComparativeOperation::LessThanOrEqual), bp::EQUALITY),
+                Token::Symbol(Symbol::RightAngleEquals) => op!(Operation::Comp(ComparativeOperation::GreaterThanOrEqual), bp::EQUALITY),
+
+                // Other
                 Token::Symbol(Symbol::LeftParenthesis) => {
                     if bp::CALL < min_bp {
                         break;
                     }
 
+                    self.iter.skip_lb()?;
                     self.iter.advance_skip_lb()?;
 
                     enum Res<'a> {
@@ -970,11 +1165,15 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 | Token::Symbol(Symbol::Semicolon)
                 | Token::Symbol(Symbol::Comma)
                 | Token::Symbol(Symbol::RightParenthesis)
-                | Token::Symbol(Symbol::RightBracket) => break,
-                _ if line_breaks => break,
+                | Token::Symbol(Symbol::RightBracket) => {
+                    self.iter.skip_lb()?;
+                    break
+                },
+                _ if line_break => break,
                 token => todo!("{:?}", token)
             };
 
+            // TODO: maybe move into `match`
             left_side = Span {
                 value,
                 source: merge(first_source.as_ptr(), last_source),

@@ -1,8 +1,9 @@
-// Yoooo
+struct Point(
+    mut x: num
+    mut y: num
+)
 
-// multiple
-
-/// This is a doc comment
 fn main() {
-    main()
+    let double = fn(asd: number) ghj * 2
+    let x = 20
 }

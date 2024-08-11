@@ -4,6 +4,10 @@ use lex::token::{Token, TokenIterator};
 use warning::Warning;
 
 /// Wraps a [TokenIterator] and buffers tokens.
+///
+/// It allows to peek into the next token (via [Buffered::peek])
+/// or even into the token after that (via [Buffered::peek_after])
+/// **without advancing the iterator**.
 pub struct Buffered<'a, T: TokenIterator<'a>> {
     iter: T,
     next_token: Span<'a, Token<'a>>,
@@ -55,6 +59,20 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
         
         Ok(unsafe {
             self.next_next_token.as_ref().unwrap_unchecked()
+        })
+    }
+
+    /// Returns a shared reference to the next token (via [Self::peek]) or,
+    /// if that token is a line break, to the token after that (via [Self::peek_after]).
+    ///
+    /// If a line break was skipped, the second member of the returned tuple is `true`;
+    /// otherwise `false`.
+    #[inline]
+    pub fn peek_non_lb<'b>(&'b mut self) -> Result<(&'b Span<'a, Token<'a>>, bool), Error> {
+        Ok(match self.peek().value {
+            Token::LineBreak => (self.peek_after()?, true),
+            _ => (self.peek(), false) // TODO: the borrow checker is wrong on this one. The line below should be accepted!
+            // token => (token, false)
         })
     }
     
