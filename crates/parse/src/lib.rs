@@ -120,12 +120,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     self.iter.advance_skip_lb()?;
                 }
                 _ => {
-                    println!("going into s o expr with {:?}", self.iter.peek());
                     if let Some(statement) = self.try_parse_statement()? {
                         items.push(statement.map(|s| StatementOrExpression::Statement(s)));
-                        println!("going out of stmt with {:?}", self.iter.peek());
                     } else {
-                        println!("going into expr with {:?}", self.iter.peek());
                         items.push(self.parse_expression(0)?.map(|e| StatementOrExpression::Expression(e)));
 
                         match self.iter.peek().value {
@@ -311,10 +308,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
             self.iter.advance_skip_lb()?;
 
-            println!("going into type with: {:?}", self.iter.peek());
-
             let ty = self.parse_type()?;
-
 
             parameters.push(Parameter { id, is_mutable, ty });
 
