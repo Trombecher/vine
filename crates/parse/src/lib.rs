@@ -685,11 +685,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             Token::Symbol(Symbol::RightParenthesis)
                             | Token::Symbol(Symbol::Comma)
                             | Token::Symbol(Symbol::RightBracket) => todo!(),
-                            Token::Symbol(Symbol::RightBrace)
-                            | Token::EndOfInput
-                            | Token::Symbol(Symbol::Semicolon) => {}
                             Token::LineBreak => self.iter.advance()?,
-                            _ => unreachable!()
+                            _ => {}
                         }
                         
                         Some(expr)
@@ -980,6 +977,89 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     },
                 }
             }
+            Token::Keyword(Keyword::If) => {
+                self.iter.advance_skip_lb()?;
+
+                let condition = self.parse_expression(0)?;
+                self.iter.skip_lb()?;
+
+                match self.iter.peek().value {
+                    Token::Symbol(Symbol::LeftBrace) => {}
+                    _ => todo!()
+                }
+
+                let body = self.parse_block()?;
+
+                let mut else_ifs = Vec::new();
+
+                let else_body = loop {
+                    self.iter.advance()?;
+
+                    match self.iter.peek_non_lb()?.0.value {
+                        Token::Keyword(Keyword::Else) => {}
+                        _ => break None,
+                    }
+
+                    self.iter.advance_skip_lb()?;
+
+                    match self.iter.peek().value {
+                        Token::Keyword(Keyword::If) => {}
+                        Token::Symbol(Symbol::LeftBrace) => {
+                            let block = self.parse_block()?;
+                            self.iter.advance()?;
+                            break Some(block)
+                        }
+                        _ => todo!()
+                    }
+
+                    // else-if-branch
+
+                    self.iter.advance_skip_lb()?;
+
+                    let condition = self.parse_expression(0)?;
+                    self.iter.skip_lb()?;
+
+                    match self.iter.peek().value {
+                        Token::Symbol(Symbol::LeftBrace) => {}
+                        _ => todo!()
+                    }
+
+                    let body = self.parse_block()?;
+
+                    else_ifs.push(If {
+                        condition: Box::new(condition),
+                        body,
+                    })
+                };
+
+                Span {
+                    value: Expression::If {
+                        base: If {
+                            condition: Box::new(condition),
+                            body,
+                        },
+                        else_ifs,
+                        else_body,
+                    },
+                    source: first_source
+                }
+            }
+            Token::Keyword(Keyword::True) => {
+                self.iter.advance()?;
+
+                Span {
+                    value: Expression::True,
+                    source: first_source,
+                }
+            }
+            Token::Keyword(Keyword::False) => {
+                self.iter.advance()?;
+
+                Span {
+                    value: Expression::False,
+                    source: first_source
+                }
+            }
             token => todo!("Unexpected token: {:?}", token)
         };
 
@@ -1155,6 +1235,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     }, last_source)
                 }
                 Token::EndOfInput
+                | Token::Symbol(Symbol::LeftBrace) // Necessary for if-statements to work
                 | Token::Symbol(Symbol::RightBrace)
                 | Token::Symbol(Symbol::Semicolon)
                 | Token::Symbol(Symbol::Comma)

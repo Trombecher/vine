@@ -1,9 +1,7 @@
-struct Point(
-    mut x: num
-    mut y: num
-)
-
-fn main() {
-    let double = fn(asd: number) ghj * 2
-    let x = 20
+pub fn min(a: num, b: num) -> num {
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
