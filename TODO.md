@@ -8,7 +8,6 @@ This is a non-exhaustive list of features to be implemented:
 
 vine new <LOCATION>
 vine create <SCRIPT>
-vine rename <NAME>
 
 ### Dependencies
 

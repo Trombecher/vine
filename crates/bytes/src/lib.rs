@@ -1,3 +1,7 @@
+//! # Bytes
+//!
+//! This crate provides functionality to step and iterate through a slice of bytes.
+
 mod tests;
 
 use core::hint::unreachable_unchecked;
@@ -15,7 +19,7 @@ pub struct Cursor<'a> {
     _marker: PhantomData<&'a [u8]>,
 }
 
-/// All errors [crate::bytes] can produce.
+/// All errors this crate can produce.
 #[repr(u8)]
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Error {
@@ -135,10 +139,10 @@ impl<'a> Cursor<'a> {
     /// Peeks into the next byte. Does not advance the iterator.
     #[inline]
     pub fn peek(&self) -> Option<u8> {
-        if !self.has_next() {
-            None
-        } else {
+        if self.has_next() {
             Some(unsafe { self.peek_unchecked() })
+        } else {
+            None
         }
     }
 
@@ -170,48 +174,6 @@ impl<'a> Cursor<'a> {
         *self.cursor
     }
 
-    /*
-    #[inline]
-    #[deprecated]
-    pub fn rewind_lfn(&mut self) {
-        if self.can_rewind() {
-            self.cursor = unsafe { self.cursor.sub(1) };
-            
-            if unsafe { *self.cursor } == b'\n'
-                && self.cursor != self.first
-                && unsafe { *self.cursor.sub(1) } == b'\r' {
-                self.cursor = unsafe { self.cursor.sub(1) };
-            }
-        }
-    }
-    
-    /// Checks if the cursor can be rewinded.
-    #[inline]
-    #[deprecated]
-    pub fn can_rewind(&mut self) -> bool {
-        self.cursor > self.first
-    }
-    
-    /// Rewinds one byte. Saturates at the lower boundary.
-    #[inline]
-    #[deprecated]
-    pub fn rewind(&mut self) {
-        if self.can_rewind() {
-            unsafe { self.rewind_unchecked(); }
-        }
-    }
-    */
-    
-    /// Rewinds one byte.
-    /// 
-    /// # Safety
-    /// 
-    /// The caller must ensure that the cursor can rewind.
-    #[inline]
-    pub unsafe fn rewind_unchecked(&mut self) {
-        self.cursor = self.cursor.sub(1);
-    }
-    
     /// Advances one char, saturates at the upper boundary.
     #[inline]
     pub fn advance(&mut self) {
@@ -255,7 +217,7 @@ impl<'a> Cursor<'a> {
 
         macro_rules! next {
             ($e:expr,$i:expr) => {
-                match self.next_lfn() {
+                match self.next() {
                     None => return Err($e),
                     Some(x) if x & 0b1100_0000 != 0b1000_0000 => return Err($i),
                     _ => {},
@@ -265,12 +227,7 @@ impl<'a> Cursor<'a> {
 
         match UTF8_CHAR_WIDTH[first_byte as usize] {
             0 => Err(Error::EncounteredContinuationByte),
-            1 => {
-                if first_byte == b'\r' && self.peek() == Some(b'\n')  {
-                    unsafe { self.advance_unchecked() }
-                }
-                Ok(())
-            },
+            1 => Ok(()),
             2 => {
                 next!(Error::Missing2ndOf2, Error::Invalid2ndOf2);
                 Ok(())
@@ -289,11 +246,6 @@ impl<'a> Cursor<'a> {
             _ => unsafe { unreachable_unchecked() }
         }
     }
-
-    // #[inline]
-    // pub const fn offset(&self) -> usize {
-    //     unsafe { self.cursor.sub_ptr(self.first) }
-    // }
 }
 
 const UTF8_CHAR_WIDTH: &[u8; 256] = &[

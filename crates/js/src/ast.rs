@@ -1,4 +1,4 @@
-pub type Reference = u32;
+use crate::refs::Ref;
 
 pub enum Expression {
 
@@ -20,9 +20,6 @@ pub enum Statement {
     }
 }
 
-// A-Za-z_$        54
-// A-Za-z_$0-9     64
-
 pub enum Declaration {
-    Let(Vec<(Reference, )>)
+    Let(Vec<(Ref, Option<Expression>)>)
 }
