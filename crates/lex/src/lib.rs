@@ -6,20 +6,33 @@
 
 #![feature(ptr_sub_ptr)]
 #![feature(str_from_raw_parts)]
-#![feature(const_ptr_sub_ptr)]
 
-use bytes::Cursor;
-use std::fmt::Debug;
+use core::fmt::Debug;
+use core::ops::Range;
+use core::str::from_raw_parts;
 use std::hint::unreachable_unchecked;
-use std::str::from_raw_parts;
-
-use crate::token::{unescape_char, TokenIterator, UnprocessedString};
+use bytes::Cursor;
 use error::Error;
 use token::{Symbol, Token, KEYWORDS};
 use warning::Warning;
 
+use crate::token::{unescape_char, TokenIterator, UnprocessedString};
+
 mod tests;
 pub mod token;
+
+#[cfg(feature = "huge_files")]
+pub type Index = u64;
+
+#[cfg(not(feature = "huge_files"))]
+pub type Index = u32;
+
+/// Links the value back to a view of the source file.
+#[derive(Debug, PartialEq, Clone)]
+pub struct Span<T: Debug + Clone> {
+    pub value: T,
+    pub source: Range<Index>,
+}
 
 pub enum Layer {
     /// This layer expects `key=`, `/>` or `>`.
@@ -31,27 +44,12 @@ pub enum Layer {
     StartTag,
 }
 
-/// Links the value back to a slice of the source file.
-#[derive(Debug, PartialEq, Clone)]
-pub struct Span<'a, T: Debug + Clone> {
-    pub value: T,
-    pub source: &'a str,
-}
-
-impl<'a, T: Debug + Clone> Span<'a, T> {
-    /// Constructs a [Span] from two pointers, linking the value back to its source.
-    pub unsafe fn from_ends(value: T, first: *const u8, end: *const u8) -> Self {
-        Self {
-            value,
-            source: from_raw_parts(first, end.sub_ptr(first)),
-        }
-    }
-
+impl<'a, T: Debug + Clone> Span<T> {
     #[inline]
-    pub fn map<U: Debug + Clone>(self, map: impl FnOnce(T) -> U) -> Span<'a, U> {
+    pub fn map<U: Debug + Clone>(self, map: impl FnOnce(T) -> U) -> Span<U> {
         Span {
             value: map(self.value),
-            source: self.source,
+            source: self.source
         }
     }
 }
@@ -70,7 +68,7 @@ pub struct Lexer<'a> {
     /// A stack of layers to manage 
     layers: Vec<Layer>,
 
-    pub warnings: Vec<Span<'a, Warning>>,
+    pub warnings: Vec<Span<Warning>>,
 }
 
 #[inline]
@@ -108,8 +106,9 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub const fn cursor_offset(&self) -> usize {
-        unsafe { self.cursor.cursor().sub_ptr(self.start) }
+    /// Calculates the index of the next byte.
+    pub fn index(&self) -> Index {
+        unsafe { self.cursor.cursor().sub_ptr(self.start) as Index }
     }
 
     /// Parses a decimal number.
@@ -273,40 +272,45 @@ impl<'a> Lexer<'a> {
 
     /// Skips whitespace and line comments. It returns the first line break encountered, if any.
     #[must_use]
-    pub fn skip_whitespace_line(&mut self) -> Option<Span<'a, Token<'a>>> {
-        let mut lb: Option<Span<'a, Token<'a>>> = None;
+    pub fn skip_whitespace_line(&mut self) -> Option<Span<Token<'a>>> {
+        let mut lb: Option<Span<Token<'a>>> = None;
 
         macro_rules! handle_lf {
             () => {{
-                let ptr = self.cursor.cursor();
-                unsafe { self.cursor.advance_unchecked() }
-
                 if lb.is_none() {
+                    let start = self.index();
+                    unsafe { self.cursor.advance_unchecked() }
+
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: unsafe { from_raw_parts(ptr, 1) }
+                        source: start..self.index()
                     });
+                } else {
+                    unsafe { self.cursor.advance_unchecked() }
                 }
             }};
         }
 
         macro_rules! handle_crlf {
             () => {{
-                let ptr = self.cursor.cursor();
-                unsafe { self.cursor.advance_unchecked() }
-
-                if let Some(b'\n') = self.cursor.peek() {
-                    unsafe { self.cursor.advance_unchecked() }
-                }
-
                 if lb.is_none() {
-                    lb = Some(unsafe {
-                        Span::from_ends(
-                            Token::LineBreak,
-                            ptr,
-                            self.cursor.cursor(),
-                        )
+                    let start = self.index();
+                    unsafe { self.cursor.advance_unchecked() }
+
+                    if let Some(b'\n') = self.cursor.peek() {
+                        unsafe { self.cursor.advance_unchecked() }
+                    }
+
+                    lb = Some(Span {
+                        value: Token::LineBreak,
+                        source: start..self.index()
                     });
+                } else {
+                    unsafe { self.cursor.advance_unchecked() }
+
+                    if let Some(b'\n') = self.cursor.peek() {
+                        unsafe { self.cursor.advance_unchecked() }
+                    }
                 }
             }};
         }
@@ -391,7 +395,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token_default(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
+    pub fn next_token_default(&mut self) -> Result<Span<Token<'a>>, Error> {
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {{
                 unsafe { self.cursor.advance_unchecked() };
@@ -416,14 +420,16 @@ impl<'a> Lexer<'a> {
 
             return loop {
                 match self.cursor.peek() {
-                    None => break Ok(Span {
-                        value: Token::EndOfInput,
-                        source: unsafe {
-                            from_raw_parts(self.cursor.cursor(), 0)
-                        },
-                    }),
+                    None => {
+                        let start = self.index();
+
+                        break Ok(Span {
+                            value: Token::EndOfInput,
+                            source: start..start,
+                        })
+                    },
                     Some(b'\n') => {
-                        let ptr = self.cursor.cursor();
+                        let start = self.index();
                         unsafe { self.cursor.advance_unchecked(); }
 
                         // Skip additional whitespace & line breaks.
@@ -431,28 +437,31 @@ impl<'a> Lexer<'a> {
 
                         break Ok(Span {
                             value: Token::LineBreak,
-                            source: unsafe { from_raw_parts(ptr, 1) },
+                            source: start..start + 1,
                         })
                     }
                     Some(b'\r') => {
-                        let ptr = self.cursor.cursor();
+                        let start = self.index();
                         unsafe { self.cursor.advance_unchecked(); }
 
-                        // Capture LF in a CRLF sequence.
-
-                        let len: usize = if let Some(b'\n') = self.cursor.peek() {
+                        break Ok(if let Some(b'\n') = self.cursor.peek() {
                             unsafe { self.cursor.advance_unchecked(); }
-                            2
+
+                            // Skip additional whitespace & line breaks.
+                            self.skip_whitespace();
+
+                            Span {
+                                value: Token::LineBreak,
+                                source: start..start + 2,
+                            }
                         } else {
-                            1
-                        };
+                            // Skip additional whitespace & line breaks.
+                            self.skip_whitespace();
 
-                        // Skip additional whitespace & line breaks.
-                        self.skip_whitespace();
-
-                        break Ok(Span {
-                            value: Token::LineBreak,
-                            source: unsafe { from_raw_parts(ptr, len) },
+                            Span {
+                                value: Token::LineBreak,
+                                source: start..start + 1
+                            }
                         })
                     }
                     _ => unsafe { self.cursor.advance_unchecked() }
@@ -460,7 +469,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let start = self.cursor.cursor();
+        let start = self.index();
 
         let token: Token = match self.cursor.peek() {
             None => Token::EndOfInput,
@@ -771,12 +780,9 @@ impl<'a> Lexer<'a> {
             Some(_) => return Err(Error::E0028),
         };
 
-        Ok(unsafe {
-            Span::from_ends(
-                token,
-                start,
-                self.cursor.cursor(),
-            )
+        Ok(Span {
+            value: token,
+            source: start..self.index()
         })
     }
 
@@ -786,8 +792,8 @@ impl<'a> Lexer<'a> {
     /// ```
     ///
     /// Assumes that the next byte is the id.
-    pub fn parse_start_tag(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
-        let first = self.cursor.cursor();
+    pub fn parse_start_tag(&mut self) -> Result<Span<Token<'a>>, Error> {
+        let start = self.index();
 
         self.skip_whitespace();
 
@@ -799,17 +805,14 @@ impl<'a> Lexer<'a> {
 
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-        Ok(unsafe {
-            Span::from_ends(
-                Token::MarkupStartTag(identifier),
-                first,
-                self.cursor.cursor(),
-            )
+        Ok(Span {
+            value: Token::MarkupStartTag(identifier),
+            source: start..self.index()
         })
     }
 
-    pub fn parse_end_tag(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
-        let first = self.cursor.cursor();
+    pub fn parse_end_tag(&mut self) -> Result<Span<Token<'a>>, Error> {
+        let start = self.index();
 
         self.skip_whitespace();
 
@@ -821,12 +824,9 @@ impl<'a> Lexer<'a> {
         self.skip_whitespace();
 
         match self.cursor.next_lfn() {
-            Some(b'>') => Ok(unsafe {
-                Span::from_ends(
-                    Token::MarkupEndTag(tag_name),
-                    first,
-                    self.cursor.cursor(),
-                )
+            Some(b'>') => Ok(Span {
+                value: Token::MarkupEndTag(tag_name),
+                source: start..self.index()
             }),
             _ => Err(Error::E0026),
         }
@@ -834,7 +834,7 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> TokenIterator<'a> for Lexer<'a> {
-    fn next_token(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
+    fn next_token(&mut self) -> Result<Span<Token<'a>>, Error> {
         match self.layers.pop() {
             None => {
                 if let Some(line_break) = self.skip_whitespace_line() {
@@ -857,7 +857,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
             Some(Layer::KeyOrStartTagEndOrSelfClose) => {
                 self.skip_whitespace();
 
-                let start = self.cursor.cursor();
+                let start = self.index();
 
                 let token = match self.cursor.peek() {
                     Some(b'>') => {
@@ -885,12 +885,9 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                     _ => return Err(Error::E0034),
                 };
 
-                Ok(unsafe {
-                    Span::from_ends(
-                        token,
-                        start,
-                        self.cursor.cursor(),
-                    )
+                Ok(Span {
+                    value: token,
+                    source: start..self.index()
                 })
             }
             Some(Layer::Value) => {
@@ -905,7 +902,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
 
                 self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-                let start = self.cursor.cursor();
+                let start = self.index();
 
                 let token = match self.cursor.next_lfn() {
                     Some(b'"') => Token::String(self.parse_string()?),
@@ -917,12 +914,9 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                     _ => return Err(Error::E0036),
                 };
 
-                Ok(unsafe {
-                    Span::from_ends(
-                        token,
-                        start,
-                        self.cursor.cursor(),
-                    )
+                Ok(Span {
+                    value: token,
+                    source: start..self.index()
                 })
             }
             Some(Layer::Insert) => {
@@ -942,6 +936,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
             Some(Layer::TextOrInsert) => {
                 self.skip_whitespace();
 
+                let source = self.index();
                 let first = self.cursor.cursor();
 
                 loop {
@@ -951,6 +946,8 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                         None => return Err(Error::E0037),
                     }
                 }
+
+                let source = source..self.index();
 
                 let text = unsafe {
                     from_raw_parts(first, self.cursor.cursor().sub_ptr(first))
@@ -987,12 +984,11 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            Ok(unsafe {
-                                Span::from_ends(
-                                    Token::Symbol(Symbol::LeftBrace),
-                                    self.cursor.cursor().sub(1),
-                                    self.cursor.cursor(),
-                                )
+                            let end = self.index();
+                            
+                            Ok(Span {
+                                value: Token::Symbol(Symbol::LeftBrace),
+                                source: end - 1..end
                             })
                         }
 
@@ -1015,9 +1011,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
 
                                 // End tag
                                 Some(b'/') => {
-                                    unsafe {
-                                        self.cursor.advance_unchecked();
-                                    }
+                                    unsafe { self.cursor.advance_unchecked(); }
                                     self.layers.push(Layer::EndTag)
                                 }
 
@@ -1037,7 +1031,7 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
 
                     Ok(Span {
                         value: Token::MarkupText(text),
-                        source: text,
+                        source
                     })
                 }
             }
@@ -1047,17 +1041,17 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
     }
 
     #[inline]
-    fn warnings(&self) -> &[Span<'a, Warning>] {
+    fn warnings(&self) -> &[Span<Warning>] {
         &self.warnings
     }
 
     #[inline]
-    fn warnings_mut(&mut self) -> &mut Vec<Span<'a, Warning>> {
+    fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
         &mut self.warnings
     }
 
     #[inline]
-    fn consume_warnings(self) -> Vec<Span<'a, Warning>> {
+    fn consume_warnings(self) -> Vec<Span<Warning>> {
         self.warnings
     }
 }

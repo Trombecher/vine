@@ -5,3 +5,13 @@ pub fn min(a: num, b: num) -> num {
         b
     }
 }
+
+fn main() {
+    min(
+        a
+        =
+        230
+    )
+}
+
+let test = 20 * 40

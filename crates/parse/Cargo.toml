@@ -3,6 +3,12 @@ name = "parse"
 version = "0.1.0"
 edition = "2021"
 
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
+[features]
+huge_files = ["lex/huge_files"]
+
 [dependencies]
 error = { path = "../error" }
 warning = { path = "../warning" }

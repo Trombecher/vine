@@ -10,8 +10,8 @@ use warning::Warning;
 /// **without advancing the iterator**.
 pub struct Buffered<'a, T: TokenIterator<'a>> {
     iter: T,
-    next_token: Span<'a, Token<'a>>,
-    next_next_token: Option<Span<'a, Token<'a>>>,
+    next_token: Span<Token<'a>>,
+    next_next_token: Option<Span<Token<'a>>>,
 }
 
 impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
@@ -25,29 +25,29 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
     }
 
     #[inline]
-    pub fn warnings(&self) -> &[Span<'a, Warning>] {
+    pub fn warnings(&self) -> &[Span<Warning>] {
         self.iter.warnings()
     }
     
     #[inline]
-    pub fn warnings_mut(&mut self) -> &mut Vec<Span<'a, Warning>> {
+    pub fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
         self.iter.warnings_mut()
     }
     
     #[inline]
-    pub fn consume_warnings(self) -> Vec<Span<'a, Warning>> {
+    pub fn consume_warnings(self) -> Vec<Span<Warning>> {
         self.iter.consume_warnings()
     }
     
     #[inline]
-    pub fn peek<'b>(&'b self) -> &'b Span<'a, Token<'a>> {
+    pub fn peek<'b>(&'b self) -> &'b Span<Token<'a>> {
         &self.next_token
     }
     
-    /// Returns a shared reference to the token after the token [Self::peek] would return.
+    /// Returns a shared reference to the token after the token, [Self::peek] would return.
     /// In the process of generating a new token, a line break is skipped.
     #[inline]
-    pub fn peek_after<'b>(&'b mut self) -> Result<&'b Span<'a, Token<'a>>, Error> {
+    pub fn peek_after<'b>(&'b mut self) -> Result<&'b Span<Token<'a>>, Error> {
         if self.next_next_token.is_none() {
             self.next_next_token = Some(self.iter.next_token()?);
             
@@ -68,7 +68,7 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
     /// If a line break was skipped, the second member of the returned tuple is `true`;
     /// otherwise `false`.
     #[inline]
-    pub fn peek_non_lb<'b>(&'b mut self) -> Result<(&'b Span<'a, Token<'a>>, bool), Error> {
+    pub fn peek_non_lb<'b>(&'b mut self) -> Result<(&'b Span<Token<'a>>, bool), Error> {
         Ok(match self.peek().value {
             Token::LineBreak => (self.peek_after()?, true),
             _ => (self.peek(), false) // TODO: the borrow checker is wrong on this one. The line below should be accepted!

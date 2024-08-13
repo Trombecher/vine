@@ -42,19 +42,19 @@ pub enum ComparativeOperation {
 pub enum Expression<'a> {
     // Binary Expressions
     Operation {
-        left: Box<Span<'a, Expression<'a>>>,
+        left: Box<Span<Expression<'a>>>,
         operation: Operation,
-        right: Box<Span<'a, Expression<'a>>>,
+        right: Box<Span<Expression<'a>>>,
     },
     Assignment {
-        target: Box<Span<'a, AssignmentTarget<'a>>>,
+        target: Box<Span<AssignmentTarget<'a>>>,
         operation: Option<PAOperation>,
-        value: Box<Span<'a, Expression<'a>>>
+        value: Box<Span<Expression<'a>>>
     },
     
     // Unary Expressions
-    Not(Box<Span<'a, Expression<'a>>>),
-    Return(Box<Span<'a, Expression<'a>>>),
+    Not(Box<Span<Expression<'a>>>),
+    Return(Box<Span<Expression<'a>>>),
     
     // Control Flow
     Continue,
@@ -62,18 +62,18 @@ pub enum Expression<'a> {
     If {
         base: If<'a>,
         else_ifs: Vec<If<'a>>,
-        else_body: Option<Span<'a, Vec<Span<'a, StatementOrExpression<'a>>>>>,
+        else_body: Option<Span<Vec<Span<StatementOrExpression<'a>>>>>,
     },
     While {
-        condition: Box<Span<'a, Expression<'a>>>,
-        body: Span<'a, Vec<Span<'a, StatementOrExpression<'a>>>>
+        condition: Box<Span<Expression<'a>>>,
+        body: Span<Vec<Span<StatementOrExpression<'a>>>>
     },
     For {
         is_mutable: bool,
         variable: &'a str,
         iter: Box<Expression<'a>>,
     },
-    Block(Vec<Span<'a, StatementOrExpression<'a>>>),
+    Block(Vec<Span<StatementOrExpression<'a>>>),
     
     // Objects And Paths
     Instance(Vec<InstanceFieldInit<'a>>),
@@ -93,10 +93,10 @@ pub enum Expression<'a> {
     // Functions
     Function {
         signature: FunctionSignature<'a>,
-        body: Box<Span<'a, Expression<'a>>>,
+        body: Box<Span<Expression<'a>>>,
     },
     Call {
-        target: Box<Span<'a, Expression<'a>>>,
+        target: Box<Span<Expression<'a>>>,
         arguments: CallArguments<'a>
     },
 }
@@ -105,23 +105,23 @@ pub enum Expression<'a> {
 pub struct InstanceFieldInit<'a> {
     pub is_mutable: bool,
     pub id: &'a str,
-    pub ty: Option<Span<'a, Type<'a>>>,
-    pub init: Span<'a, Expression<'a>>,
+    pub ty: Option<Span<Type<'a>>>,
+    pub init: Span<Expression<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CallArguments<'a> {
-    Unnamed(Vec<Span<'a, Expression<'a>>>),
-    Named(Vec<(Span<'a, ()>, Span<'a, Expression<'a>>)>),
+    Unnamed(Vec<Span<Expression<'a>>>),
+    Named(Vec<(Span<&'a str>, Span<Expression<'a>>)>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct If<'a> {
-    pub condition: Box<Span<'a, Expression<'a>>>,
-    pub body: Span<'a, Vec<Span<'a, StatementOrExpression<'a>>>>,
+    pub condition: Box<Span<Expression<'a>>>,
+    pub body: Span<Vec<Span<StatementOrExpression<'a>>>>,
 }
 
-pub type TypeParameters<'a> = Vec<Span<'a, TypeParameter<'a>>>;
+pub type TypeParameters<'a> = Vec<Span<TypeParameter<'a>>>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum StatementKind<'a> {
@@ -133,20 +133,20 @@ pub enum StatementKind<'a> {
         doc_comments: Vec<&'a str>,
         id: &'a str,
         tps: TypeParameters<'a>,
-        variants: Vec<(&'a str, Option<Span<'a, Expression<'a>>>)>,
+        variants: Vec<(&'a str, Option<Span<Expression<'a>>>)>,
     },
     Declaration {
         doc_comments: Vec<&'a str>,
         is_mutable: bool,
-        ty: Option<Span<'a, Type<'a>>>,
+        ty: Option<Span<Type<'a>>>,
         id: &'a str,
-        value: Option<Box<Span<'a, Expression<'a>>>>,
+        value: Option<Box<Span<Expression<'a>>>>,
     },
     Struct {
         doc_comments: Vec<&'a str>,
         id: &'a str,
         tps: TypeParameters<'a>,
-        fields: Vec<Span<'a, StructField<'a>>>
+        fields: Vec<Span<StructField<'a>>>
     },
     TypeAlias {
         doc_comments: Vec<&'a str>,
@@ -174,13 +174,13 @@ pub struct StructField<'a> {
     pub is_public: bool,
     pub is_mutable: bool,
     pub id: &'a str,
-    pub ty: Span<'a, Type<'a>>,
+    pub ty: Span<Type<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Annotation<'a> {
-    pub path: Span<'a, ItemPath<'a>>,
-    pub arguments: Vec<Span<'a, Expression<'a>>>
+    pub path: Span<ItemPath<'a>>,
+    pub arguments: Vec<Span<Expression<'a>>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -201,19 +201,19 @@ pub struct ModuleContent<'a>(pub Vec<TopLevelItem<'a>>);
 #[derive(Debug, PartialEq, Clone)]
 pub struct TopLevelItem<'a> {
     pub is_public: bool,
-    pub statement: Span<'a, Statement<'a>>
+    pub statement: Span<Statement<'a>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Use<'a> {
     pub id: &'a str,
-    pub child: Option<UseChild<'a>>
+    pub child: Option<Span<UseChild<'a>>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum UseChild<'a> {
     Single(Box<Use<'a>>),
-    Multiple(Vec<Use<'a>>),
+    Multiple(Vec<Span<Use<'a>>>),
     All,
 }
 
@@ -237,7 +237,7 @@ impl<'a> TryFrom<Expression<'a>> for AssignmentTarget<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Access<'a> {
-    pub target: Box<Span<'a, Expression<'a>>>,
+    pub target: Box<Span<Expression<'a>>>,
     pub property: &'a str,
 }
 
@@ -259,7 +259,7 @@ pub enum MarkupChild<'a> {
 pub struct Parameter<'a> {
     pub id: &'a str,
     pub is_mutable: bool,
-    pub ty: Span<'a, Type<'a>>,
+    pub ty: Span<Type<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -297,7 +297,7 @@ impl<'a> TryFrom<Keyword> for Type<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionSignature<'a> {
-    pub return_type: Option<Span<'a, Type<'a>>>,
+    pub return_type: Option<Span<Type<'a>>>,
     pub parameters: Vec<Parameter<'a>>,
     pub has_this_parameter: bool,
     pub tps: TypeParameters<'a>,

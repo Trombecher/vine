@@ -64,6 +64,7 @@ impl<'a> UnprocessedString<'a> {
     }
 
     pub fn process(&self) -> Result<String, Error> {
+        // By allocating more, no reallocations will take place
         let mut string = String::with_capacity(self.0.len());
 
         // Get first and past-the-end pointers
@@ -255,14 +256,14 @@ pub enum Symbol {
 }
 
 pub trait TokenIterator<'a> {
-    fn next_token(&mut self) -> Result<Span<'a, Token<'a>>, Error>;
+    fn next_token(&mut self) -> Result<Span<Token<'a>>, Error>;
     
     /// Returns a view of all warnings gathered so far.
-    fn warnings(&self) -> &[Span<'a, Warning>];
+    fn warnings(&self) -> &[Span<Warning>];
     
     /// Returns a mutable reference to the warnings.
-    fn warnings_mut(&mut self) -> &mut Vec<Span<'a, Warning>>;
+    fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>>;
     
     /// Consumes the iterator.
-    fn consume_warnings(self) -> Vec<Span<'a, Warning>>;
+    fn consume_warnings(self) -> Vec<Span<Warning>>;
 }

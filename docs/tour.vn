@@ -27,6 +27,10 @@ fn example_function(parameter: mut ParameterType, mut color: Color) -> ReturnTyp
     for value in 0..3 {
         println("{value}")
     }
+}
 
-
+@const
+@pure
+fn markup() -> HTML {
+    <div>Hi!</div>
 }
