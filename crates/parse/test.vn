@@ -1,17 +1,6 @@
-pub fn min(a: num, b: num) -> num {
-    if a < b {
-        a
-    } else {
-        b
-    }
-}
-
-fn main() {
-    min(
-        a
-        =
-        230
-    )
-}
-
-let test = 20 * 40
+let x = (
+    mut x: A = 10 * 540
+    mut y: B
+    z: C
+    w: A
+)

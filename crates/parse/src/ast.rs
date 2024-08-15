@@ -1,5 +1,5 @@
-use lex::Span;
-use lex::token::Keyword;
+use std::ops::Range;
+use lex::{Index, Span};
 
 /// A binary operation.
 #[derive(Debug, PartialEq, Clone)]
@@ -265,33 +265,38 @@ pub struct Parameter<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type<'a> {
     Never,
-    Number,
-    Boolean,
-    Char,
-    Object,
-    String,
-    Any,
-    Nil,
-    Function(Box<FunctionSignature<'a>>),
-    ItemPath {
-        generics: Vec<ItemPath<'a>>,
-        path: ItemPath<'a>,
-    },
+    Union {
+        first: RawType<'a>, // Ensures the union has at least one RawType
+        remaining: Vec<RawType<'a>>
+    }
 }
 
-impl<'a> TryFrom<Keyword> for Type<'a> {
-    type Error = ();
+#[derive(Debug, PartialEq, Clone)]
+pub enum RawType<'a> {
+    Function(Span<Box<FunctionSignature<'a>>>),
+    Item(ItemRef<'a>)
+}
 
-    fn try_from(value: Keyword) -> Result<Self, Self::Error> {
-        match value {
-            Keyword::Num => Ok(Self::Number),
-            Keyword::Str => Ok(Self::String),
-            Keyword::Bool => Ok(Self::Boolean),
-            Keyword::Char => Ok(Self::Char),
-            Keyword::Obj => Ok(Self::Object),
-            Keyword::Any => Ok(Self::Any),
-            _ => Err(())
+impl<'a> RawType<'a> {
+    #[inline]
+    pub fn source_span(&self) -> Range<Index> {
+        match self {
+            RawType::Function(Span { source, ..}) => source.clone(),
+            RawType::Item(item_ref) => item_ref.source_span()
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemRef<'a> {
+    pub path: Span<ItemPath<'a>>,
+    pub tps: Span<Vec<Span<Type<'a>>>>,
+}
+
+impl<'a> ItemRef<'a> {
+    #[inline]
+    pub const fn source_span(&self) -> Range<Index> {
+        self.path.source.start..self.tps.source.end
     }
 }
 

@@ -6,6 +6,9 @@ edition = "2021"
 [build]
 rustflags = ["-C", "target-cpu=native"]
 
+[profile.release]
+debug = true
+
 [features]
 huge_files = ["lex/huge_files"]
 

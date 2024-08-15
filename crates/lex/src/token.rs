@@ -155,15 +155,6 @@ pub enum Keyword {
     While,
     Underscore,
     Use,
-
-    // Built-in types
-
-    Num,
-    Str,
-    Bool,
-    Char,
-    Obj,
-    Any,
 }
 
 pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
@@ -192,13 +183,6 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "while" => Keyword::While,
     "_" => Keyword::Underscore,
     "use" => Keyword::Use,
-    
-    "num" => Keyword::Num,
-    "str" => Keyword::Str,
-    "bool" => Keyword::Bool,
-    "char" => Keyword::Char,
-    "obj" => Keyword::Obj,
-    "any" => Keyword::Any,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]

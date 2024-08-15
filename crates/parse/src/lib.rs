@@ -27,13 +27,22 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     /// Adds a warning with the span of the token returned by [Buffered::peek].
     #[inline]
     fn omit_single_token_warning(&mut self, warning: Warning) {
-        let source = self.iter.peek().source.clone();
+        let new_source = self.iter.peek().source.clone();
+
+        // If there is a last added warning that is equal to the new warning and has is extendable, extend it!
+        if warning.is_extendable() && let Some(Span { value, source }) = self.iter.warnings_mut().last_mut() && *value == warning {
+            source.end = new_source.end;
+            return;
+        }
+
         self.iter.warnings_mut().push(Span {
             value: warning,
-            source,
+            source: new_source,
         })
     }
 
+    /// Yields a warning if the delimiter is not needed due to a line break.
+    ///
     /// Uses [Buffered::advance_skip_lb] to advance the iterator while skipping a [Token::LineBreak].
     /// If a line break was encountered, it adds the warning with the source of the token of [Buffered::peek]
     /// before [Buffered::advance_skip_lb] was called.
@@ -42,6 +51,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         // We need to capture this source outside,
         // or else the borrow checker will get mad.
         let source = self.iter.peek().source.clone();
+
+        // TODO: maybe add warning extensions
 
         if self.iter.advance_skip_lb()? {
             self.iter.warnings_mut().push(Span {
@@ -132,7 +143,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             } else {
                 items.push(self.parse_expression(0)?.map(|e| StatementOrExpression::Expression(e)));
             }
-            
+
             match self.iter.peek().value {
                 Token::Symbol(Symbol::Semicolon) => {
                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
@@ -154,20 +165,79 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         let source = self.iter.peek().source.clone();
 
         Ok(match &self.iter.peek().value {
-            Token::Keyword(kw) if let Ok(ty) = Type::try_from(*kw) => {
+            Token::Symbol(Symbol::ExclamationMark) => {
                 self.iter.advance()?;
+
                 Span {
-                    value: ty,
+                    value: Type::Never,
                     source,
                 }
             }
             Token::Identifier(id) => {
-                self.parse_item_path(id)?.map(|path| {
-                    Type::ItemPath {
-                        path,
-                        generics: vec![], // TODO: add generics
+                let first = self.parse_item_path(*id)?;
+
+                let tps = if let Token::Symbol(Symbol::LeftAngle) = self.iter.peek_non_lb()?.0.value {
+                    self.iter.skip_lb()?;
+
+                    let mut tps = Span {
+                        value: Vec::new(),
+                        source: self.iter.peek().source.start..0,
+                    };
+
+                    self.iter.advance_skip_lb()?;
+
+                    loop {
+                        match self.iter.peek().value {
+                            Token::Symbol(Symbol::RightAngle) => break,
+                            Token::Symbol(Symbol::Comma) => {
+                                self.omit_single_token_warning(Warning::UnnecessarySemicolon)
+                            }
+                            _ => {}
+                        }
+
+                        tps.value.push(self.parse_type()?);
+
+                        match self.iter.peek().value {
+                            Token::Symbol(Symbol::RightAngle) => break,
+                            Token::Symbol(Symbol::Comma) => {
+                                self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
+                            }
+                            Token::LineBreak => self.iter.advance()?,
+                            _ => todo!(),
+                        }
                     }
-                })
+
+                    self.iter.advance()?;
+
+                    tps
+                } else {
+                    Span {
+                        value: Vec::new(),
+                        source: first.source.end..first.source.end,
+                    }
+                };
+
+                let first = RawType::Item(ItemRef {
+                    path: first,
+                    tps,
+                });
+
+                let remaining: Vec<RawType<'a>> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
+                    todo!("union types")
+
+                    // self.iter.advance()?;
+                    // self.iter.advance_skip_lb()?;
+                } else {
+                    Vec::new()
+                };
+
+                Span {
+                    source: source.start..remaining.last().map_or(first.source_span().end, |last| last.source_span().end),
+                    value: Type::Union {
+                        first,
+                        remaining,
+                    },
+                }
             }
             token => todo!("{:?}", token)
         })
@@ -184,7 +254,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 Span {
                     value: UseChild::All,
-                    source
+                    source,
                 }
             }
             Token::Symbol(Symbol::LeftParenthesis) => {
@@ -229,7 +299,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 Span {
                     value: UseChild::Multiple(vec),
-                    source
+                    source,
                 }
             }
             Token::Identifier(id) => self.parse_use(id)?
@@ -255,7 +325,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         child: Some(child),
                     },
                 }
-            },
+            }
             _ => Span {
                 value: Use {
                     id,
@@ -271,36 +341,34 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     pub(crate) fn parse_item_path(&mut self, mut first_id: &'a str) -> Result<Span<ItemPath<'a>>, Error> {
         let mut source = self.iter.peek().source.clone();
 
-        self.iter.advance_skip_lb()?;
+        self.iter.advance()?;
 
-        // This match-statement hell prevents unnecessary allocation of an empty vec.
-        let parents = match self.iter.peek().value {
-            Token::Symbol(Symbol::Dot) => {
-                let mut parents = Vec::new();
+        let parents = if let Token::Symbol(Symbol::Dot) = self.iter.peek_non_lb()?.0.value {
+            let mut parents = Vec::new();
 
-                loop {
-                    parents.push(first_id);
+            loop {
+                parents.push(first_id);
 
-                    self.iter.advance_skip_lb()?;
+                self.iter.advance_skip_lb()?;
 
-                    first_id = match self.iter.peek().value {
-                        Token::Identifier(id) => id,
-                        _ => todo!()
-                    };
+                first_id = match self.iter.peek().value {
+                    Token::Identifier(id) => id,
+                    _ => todo!()
+                };
 
-                    source.end = self.iter.peek().source.end;
+                source.end = self.iter.peek().source.end;
 
-                    self.iter.advance()?;
+                self.iter.advance()?;
 
-                    match self.iter.peek_non_lb()?.0.value {
-                        Token::Symbol(Symbol::Dot) => {}
-                        _ => break,
-                    }
+                match self.iter.peek_non_lb()?.0.value {
+                    Token::Symbol(Symbol::Dot) => {}
+                    _ => break,
                 }
-
-                parents
             }
-            _ => Vec::new(),
+
+            parents
+        } else {
+            Vec::new()
         };
 
         Ok(Span {
@@ -471,7 +539,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 let body = self.parse_block()?;
                 source.end = body.source.end;
-                
+
                 self.iter.advance()?;
 
                 Some(StatementKind::Declaration {
@@ -526,7 +594,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     (Span { value: Token::EndOfInput | Token::Symbol(Symbol::RightBrace), .. }, _) => {
                         self.iter.skip_lb()?;
                         None
-                    },
+                    }
                     (Span { value: Token::Symbol(Symbol::Semicolon), .. }, _) => None, // The caller handles this
                     (_, true) => None,
                     token => todo!("{:?}", token)
@@ -648,7 +716,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     Token::Identifier(id) => id,
                     _ => todo!(),
                 };
-                
+
                 // Source end is at least the integer end
                 source.end = self.iter.peek().source.end;
 
@@ -671,7 +739,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     (Span { value: Token::Symbol(Symbol::Equals), .. }, _) => {
                         self.iter.skip_lb()?;
                         self.iter.advance_skip_lb()?;
-                        
+
                         let expr = self.parse_expression(0)?;
                         source.end = expr.source.end; // Adjust end of statement
                         Some(expr)
@@ -709,7 +777,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     Token::Identifier(id) => id,
                     _ => todo!(),
                 };
-                
+
                 let Span { source: src, value } = self.parse_use(root_id)?;
                 source = src;
                 Some(StatementKind::Use(value))
@@ -735,7 +803,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     }
 
                     self.iter.advance()?;
-                    
+
                     Some(StatementKind::TypeParameterAlias {
                         tps,
                         content,
@@ -784,7 +852,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         let first_term = self.parse_expression_first_term()?;
         self.parse_expression_remaining_terms(first_term, min_bp)
     }
-    
+
     pub fn parse_expression_first_term(&mut self) -> Result<Span<Expression<'a>>, Error> {
         let mut first_source = self.iter.peek().source.clone();
 
@@ -1028,10 +1096,10 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     pub fn parse_expression_remaining_terms(
         &mut self,
         mut first_term: Span<Expression<'a>>,
-        min_bp: u8
+        min_bp: u8,
     ) -> Result<Span<Expression<'a>>, Error> {
         let start = first_term.source.start;
-        
+
         macro_rules! op {
             ($op: expr, $bp: expr) => {{
                 if $bp.0 < min_bp {
@@ -1091,87 +1159,91 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     self.iter.skip_lb()?;
                     self.iter.advance_skip_lb()?;
 
-                    let mut maybe_arg = self.parse_expression_first_term()?;
-                    
-                    let arguments: CallArguments<'a> = if let Span {
-                        value: Expression::Identifier(mut arg),
-                        mut source
-                    } = maybe_arg && let Token::Symbol(Symbol::Equals) = self.iter.peek_non_lb()?.0.value {
-                        // Named
-                        
-                        self.iter.skip_lb()?;
-                        self.iter.advance_skip_lb()?;
-
-                        let mut args = Vec::new();
-
-                        macro_rules! parse_that {
-                            () => {{
-                                let expr = self.parse_expression(0)?;
-
-                                match self.iter.peek().value {
-                                    Token::LineBreak => self.iter.advance()?,
-                                    Token::Symbol(Symbol::Comma) => {
-                                        self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
-                                    }
-                                    _ => {}
-                                }
-    
-                                args.push((
-                                    Span {
-                                        value: arg,
-                                        source,
-                                    },
-                                    expr
-                                ));
-                            }};
+                    // Skip initial commas
+                    loop {
+                        match self.iter.peek().value {
+                            Token::Symbol(Symbol::Comma) => {
+                                self.omit_single_token_warning(Warning::UnnecessaryComma);
+                                self.iter.advance_skip_lb()?;
+                            }
+                            _ => break
                         }
+                    }
 
-                        parse_that!();
-
-                        loop {
-                            arg = match self.iter.peek().value {
-                                Token::Symbol(Symbol::Comma) => {
-                                    self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                    self.iter.advance_skip_lb()?;
-                                    continue;
-                                }
-                                Token::Symbol(Symbol::RightParenthesis) => break,
-                                Token::Identifier(id) => {
-                                    source = self.iter.peek().source.clone();
-                                    
-                                    self.iter.advance_skip_lb()?;
-
-                                    match self.iter.peek().value {
-                                        Token::Symbol(Symbol::Equals) => {}
-                                        _ => todo!("error")
-                                    }
-
-                                    id
-                                }
-                                _ => todo!("error")
-                            };
-
-                            parse_that!();
-                        }
-
-                        CallArguments::Named(args)
+                    let arguments: CallArguments<'a> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek().value {
+                        // There are no arguments. We must handle this special case,
+                        // because we cannot parse an expression.
+                        CallArguments::Unnamed(Vec::new())
                     } else {
-                        // Unnamed
+                        let mut maybe_arg = self.parse_expression_first_term()?;
 
-                        let mut args = Vec::new();
+                        if let Span {
+                            value: Expression::Identifier(mut arg),
+                            ref mut source
+                        } = maybe_arg && let Token::Symbol(Symbol::Equals) = self.iter.peek_non_lb()?.0.value {
+                            // Named
 
-                        loop {
-                            match self.iter.peek().value {
-                                Token::Symbol(Symbol::Comma) => {
-                                    self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                    self.iter.advance_skip_lb()?;
-                                    continue;
-                                }
-                                Token::Symbol(Symbol::RightParenthesis) => break,
-                                _ => {}
+                            self.iter.skip_lb()?;
+                            self.iter.advance_skip_lb()?;
+
+                            let mut args = Vec::new();
+
+                            macro_rules! parse_that {
+                                () => {{
+                                    let expr = self.parse_expression(0)?;
+    
+                                    match self.iter.peek().value {
+                                        Token::LineBreak => self.iter.advance()?,
+                                        Token::Symbol(Symbol::Comma) => {
+                                            self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
+                                        }
+                                        _ => {}
+                                    }
+        
+                                    args.push((
+                                        Span {
+                                            value: arg,
+                                            source: source.clone(),
+                                        },
+                                        expr
+                                    ));
+                                }};
                             }
 
-                            maybe_arg = self.parse_expression_first_term()?;
+                            parse_that!();
+
+                            loop {
+                                arg = match self.iter.peek().value {
+                                    Token::Symbol(Symbol::Comma) => {
+                                        self.omit_single_token_warning(Warning::UnnecessaryComma);
+                                        self.iter.advance_skip_lb()?;
+                                        continue;
+                                    }
+                                    Token::Symbol(Symbol::RightParenthesis) => break,
+                                    Token::Identifier(id) => {
+                                        *source = self.iter.peek().source.clone();
+
+                                        self.iter.advance_skip_lb()?;
+
+                                        match self.iter.peek().value {
+                                            Token::Symbol(Symbol::Equals) => {}
+                                            _ => todo!("error")
+                                        }
+
+                                        id
+                                    }
+                                    _ => todo!("error")
+                                };
+
+                                parse_that!();
+                            }
+
+                            CallArguments::Named(args)
+                        } else {
+                            // Unnamed
+                            
+                            let mut args = Vec::new();
+
                             let expr = self.parse_expression_remaining_terms(maybe_arg, 0)?;
 
                             match self.iter.peek().value {
@@ -1183,9 +1255,34 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             }
 
                             args.push(expr);
-                        }
 
-                        CallArguments::Unnamed(args)
+                            loop {
+                                match self.iter.peek().value {
+                                    Token::Symbol(Symbol::Comma) => {
+                                        self.omit_single_token_warning(Warning::UnnecessaryComma);
+                                        self.iter.advance_skip_lb()?;
+                                        continue;
+                                    }
+                                    Token::Symbol(Symbol::RightParenthesis) => break,
+                                    _ => {}
+                                }
+
+                                maybe_arg = self.parse_expression_first_term()?;
+                                let expr = self.parse_expression_remaining_terms(maybe_arg, 0)?;
+
+                                match self.iter.peek().value {
+                                    Token::LineBreak => self.iter.advance()?,
+                                    Token::Symbol(Symbol::Comma) => {
+                                        self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
+                                    }
+                                    _ => {}
+                                }
+
+                                args.push(expr);
+                            }
+
+                            CallArguments::Unnamed(args)
+                        }
                     };
 
                     let end = self.iter.peek().source.end;
@@ -1198,6 +1295,56 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             target: Box::new(first_term),
                             arguments,
                         }
+                    )
+                }
+                Token::Symbol(Symbol::Dot) => {
+                    if bp::ACCESS_AND_OPTIONAL_ACCESS < min_bp {
+                        break;
+                    }
+
+                    self.iter.skip_lb()?;
+                    self.iter.advance_skip_lb()?;
+
+                    let property = match self.iter.peek().value {
+                        Token::Identifier(id) => id,
+                        _ => todo!()
+                    };
+
+                    let end = self.iter.peek().source.end;
+
+                    self.iter.advance()?;
+
+                    (
+                        end,
+                        Expression::Access(Access {
+                            target: Box::new(first_term),
+                            property,
+                        })
+                    )
+                }
+                Token::Symbol(Symbol::QuestionMarkDot) => {
+                    if bp::ACCESS_AND_OPTIONAL_ACCESS < min_bp {
+                        break;
+                    }
+
+                    self.iter.skip_lb()?;
+                    self.iter.advance_skip_lb()?;
+
+                    let property = match self.iter.peek().value {
+                        Token::Identifier(id) => id,
+                        _ => todo!()
+                    };
+
+                    let end = self.iter.peek().source.end;
+
+                    self.iter.advance()?;
+
+                    (
+                        end,
+                        Expression::OptionalAccess(Access {
+                            target: Box::new(first_term),
+                            property,
+                        })
                     )
                 }
                 Token::EndOfInput
@@ -1223,7 +1370,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
         Ok(first_term)
     }
-    
+
     /// Expects that the first non-lb token after `{` was already consumed.
     ///
     /// Ends on `}` or [Token::EndOfInput].
