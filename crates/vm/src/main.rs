@@ -1,9 +1,9 @@
 use vm::instruction::Instruction;
-use vm::{GC, VM};
+use vm::{Value, GC, VM};
 
-fn main() {
+fn old_main() {
     let gc = GC::new(&[2, 3]);
-    
+
     let mut vm = VM::<1024>::new(
         &[
             Instruction::CreateObject as u8,
@@ -30,6 +30,13 @@ fn main() {
         &[],
         &gc
     );
-    
+
     vm.execute().unwrap();
+}
+
+fn main() {
+    let gc = GC::new(&[2]);
+    let value = Value::from_strong(gc.allocate(0));
+
+    println!("{:b} -> {:?}", value, value.display(&gc));
 }

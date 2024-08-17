@@ -90,8 +90,6 @@ pub struct DataViewDisplay<'types: 'heap, 'heap> {
 
 impl<'types: 'heap, 'heap> Debug for DataViewDisplay<'types, 'heap> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Object(")?;
-        
         for (i, value) in self.view.iter().enumerate() {
             if i > 0 {
                 f.write_str(", ")?;
@@ -99,6 +97,6 @@ impl<'types: 'heap, 'heap> Debug for DataViewDisplay<'types, 'heap> {
             value.display(self.gc).fmt(f)?;
         }
         
-        f.write_str(")")
+        Ok(())
     }
 }

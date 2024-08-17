@@ -1,0 +1,6 @@
+a=1
+a<->b
+a=1
+a+=b,u
+write_stdout_lf
+ret

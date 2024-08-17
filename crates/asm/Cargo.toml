@@ -3,8 +3,11 @@ name = "asm"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+huge_files = ["bytes/huge_files"]
+
 [dependencies]
-phf = "0.11.2"
-vm = {path = "../vm"}
-set = {path = "../set"}
+phf = { version = "0.11.2", features = ["macros"] }
+vm = { path = "../vm" }
 bytes = { path = "../bytes" }
+error = { path = "../error" }

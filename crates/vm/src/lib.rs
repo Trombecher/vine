@@ -61,7 +61,7 @@ pub struct VM<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> {
     gc: &'heap GC<'input>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Error {
     IllegalInstruction,
     BufferOverrun,
@@ -398,9 +398,9 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
 
             // Objects
             
-            Instruction::CreateObject => {
-                let type_index = self.get_u32()?;
-                self.a = Value::from_strong(self.gc.allocate(type_index));
+            Instruction::CreateObject1 => {
+                let type_index = self.get_u8()?;
+                self.a = Value::from_strong(self.gc.allocate(type_index as u32));
             }
             
             /*

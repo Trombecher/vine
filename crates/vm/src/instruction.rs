@@ -6,6 +6,7 @@ use crate::Error;
 #[derive(Copy, Clone, Debug)]
 pub enum Instruction {
     Unreachable = 0x00,
+    Unimplemented,
     NoOperation,
 
     // Control flow
@@ -136,7 +137,10 @@ pub enum Instruction {
     /// The resulting pointer to this type is used as the type.
     /// 
     /// The object is placed in A.
-    CreateObject,
+    CreateObject1,
+    CreateObject2,
+    CreateObject3,
+    CreateObject4,
     ReadProperty0,
     ReadProperty1,
     ReadProperty2,
@@ -147,7 +151,10 @@ pub enum Instruction {
     WriteProperty2,
     WriteProperty3,
     WritePropertyN,
-    Implements,
+    
+    EqualType,
+    InstanceOf,
+    // Implements,
     
     /// Casts the object in A to a same-sized type.
     /// 

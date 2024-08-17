@@ -1,5 +1,5 @@
 use crate::object::Object;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Binary, Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem::transmute;
 use crate::GC;
@@ -92,7 +92,9 @@ impl<'heap> Value<'heap> {
             PointerOrRaw::Pointer(if self.0 & 1 == 1 {
                 PointerValue::TypeOffset((self.0 << 1) >> 2)
             } else {
-                PointerValue::StrongRef(unsafe { transmute(self.0 << 1) })
+                unsafe {
+                    PointerValue::StrongRef(&*((self.0 << 1) as usize as *const Object))
+                }
             })
         } else {
             PointerOrRaw::Raw(self.0)
@@ -111,6 +113,12 @@ impl<'heap> Value<'heap> {
     #[inline]
     pub fn from_strong(strong_ref: &'heap Object) -> Self {
         Self((strong_ref as *const Object as usize as u64 >> 1) | (1_u64 << 63), PhantomData)
+    }
+}
+
+impl<'heap> Binary for Value<'heap> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Binary::fmt(&self.0, f)
     }
 }
 
