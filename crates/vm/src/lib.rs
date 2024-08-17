@@ -1,3 +1,7 @@
+#![feature(let_chains)]
+#![feature(new_uninit)]
+#![feature(ptr_as_ref_unchecked)]
+
 //! # Vine Virtual Machine (VVM).
 //!
 //! This is the implementation of the vine virtual machine. It is operating on byte code.
@@ -16,117 +20,45 @@
 pub mod instruction;
 pub mod stack;
 mod tests;
+mod value;
+mod object;
+mod gc;
 
-use std::alloc::{alloc, dealloc, Layout};
-use std::collections::HashSet;
-use std::iter::Copied;
-use std::mem::{swap, transmute};
-use std::ptr::{NonNull, slice_from_raw_parts};
-use std::slice;
+pub use value::*;
+pub use object::*;
+pub use gc::*;
+
 use crate::instruction::Instruction;
 use crate::stack::Stack;
+use std::mem::{swap, transmute};
 
-const NUMBER_TYPE: u64 = 0;
-const NIL_TYPE: u64 = 1;
-const ARRAY_TYPE: u64 = 2;
-
-#[derive(Copy, Clone)]
-union ValueValue {
-    nil: u64,
-    number: f64,
-    ptr: NonNull<Object>,
-}
-
-#[repr(align(8))]
-pub struct Object {
-    pub is_used: bool,
-    // here are some hidden values
-}
-
-impl Object {
-    #[inline]
-    pub fn layout(len: u64) -> Layout {
-        Layout::array::<u64>(len as usize * 2 + 1).expect("Layout creation has failed")
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Value(u64, ValueValue);
-
-impl Value {
-    #[inline]
-    pub const fn nil() -> Self {
-        Self(NIL_TYPE, unsafe { transmute(0_u64) })
-    }
-
-    #[inline]
-    pub const fn nil_value(value: u64) -> Self {
-        Self(NIL_TYPE, unsafe { transmute(value) })
-    }
-
-    #[inline]
-    pub const fn number(value: f64) -> Self {
-        Self(NUMBER_TYPE, unsafe { transmute(value) })
-    }
-
-    #[inline]
-    pub fn cast_number(self) -> Self {
-        Self(NUMBER_TYPE, match self.0 {
-            NUMBER_TYPE => self.1,
-            NIL_TYPE => unsafe { transmute(self.1.nil as f64) }
-            _ => unsafe { transmute(f64::NAN) }
-        })
-    }
-
-    #[inline]
-    pub fn get_u64_unchecked(&self) -> u64 {
-        unsafe { transmute::<_, &(u64, u64)>(self) }.1
-    }
-
-    #[inline]
-    pub fn get_f64_unchecked(&self) -> f64 {
-        unsafe { transmute::<_, &(u64, f64)>(self) }.1
-    }
-
-    #[inline]
-    pub fn get_object(&self) -> Option<NonNull<Object>> {
-        match self.0 {
-            NUMBER_TYPE | NIL_TYPE => None,
-            _ => Some(unsafe { self.1.ptr }),
-        }
-    }
-}
-
-pub struct VM<'a, const MAX_STACK_SIZE: usize> {
+pub struct VM<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> {
     /// General purpose register
-    a: Value,
+    a: Value<'heap>,
 
     /// General purpose register
-    b: Value,
+    b: Value<'heap>,
 
     /// Return value register
-    r: Value,
+    r: Value<'heap>,
 
     /// Executable code
-    code: &'a [u8],
+    code: &'input [u8],
 
     /// Instruction/Byte pointer
     next_byte: usize,
 
     /// A table containing u64 offsets for functions, locations, etc.
-    offset_table: &'a [u64],
-    
-    /// A table containing type lengths. A pointer to a length is considered the type.
-    /// Objects with zero sized types are not allocated.
-    type_table: &'a [u8],
+    offset_table: &'input [u64],
 
     /// A table containing static values.
-    static_table: &'a [Value],
+    static_table: &'input [Value<'heap>],
 
     /// A stack for maintaining values.
-    stack: Stack<MAX_STACK_SIZE>,
+    stack: Stack<'heap, MAX_STACK_SIZE>,
     
-    allocated_objects: HashSet<NonNull<Object>>,
+    /// The garbage collector.
+    gc: &'heap GC<'input>,
 }
 
 #[derive(Debug)]
@@ -136,6 +68,7 @@ pub enum Error {
     StackOverflow,
     CannotCastToU64,
     BufferUnderrun,
+    InvalidTypeIndex,
     IndexOutOfStaticTable,
 }
 
@@ -145,7 +78,7 @@ pub enum FileFormatError {
     InvalidMagicBytes([u8; 8]),
 }
 
-impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
+impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_STACK_SIZE> {
     /* 
     pub fn from(mut iter: Copied<slice::Iter<'a, u8>>) -> Result<VM<'a, MAX_STACK_SIZE>, FileFormatError> {
         let magic_bytes = iter.next_chunk::<8>()
@@ -187,23 +120,22 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
 
     #[inline]
     pub fn new(
-        code: &'a [u8],
+        code: &'input [u8],
         entry: usize,
-        offset_table: &'a [u64],
-        static_table: &'a [Value],
-        type_table: &'a [u8]
-    ) -> VM<'a, MAX_STACK_SIZE> {
+        offset_table: &'input [u64],
+        static_table: &'input [Value],
+        gc: &'heap GC,
+    ) -> VM<'input, 'heap, MAX_STACK_SIZE> {
         Self {
-            a: Value::nil(),
-            b: Value::nil(),
-            r: Value::nil(),
+            a: 0u32.into(),
+            b: 0u32.into(),
+            r: 0u32.into(),
             code,
             next_byte: entry,
             offset_table,
             static_table,
             stack: Stack::new(),
-            allocated_objects: Default::default(),
-            type_table,
+            gc
         }
     }
 
@@ -214,13 +146,12 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
 
     #[inline]
     fn get_u8(&mut self) -> Result<u8, Error> {
-        if self.next_byte < self.code.len() {
-            let byte = unsafe { *self.code.get_unchecked(self.next_byte) };
-            self.next_byte += 1;
-            Ok(byte)
-        } else {
-            Err(Error::BufferOverrun)
-        }
+        self.code.get(self.next_byte)
+            .map(|x| {
+                self.next_byte += 1;
+                *x
+            })
+            .ok_or(Error::BufferOverrun)
     }
 
     #[inline]
@@ -237,12 +168,25 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
     }
 
     #[inline]
+    fn get_u32(&mut self) -> Result<u32, Error> {
+        if self.next_byte + 3 < self.code.len() {
+            let u32: u32 = unsafe {
+                (self.code.as_ptr().add(self.next_byte) as *const u32).read_unaligned()
+            };
+            self.next_byte += 4;
+            Ok(u32)
+        } else {
+            Err(Error::BufferOverrun)
+        }
+    }
+
+    #[inline]
     fn get_u64(&mut self) -> Result<u64, Error> {
         if self.next_byte + 7 < self.code.len() {
             let num: u64 = unsafe {
                 transmute(*(self.code.as_ptr().add(self.next_byte) as *const [u8; 8]))
             };
-            self.next_byte += 4;
+            self.next_byte += 8;
             Ok(num)
         } else {
             Err(Error::BufferOverrun)
@@ -260,30 +204,17 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
     }
 
     #[inline]
-    pub fn execute(&mut self) -> Result<u64, Error> {
+    pub fn execute(&mut self) -> Result<(), Error> {
         loop {
-            match self.execute_next_instruction()? {
-                None => {}
-                Some(exit_code) => return Ok(exit_code)
+            if self.execute_next_instruction()? {
+                break;
             }
         }
+
+        Ok(())
     }
 
-    /// Allocates an object with type `ty`.
-    /// 
-    /// # Safety
-    ///
-    /// The caller must ensure that `ty` is a valid pointer to an object type.
-    pub unsafe fn alloc(&mut self, ty: *const u8) -> Value {
-        // Allocate an object with *ty fields.
-        let ptr = NonNull::new(unsafe {
-            alloc(Object::layout(*ty as u64))
-        } as *mut Object).expect("Allocation has produces a null pointer (bad)");
-        
-        self.allocated_objects.insert(ptr);
-        Value(ty as usize as u64, unsafe { transmute(ptr) })
-    }
-
+    /*
     pub fn run_gc(&mut self) {
         macro_rules! mark {
             ($target:expr) => {
@@ -331,20 +262,25 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
                 true
             }
         });
-    }
+    }*/
 
-    pub fn execute_next_instruction(&mut self) -> Result<Option<u64>, Error> {
+    #[inline]
+    pub fn execute_next_instruction(&mut self) -> Result<bool, Error> {
         match self.get_next_instruction()? {
             Instruction::NoOperation => {}
 
+            Instruction::Return => return Ok(true),
+
             // A
-            Instruction::CastANumber => self.a = self.a.cast_number(),
-            Instruction::LoadANil0 => self.a = Value::nil(),
-            Instruction::LoadANil1 => self.a = Value::nil_value(1),
-            Instruction::LoadANumber0 => self.a = Value::number(0.0),
-            Instruction::LoadANumber1 => self.a = Value::number(1.0),
-            Instruction::LoadANilB1 => self.a = Value::nil_value(self.get_u8()? as u64),
-            Instruction::LoadANilB2 => self.a = Value::nil_value(self.get_u16()? as u64),
+            Instruction::LoadA0Int => self.a = 0_u8.into(),
+            Instruction::LoadA1Int => self.a = 1_u8.into(),
+            Instruction::LoadA0F32 => self.a = 0_f32.into(),
+
+            Instruction::LoadAImmediate1 => self.a = self.get_u8()?.into(),
+            Instruction::LoadAImmediate2 => self.a = self.get_u16()?.into(),
+            Instruction::LoadAImmediate4 => self.a = self.get_u32()?.into(),
+            Instruction::LoadAImmediate8 => self.a = self.get_u64()?.into(),
+
             Instruction::LoadAStatic => {
                 let index = self.get_u8()? as usize;
                 if index >= self.static_table.len() {
@@ -353,15 +289,13 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
                 self.a = self.static_table[index];
             }
 
-            // B
-            Instruction::LoadBNilB1 => self.b = Value::nil_value(self.get_u8()? as u64),
-            Instruction::LoadBNilB2 => self.b = Value::nil_value(self.get_u16()? as u64),
-            Instruction::LoadBStatic => self.b = self.static_table[self.get_u8()? as usize],
-
             // Swap
             Instruction::SwapAB => swap(&mut self.a, &mut self.b),
+            Instruction::SpreadAB => self.b = self.a,
             Instruction::SwapAR => swap(&mut self.a, &mut self.r),
+            Instruction::SpreadAR => self.r = self.a,
             Instruction::SwapBR => swap(&mut self.b, &mut self.r),
+            Instruction::SpreadBR => self.r = self.b,
 
             // Control flow
             Instruction::JumpU8 => self.next_byte = self.get_u8()? as usize,
@@ -443,7 +377,7 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
                 }
             }
             */
-            
+
             Instruction::PopIntoA => if let Some(value) = self.stack.pop_get() {
                 self.a = value;
             }
@@ -454,26 +388,22 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
                 self.r = value;
             }
             Instruction::Pop => self.stack.pop(),
-            
-            // Operations
-            /*
-            Instruction::AddU64Unchecked => {
-                self.r = Value::Nil(self.a.get_u64_unchecked() + self.b.get_u64_unchecked());
+
+            Instruction::AddU63 => {
+                if let Ok(a) = <Value as TryInto<u64>>::try_into(self.a)
+                    && let Ok(b) = <Value as TryInto<u64>>::try_into(self.b) {
+                    self.a = (a + b).into();
+                }
             }
-            Instruction::AddF64Unchecked => {
-                self.r = Value::Number(self.a.get_f64_unchecked() + self.b.get_f64_unchecked());
-            }
-             */
 
             // Objects
             
             Instruction::CreateObject => {
-                let ty = &self.type_table[self.get_u64()? as usize] as *const u8;
-                if (ty as usize as u64) < 2 {
-                    panic!("Hmmm");
-                }
-                self.a = unsafe { self.alloc(ty) };
+                let type_index = self.get_u32()?;
+                self.a = Value::from_strong(self.gc.allocate(type_index));
             }
+            
+            /*
             Instruction::CreateObjectOffset => {
                 let ty = &self.type_table[self.offset_table[self.get_u8()? as usize] as usize] as *const u8;
                 if (ty as usize as u64) < 2 {
@@ -481,13 +411,51 @@ impl<'a, const MAX_STACK_SIZE: usize> VM<'a, MAX_STACK_SIZE> {
                 }
                 self.a = unsafe { self.alloc(ty) };
             }
-            Instruction::ReadProperty0 => {
-                
-            }
+             */
             
+            Instruction::ReadProperty0 => {
+                if let Some(object_ref) = self.b.get_object() {
+                    unsafe {
+                        // SAFETY: object_refs have a non-zero size.
+                        self.a = *object_ref.lock().get_unchecked(0);
+                    }
+                } else {
+                    todo!("no object in b")
+                }
+            }
+            Instruction::WriteProperty0 => {
+                if let Some(object_ref) = self.b.get_object() {
+                    unsafe {
+                        // SAFETY: object_refs have a non-zero size.
+                        *object_ref.lock().get_unchecked_mut(0) = self.a;
+                    }
+                } else {
+                    todo!("no object in b")
+                }
+            }
+
+            // STDIO
+
+            Instruction::WriteStdoutLF => {
+                println!("{:?}", self.a.display(self.gc));
+            }
+            Instruction::DebugPrintAllocatedObjects => {
+                println!("# Objects allocated: {:?}", self.gc.count());
+            }
+            Instruction::DebugTriggerGC => {
+                self.gc.mark_and_sweep(
+                    self.stack.as_slice()
+                        .iter()
+                        .copied()
+                        .chain([self.a, self.b, self.r]
+                            .iter()
+                            .copied())
+                );
+            }
+
             i => todo!("Instruction {i:?} not implemented")
         }
-
-        Ok(None)
+        
+        Ok(false)
     }
 }

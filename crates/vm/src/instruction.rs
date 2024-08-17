@@ -33,127 +33,56 @@ pub enum Instruction {
     /// Replaces the nth value from the top of the stack with a [Value::ReturnIndex].
     InvokePopN,
 
-    /// Returns with the value in the return register.
+    /// Returns from the function, or the program if there is no outer function.
     Return,
-
-    /// Returns [Value::Nil].
-    ReturnNil,
 
     // --- Registers ---
     
     // A
     
-    /// Casts the value in A to a number corresponding to the following scheme:
-    /// 
-    /// - number -> do nothing
-    /// - 
-    CastANumber,
+    LoadA,
     
-    /// Loads 0 as u64 into A with type [Value::Nil].
-    LoadANil0,
+    /// Loads 0 (int) into A.
+    LoadA0Int,
 
-    /// Loads 1 as u64 into A with type [Value::Nil].
-    LoadANil1,
+    /// Loads 1 (int) into A.
+    LoadA1Int,
 
-    /// Loads the next byte into A with type [Value::Nil].
-    LoadANilB1,
+    /// Loads 0 (f32) into A.
+    LoadA0F32,
 
-    /// Loads the next two bytes into A with type [Value::Nil].
-    LoadANilB2,
+    /// Loads 0 (f32) into A.
+    LoadA1F32,
 
-    /// Loads the next four bytes into A with type [Value::Nil].
-    LoadANilB4,
+    /// Loads 0 (f64) into A.
+    LoadA0F64,
 
-    /// Loads the next eight bytes into A with type [Value::Nil].
-    LoadANilB8,
+    /// Loads 1 (f64) into A.
+    LoadA1F64,
 
-    /// Loads `0.0` into A.
-    LoadANumber0,
+    /// Loads the next byte into A, the rest is zeroed.
+    LoadAImmediate1,
 
-    /// Loads `1.0` into A.
-    LoadANumber1,
+    /// Loads the next two bytes into A, the rest is zeroed.
+    LoadAImmediate2,
 
-    /// Loads the next eight bytes as f64 into A with type [Value::Number].
-    LoadANumber,
+    /// Loads the next four bytes into A, the rest is zeroed.
+    LoadAImmediate4,
+
+    /// Loads the next eight bytes shr by one into A. The high bit is zero.
+    LoadAImmediate8,
 
     /// Loads the entry from the static table into A, with the next byte being the index.
     LoadAStatic,
-    
-    // Register B
-    
-    /// Loads 0 as u64 into B with type [Value::Nil].
-    LoadBNil0,
-
-    /// Loads 1 as u64 into B with type [Value::Nil].
-    LoadBNil1,
-
-    /// Loads the next byte into B with type [Value::Nil].
-    LoadBNilB1,
-
-    /// Loads the next two bytes into B with type [Value::Nil].
-    LoadBNilB2,
-
-    /// Loads the next four bytes into B with type [Value::Nil].
-    LoadBNilB4,
-
-    /// Loads the next eight bytes into B with type [Value::Nil].
-    LoadBNilB8,
-
-    /// Loads `0.0` into B.
-    LoadBNumber0,
-
-    /// Loads `1.0` into B.
-    LoadBNumber1,
-
-    /// Loads the next eight bytes as f64 into B with type [Value::Number].
-    LoadBNumber,
-
-    /// Loads the entry from the static table into B, with the next byte being the index.
-    LoadBStatic,
-
-    // Register R
-    
-    /// Loads 0 as u64 into R with type [Value::Nil].
-    LoadRNil0,
-    
-    /// Loads 1 as u64 into R with type [Value::Nil].
-    LoadRNil1,
-    
-    /// Loads the next byte into R with type [Value::Nil].
-    LoadRNilB1,
-    
-    /// Loads the next two bytes into R with type [Value::Nil].
-    LoadRNilB2,
-    
-    /// Loads the next four bytes into R with type [Value::Nil].
-    LoadRNilB4,
-    
-    /// Loads the next eight bytes into R with type [Value::Nil].
-    LoadRNilB8,
-
-    /// Loads `0.0` into R
-    LoadRNumber0,
-
-    /// Loads `1.0` into R.
-    LoadRNumber1,
-    
-    /// Loads the next eight bytes as f64 into R with type [Value::Number].
-    LoadRNumber,
-    
-    /// Loads the entry from the static table with the next byte being the index.
-    LoadRStatic,
 
     SwapAB,
+    SpreadAB,
     SwapAR,
+    SpreadAR,
     SwapBR,
+    SpreadBR,
 
     // Operations
-    
-    /// Assumes and adds integers in A and B. The type of R will be [Value::Nil].
-    AddU64Unchecked,
-    
-    /// Assumes and adds floats in A and B. The type of R will be [Value::Number].
-    AddF64Unchecked,
     
     // Stack
 
@@ -213,6 +142,11 @@ pub enum Instruction {
     ReadProperty2,
     ReadProperty3,
     ReadPropertyN,
+    WriteProperty0,
+    WriteProperty1,
+    WriteProperty2,
+    WriteProperty3,
+    WritePropertyN,
     Implements,
     
     /// Casts the object in A to a same-sized type.
@@ -278,9 +212,9 @@ pub enum Instruction {
     
     // --- Binary Operations ---
     
-    /// A = A + B, A and B must be of type int or float.
-    Add,
-
+    AddU63,
+    AddF63,
+    
     /// A = A - B
     Subtract,
 
@@ -320,6 +254,8 @@ pub enum Instruction {
     MarkFileOrDirectoryAsTemporary,
     MarkFileOrDirectoryAsPermanent,
     
+    DebugTriggerGC,
+    DebugPrintAllocatedObjects,
     LastInstruction
 }
 

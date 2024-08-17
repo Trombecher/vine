@@ -1,7 +1,18 @@
 [workspace]
 resolver = "2"
 
-members = [ "crates/asm", "crates/bytes", "crates/cli", "crates/error", "crates/js", "crates/lex", "crates/parse", "crates/queue", "crates/resolve", "crates/set", "crates/testing",
+members = [
+    "crates/asm",
+    "crates/bytes",
+    "crates/cli",
+    "crates/error",
+    "crates/js",
+    "crates/lex",
+    "crates/parse",
+    "crates/queue",
+    "crates/resolve",
+    "crates/set",
     "crates/vine",
-    "crates/vm"
-, "crates/warning"]
+    "crates/vm",
+    "crates/warning"
+]

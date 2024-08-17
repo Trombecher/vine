@@ -1,6 +1,3 @@
-let x = (
-    mut x: A = 10 * 540
-    mut y: B
-    z: C
-    w: A
-)
+fn main() {
+    let x = 2
+}
