@@ -4,9 +4,6 @@
 //!
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
-#![feature(ptr_sub_ptr)]
-#![feature(str_from_raw_parts)]
-
 use bytes::{Cursor, Index, Span};
 use core::str::from_raw_parts;
 use std::hint::unreachable_unchecked;

@@ -1,0 +1,6 @@
+struct<T> A(
+    value: T
+)
+
+let a = A<U8>
+a.value = 20

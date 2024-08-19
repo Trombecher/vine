@@ -3,11 +3,13 @@ use std::io::stdout;
 use std::mem::transmute;
 use std::ops::Range;
 use std::path::Path;
+use std::time::Instant;
 use crossterm::cursor::MoveTo;
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType};
 use notify::{recommended_watcher, Error, RecursiveMode, Watcher};
 use bytes::{get_lines_and_columns, Index};
+use frontend::bumpalo::Bump;
 use frontend::lex::Lexer;
 use frontend::parse::{Buffered, ParseContext};
 use frontend::parse::ast::ModuleContent;
@@ -17,10 +19,18 @@ fn main() -> Result<(), Error> {
         match res {
             Ok(_) => {
                 let content = fs::read("test.vn").unwrap();
+                let arena = Bump::new();
+                
+                // Clear screen
                 execute!(stdout(), Clear(ClearType::All), Clear(ClearType::Purge), MoveTo(0, 0)).unwrap();
-                match parse_that(&content) {
+                
+                let now = Instant::now();
+                let module_content = parse_that(&content, &arena);
+                let elapsed = now.elapsed();
+                
+                match module_content {
                     Ok(o) => {
-                        println!("{:#?}", o)
+                        println!("{:?}\n{:#?}", elapsed, o)
                     }
                     Err((err, range)) => unsafe {
                         let (line, col) = get_lines_and_columns(
@@ -41,9 +51,10 @@ fn main() -> Result<(), Error> {
     loop {}
 }
 
-fn parse_that(content: &[u8]) -> Result<ModuleContent, (frontend::parse::Error, Range<Index>)> {
+fn parse_that<'sf: 'arena, 'arena>(content: &'sf [u8], parse_arena: &'arena Bump) -> Result<ModuleContent<'sf, 'arena>, (frontend::parse::Error, Range<Index>)> {
     let lexer = Lexer::new(&content);
+    let buffered_iter = Buffered::new(lexer).map_err(|e| (frontend::parse::Error::from(e), 0..0))?;
+    let mut parser = ParseContext::new(buffered_iter, parse_arena);
     
-    let mut parser = ParseContext::new(Buffered::new(lexer).map_err(|e| (frontend::parse::Error::from(e), 0..0))?);
-    parser.parse_module_content().map_err(|e| (e, parser.iter.peek().source.clone()))
+    parser.parse_module_content().map_err(move |e| (e, parser.iter.peek().source.clone()))
 }

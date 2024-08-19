@@ -1,5 +1,6 @@
 use std::ops::Range;
 use bytes::{Index, Span};
+use crate::parse::{Box, Vec};
 
 /// A binary operation.
 #[derive(Debug, PartialEq, Clone)]
@@ -39,194 +40,194 @@ pub enum ComparativeOperation {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Expression<'a> {
+pub enum Expression<'sf, 'arena> {
     // Binary Expressions
     Operation {
-        left: Box<Span<Expression<'a>>>,
+        left: Box<'arena, Span<Expression<'sf, 'arena>>>,
         operation: Operation,
-        right: Box<Span<Expression<'a>>>,
+        right: Box<'arena, Span<Expression<'sf, 'arena>>>,
     },
     Assignment {
-        target: Box<Span<AssignmentTarget<'a>>>,
+        target: Box<'arena, Span<AssignmentTarget<'sf, 'arena>>>,
         operation: Option<PAOperation>,
-        value: Box<Span<Expression<'a>>>
+        value: Box<'arena, Span<Expression<'sf, 'arena>>>
     },
     
     // Unary Expressions
-    Not(Box<Span<Expression<'a>>>),
-    Return(Box<Span<Expression<'a>>>),
+    Not(Box<'arena, Span<Expression<'sf, 'arena>>>),
+    Return(Box<'arena, Span<Expression<'sf, 'arena>>>),
     
     // Control Flow
     Continue,
     Break,
     If {
-        base: If<'a>,
-        else_ifs: Vec<If<'a>>,
-        else_body: Option<Span<Vec<Span<StatementOrExpression<'a>>>>>,
+        base: If<'sf, 'arena>,
+        else_ifs: Vec<'arena, If<'sf, 'arena>>,
+        else_body: Option<Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>>,
     },
     While {
-        condition: Box<Span<Expression<'a>>>,
-        body: Span<Vec<Span<StatementOrExpression<'a>>>>
+        condition: Box<'arena, Span<Expression<'sf, 'arena>>>,
+        body: Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>
     },
     For {
         is_mutable: bool,
-        variable: &'a str,
-        iter: Box<Expression<'a>>,
+        variable: &'sf str,
+        iter: Box<'arena, Expression<'sf, 'arena>>,
     },
-    Block(Vec<Span<StatementOrExpression<'a>>>),
+    Block(Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>),
     
     // Objects And Paths
-    Instance(Vec<InstanceFieldInit<'a>>),
-    Access(Access<'a>),
-    OptionalAccess(Access<'a>),
-    Array(Vec<Expression<'a>>),
+    Instance(Vec<'arena, InstanceFieldInit<'sf, 'arena>>),
+    Access(Access<'sf, 'arena>),
+    OptionalAccess(Access<'sf, 'arena>),
+    Array(Vec<'arena, Expression<'sf, 'arena>>),
 
     // Primitives
     Number(f64),
     String(String),
-    Identifier(&'a str),
+    Identifier(&'sf str),
     False,
     True,
     This,
-    Markup(MarkupElement<'a>),
+    Markup(MarkupElement<'sf, 'arena>),
     
     // Functions
     Function {
-        signature: FunctionSignature<'a>,
-        body: Box<Span<Expression<'a>>>,
+        signature: FunctionSignature<'sf, 'arena>,
+        body: Box<'arena, Span<Expression<'sf, 'arena>>>,
     },
     Call {
-        target: Box<Span<Expression<'a>>>,
-        arguments: CallArguments<'a>
+        target: Box<'arena, Span<Expression<'sf, 'arena>>>,
+        arguments: CallArguments<'sf, 'arena>
     },
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct InstanceFieldInit<'a> {
+pub struct InstanceFieldInit<'sf, 'arena> {
     pub is_mutable: bool,
-    pub id: &'a str,
-    pub ty: Option<Span<Type<'a>>>,
-    pub init: Span<Expression<'a>>,
+    pub id: &'sf str,
+    pub ty: Option<Span<Type<'sf, 'arena>>>,
+    pub init: Span<Expression<'sf, 'arena>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum CallArguments<'a> {
-    Unnamed(Vec<Span<Expression<'a>>>),
-    Named(Vec<(Span<&'a str>, Span<Expression<'a>>)>),
+pub enum CallArguments<'sf, 'arena> {
+    Unnamed(Vec<'arena, Span<Expression<'sf, 'arena>>>),
+    Named(Vec<'arena, (Span<&'sf str>, Span<Expression<'sf, 'arena>>)>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct If<'a> {
-    pub condition: Box<Span<Expression<'a>>>,
-    pub body: Span<Vec<Span<StatementOrExpression<'a>>>>,
+pub struct If<'sf, 'arena> {
+    pub condition: Box<'arena, Span<Expression<'sf, 'arena>>>,
+    pub body: Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>,
 }
 
-pub type TypeParameters<'a> = Vec<Span<TypeParameter<'a>>>;
+pub type TypeParameters<'sf, 'arena> = Vec<'arena, Span<TypeParameter<'sf, 'arena>>>;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StatementKind<'a> {
+pub enum StatementKind<'sf, 'arena> {
     TypeParameterAlias {
-        tps: TypeParameters<'a>,
-        content: ModuleContent<'a>
+        tps: TypeParameters<'sf, 'arena>,
+        content: ModuleContent<'sf, 'arena>
     },
     Enum {
-        doc_comments: Vec<&'a str>,
-        id: &'a str,
-        tps: TypeParameters<'a>,
-        variants: Vec<(&'a str, Option<Span<Expression<'a>>>)>,
+        doc_comments: Vec<'arena, &'sf str>,
+        id: &'sf str,
+        tps: TypeParameters<'sf, 'arena>,
+        variants: Vec<'arena, (&'sf str, Option<Span<Expression<'sf, 'arena>>>)>,
     },
     Declaration {
-        doc_comments: Vec<&'a str>,
+        doc_comments: Vec<'arena, &'sf str>,
         is_mutable: bool,
-        ty: Option<Span<Type<'a>>>,
-        id: &'a str,
-        value: Option<Box<Span<Expression<'a>>>>,
+        ty: Option<Span<Type<'sf, 'arena>>>,
+        id: &'sf str,
+        value: Option<Box<'arena, Span<Expression<'sf, 'arena>>>>,
     },
     Struct {
-        doc_comments: Vec<&'a str>,
-        id: &'a str,
-        tps: TypeParameters<'a>,
-        fields: Vec<Span<StructField<'a>>>
+        doc_comments: Vec<'arena, &'sf str>,
+        id: &'sf str,
+        tps: TypeParameters<'sf, 'arena>,
+        fields: Vec<'arena, Span<StructField<'sf, 'arena>>>
     },
     TypeAlias {
-        doc_comments: Vec<&'a str>,
-        id: &'a str,
-        tps: TypeParameters<'a>,
-        ty: Type<'a>,
+        doc_comments: Vec<'arena, &'sf str>,
+        id: &'sf str,
+        tps: TypeParameters<'sf, 'arena>,
+        ty: Type<'sf, 'arena>,
     },
-    Use(Use<'a>),
-    RootUse(UseChild<'a>),
+    Use(Use<'sf, 'arena>),
+    RootUse(UseChild<'sf, 'arena>),
     Module {
-        doc_comments: Vec<&'a str>,
-        id: &'a str,
-        content: Option<ModuleContent<'a>>
+        doc_comments: Vec<'arena, &'sf str>,
+        id: &'sf str,
+        content: Option<ModuleContent<'sf, 'arena>>
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TypeParameter<'a> {
-    pub id: &'a str,
-    pub traits: Vec<ItemPath<'a>>
+pub struct TypeParameter<'sf, 'arena> {
+    pub id: &'sf str,
+    pub traits: Vec<'arena, ItemPath<'sf, 'arena>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StructField<'a> {
+pub struct StructField<'sf, 'arena> {
     pub is_public: bool,
     pub is_mutable: bool,
-    pub id: &'a str,
-    pub ty: Span<Type<'a>>,
+    pub id: &'sf str,
+    pub ty: Span<Type<'sf, 'arena>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Annotation<'a> {
-    pub path: Span<ItemPath<'a>>,
-    pub arguments: Vec<Span<Expression<'a>>>
+pub struct Annotation<'sf, 'arena> {
+    pub path: Span<ItemPath<'sf, 'arena>>,
+    pub arguments: Vec<'arena, Span<Expression<'sf, 'arena>>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Statement<'a> {
-    pub annotations: Vec<Annotation<'a>>,
-    pub statement_kind: StatementKind<'a>
+pub struct Statement<'sf, 'arena> {
+    pub annotations: Vec<'arena, Annotation<'sf, 'arena>>,
+    pub statement_kind: StatementKind<'sf, 'arena>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StatementOrExpression<'a> {
-    Statement(Statement<'a>),
-    Expression(Expression<'a>)
+pub enum StatementOrExpression<'sf, 'arena> {
+    Statement(Statement<'sf, 'arena>),
+    Expression(Expression<'sf, 'arena>)
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ModuleContent<'a>(pub Vec<TopLevelItem<'a>>);
+pub struct ModuleContent<'sf, 'arena>(pub Vec<'arena, TopLevelItem<'sf, 'arena>>);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TopLevelItem<'a> {
+pub struct TopLevelItem<'sf, 'arena> {
     pub is_public: bool,
-    pub statement: Span<Statement<'a>>
+    pub statement: Span<Statement<'sf, 'arena>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Use<'a> {
-    pub id: &'a str,
-    pub child: Option<Span<UseChild<'a>>>
+pub struct Use<'sf, 'arena> {
+    pub id: &'sf str,
+    pub child: Option<Span<UseChild<'sf, 'arena>>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum UseChild<'a> {
-    Single(Box<Use<'a>>),
-    Multiple(Vec<Span<Use<'a>>>),
+pub enum UseChild<'sf, 'arena> {
+    Single(Box<'arena, Use<'sf, 'arena>>),
+    Multiple(Vec<'arena, Span<Use<'sf, 'arena>>>),
     All,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum AssignmentTarget<'a> {
-    Identifier(&'a str),
-    Access(Access<'a>)
+pub enum AssignmentTarget<'sf, 'arena> {
+    Identifier(&'sf str),
+    Access(Access<'sf, 'arena>)
 }
 
-impl<'a> TryFrom<Expression<'a>> for AssignmentTarget<'a> {
+impl<'sf, 'arena> TryFrom<Expression<'sf, 'arena>> for AssignmentTarget<'sf, 'arena> {
     type Error = ();
 
-    fn try_from(value: Expression<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: Expression<'sf, 'arena>) -> Result<Self, Self::Error> {
         match value {
             Expression::Access(access) => Ok(Self::Access(access)),
             Expression::Identifier(identifier) => Ok(Self::Identifier(identifier)),
@@ -236,48 +237,48 @@ impl<'a> TryFrom<Expression<'a>> for AssignmentTarget<'a> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Access<'a> {
-    pub target: Box<Span<Expression<'a>>>,
-    pub property: &'a str,
+pub struct Access<'sf, 'arena> {
+    pub target: Box<'arena, Span<Expression<'sf, 'arena>>>,
+    pub property: &'sf str,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct MarkupElement<'a> {
-    pub identifier: &'a str,
-    pub attributes: Vec<(&'a str, Expression<'a>)>,
-    pub children: Vec<MarkupChild<'a>>,
+pub struct MarkupElement<'sf, 'arena> {
+    pub identifier: &'sf str,
+    pub attributes: Vec<'arena, (&'sf str, Expression<'sf, 'arena>)>,
+    pub children: Vec<'arena, MarkupChild<'sf, 'arena>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum MarkupChild<'a> {
-    Element(MarkupElement<'a>),
-    Text(&'a str),
-    Insert(Expression<'a>),
+pub enum MarkupChild<'sf, 'arena> {
+    Element(MarkupElement<'sf, 'arena>),
+    Text(&'sf str),
+    Insert(Expression<'sf, 'arena>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Parameter<'a> {
-    pub id: &'a str,
+pub struct Parameter<'sf, 'arena> {
+    pub id: &'sf str,
     pub is_mutable: bool,
-    pub ty: Span<Type<'a>>,
+    pub ty: Span<Type<'sf, 'arena>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Type<'a> {
+pub enum Type<'sf, 'arena> {
     Never,
     Union {
-        first: RawType<'a>, // Ensures the union has at least one RawType
-        remaining: Vec<RawType<'a>>
+        first: RawType<'sf, 'arena>, // Ensures the union has at least one RawType
+        remaining: Vec<'arena, RawType<'sf, 'arena>>
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum RawType<'a> {
-    Function(Span<Box<FunctionSignature<'a>>>),
-    Item(ItemRef<'a>)
+pub enum RawType<'sf, 'arena> {
+    Function(Span<Box<'arena, FunctionSignature<'sf, 'arena>>>),
+    Item(ItemRef<'sf, 'arena>)
 }
 
-impl<'a> RawType<'a> {
+impl<'sf, 'arena> RawType<'sf, 'arena> {
     #[inline]
     pub fn source_span(&self) -> Range<Index> {
         match self {
@@ -288,12 +289,12 @@ impl<'a> RawType<'a> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ItemRef<'a> {
-    pub path: Span<ItemPath<'a>>,
-    pub tps: Span<Vec<Span<Type<'a>>>>,
+pub struct ItemRef<'sf, 'arena> {
+    pub path: Span<ItemPath<'sf, 'arena>>,
+    pub tps: Span<Vec<'arena, Span<Type<'sf, 'arena>>>>,
 }
 
-impl<'a> ItemRef<'a> {
+impl<'sf, 'arena> ItemRef<'sf, 'arena> {
     #[inline]
     pub const fn source_span(&self) -> Range<Index> {
         self.path.source.start..self.tps.source.end
@@ -301,15 +302,15 @@ impl<'a> ItemRef<'a> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FunctionSignature<'a> {
-    pub return_type: Option<Span<Type<'a>>>,
-    pub parameters: Vec<Parameter<'a>>,
+pub struct FunctionSignature<'sf, 'arena> {
+    pub return_type: Option<Span<Type<'sf, 'arena>>>,
+    pub parameters: Vec<'arena, Parameter<'sf, 'arena>>,
     pub has_this_parameter: bool,
-    pub tps: TypeParameters<'a>,
+    pub tps: TypeParameters<'sf, 'arena>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ItemPath<'a> {
-    pub parents: Vec<&'a str>,
-    pub id: &'a str
+pub struct ItemPath<'sf, 'arena> {
+    pub parents: Vec<'arena, &'sf str>,
+    pub id: &'sf str
 }
