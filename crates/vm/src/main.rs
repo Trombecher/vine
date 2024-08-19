@@ -6,11 +6,11 @@ fn old_main() {
 
     let mut vm = VM::<1024>::new(
         &[
-            Instruction::CreateObject as u8,
-            0, 0, 0, 0,
+            Instruction::CreateObject1 as u8,
+            0,
             Instruction::SwapAR as u8,
-            Instruction::CreateObject as u8,
-            1, 0, 0, 0,
+            Instruction::CreateObject1 as u8,
+            1,
             Instruction::SwapAB as u8,
             Instruction::LoadA1Int as u8,
             Instruction::WriteProperty0 as u8,

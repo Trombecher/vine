@@ -25,8 +25,14 @@ pub enum PointerOrRaw<'heap> {
 ///   - else the value is a non-zero-sized object (allocated) and `value << 1`
 ///     is a pointer to a `u8` (type pointer), indicating the type's length (value's field count).
 /// - else the remaining bits contain arbitrary data, commonly `u63`s, `f32`s or `f64`s
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Value<'heap>(u64, PhantomData<&'heap Object>);
+
+impl<'heap> Debug for Value<'heap> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Value<{:b}>", self.0)
+    }
+}
 
 pub struct ValueDisplay<'input: 'heap, 'heap> {
     value: Value<'heap>,

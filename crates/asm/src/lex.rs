@@ -30,6 +30,9 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
         
         let token = match self.cursor.peek() {
             Some(b'$') => todo!("id not impl"),
+            Some(b'0'..=b'9') => {
+                todo!()
+            }
             Some(_) => {
                 let start = self.cursor.cursor();
                 

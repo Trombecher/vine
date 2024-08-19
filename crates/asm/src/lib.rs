@@ -12,12 +12,6 @@ pub mod token;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Error {
-
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum SumError {
     Bytes(bytes::Error),
     VM(vm::Error),
-    Crate(Error)
 }

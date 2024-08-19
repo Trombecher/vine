@@ -1,7 +1,6 @@
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::intrinsics::transmute;
-use std::marker::PhantomData;
 use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
 use std::slice::from_raw_parts;
@@ -9,13 +8,26 @@ use crate::{Value, GC};
 
 #[repr(align(8), C)]
 pub struct Object {
+    /// Indicates if `data` is currently mutably borrowed.
     pub(crate) is_locked: Cell<bool>,
+    
+    /// Indicates if there are strong references
+    /// that keep this object from being garbage collected.
     pub has_strong_refs: Cell<bool>,
+    
+    /// The size of the type and therefore the object.
+    /// 
+    /// This field exists because the space was free,
+    /// and a pointer dereference of `ty` to get the size is prevented.
     pub cached_size: Cell<NonZeroU8>,
+    
+    /// The type of the object. This is an index into type table;
+    /// at that location is the size of the type located.
     pub ty: Cell<u32>,
     
-    /// The start of the data which is `[Value<'?>]` (length [Object::size]);
-    pub(crate) data: UnsafeCell<PhantomData<()>>,
+    /// The start of the data which is `[Value<'?>]` (length [Object::size]).
+    /// This field may be useless.
+    pub(crate) data: UnsafeCell<()>,
 }
 
 impl Object {

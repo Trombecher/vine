@@ -1,7 +1,6 @@
 use std::cell::{Cell, UnsafeCell};
 use std::collections::HashSet;
 use std::intrinsics::transmute;
-use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::num::NonZeroU8;
 use std::ops::{Deref};
@@ -87,7 +86,7 @@ impl<'types> GC<'types> {
                 has_strong_refs: Cell::new(false),
                 cached_size: Cell::new(size),
                 ty: Cell::new(0),
-                data: UnsafeCell::new(PhantomData),
+                data: UnsafeCell::new(()),
             });
         }
 
