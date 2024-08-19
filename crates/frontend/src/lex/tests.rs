@@ -1,8 +1,7 @@
 #![cfg(test)]
 
-use error::Error;
-use crate::{Lexer, Span, Index};
-use crate::token::{Keyword, Symbol, Token, TokenIterator, UnprocessedString};
+use crate::lex::{Keyword, Lexer, Symbol, Token, TokenIterator, UnprocessedString};
+use bytes::{Span, Index};
 
 macro_rules! match_tokens {
     ($source:literal, $tokens:expr) => {
@@ -22,6 +21,55 @@ macro_rules! match_tokens {
             source: $source.len() as Index..$source.len() as Index
         }));
     };
+}
+
+#[test]
+fn lex_keywords() {
+    let input = b"as break continue else enum extern false fn for if in let mod mut match pub return struct this trait true type while _ use";
+
+    let mut lexer = Lexer::new(input);
+    let keywords = [
+        Keyword::As,
+        Keyword::Break,
+        Keyword::Continue,
+        Keyword::Else,
+        Keyword::Enum,
+        Keyword::Extern,
+        Keyword::False,
+        Keyword::Fn,
+        Keyword::For,
+        Keyword::If,
+        Keyword::In,
+        Keyword::Let,
+        Keyword::Mod,
+        Keyword::Mut,
+        Keyword::Match,
+        Keyword::Pub,
+        Keyword::Return,
+        Keyword::Struct,
+        Keyword::This,
+        Keyword::Trait,
+        Keyword::True,
+        Keyword::Type,
+        Keyword::While,
+        Keyword::Underscore,
+        Keyword::Use,
+    ];
+
+    for kw in keywords {
+        assert_eq!(
+            lexer.next_token().map(|token| token.value),
+            Ok(Token::Keyword(kw))
+        )
+    }
+
+    assert_eq!(
+        lexer.next_token(),
+        Ok(Span {
+            value: Token::EndOfInput,
+            source: input.len() as Index..input.len() as Index
+        })
+    )
 }
 
 #[test]
@@ -86,24 +134,5 @@ fn lex() {
                 source: 38..39
             },
         ]
-    );
-}
-
-#[test]
-fn parse_start_tag() {
-    assert_eq!(
-        Ok(Span {
-            value: Token::MarkupStartTag("tag_name"),
-            source: 0..8,
-        }),
-        Lexer::new(b"tag_name ").parse_start_tag(),
-    );
-}
-
-#[test]
-fn parse_start_tag_e0015() {
-    assert_eq!(
-        Err(Error::E0015),
-        Lexer::new(b"fn ").parse_start_tag(),
     );
 }

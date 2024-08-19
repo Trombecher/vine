@@ -1,5 +1,5 @@
 use std::ops::Range;
-use lex::{Index, Span};
+use bytes::{Index, Span};
 
 /// A binary operation.
 #[derive(Debug, PartialEq, Clone)]

@@ -5,14 +5,11 @@ members = [
     "crates/asm",
     "crates/bytes",
     "crates/cli",
-    "crates/error",
+    "crates/frontend",
     "crates/js",
-    "crates/lex",
-    "crates/parse",
     "crates/queue",
     "crates/resolve",
-    "crates/set",
+    "crates/set", "crates/test-file-watch",
     "crates/vine",
     "crates/vm",
-    "crates/warning"
 ]

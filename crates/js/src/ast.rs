@@ -16,7 +16,7 @@ pub enum Statement {
     TryCatch {
         try_block: Vec<()>,
         catch: String,
-
+        catch_block: Vec<()>
     }
 }
 

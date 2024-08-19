@@ -1,5 +1,1 @@
-let print_title = _ => {
-    console.log(document.title)
-}
-
-print_title()
+let a, b, c

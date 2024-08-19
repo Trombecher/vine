@@ -1,27 +1,28 @@
-#![feature(str_from_raw_parts)]
-#![feature(ptr_sub_ptr)]
-#![feature(if_let_guard)]
-#![feature(let_chains)]
-
-use crate::ast::*;
-pub use buffered::*;
-use error::Error;
-use lex::token::{Keyword, Symbol, Token, TokenIterator};
-use lex::Span;
-use warning::Warning;
-
 mod buffered;
-pub mod ast;
+mod errors;
+mod warnings;
 pub mod bp;
+pub mod ast;
+
+use bytes::Span;
+use ast::*;
+use crate::lex::{Keyword, Symbol, Token, TokenIterator};
+pub use buffered::*;
+pub use errors::*;
+pub use warnings::*;
 
 pub struct ParseContext<'a, T: TokenIterator<'a>> {
     pub iter: Buffered<'a, T>,
+    pub warnings: Vec<Span<Warning>>
 }
 
 impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     #[inline]
     pub const fn new(iter: Buffered<'a, T>) -> ParseContext<'a, T> {
-        Self { iter }
+        Self {
+            iter,
+            warnings: Vec::new()
+        }
     }
 
     /// Adds a warning with the span of the token returned by [Buffered::peek].
@@ -30,12 +31,12 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         let new_source = self.iter.peek().source.clone();
 
         // If there is a last added warning that is equal to the new warning and has is extendable, extend it!
-        if warning.is_extendable() && let Some(Span { value, source }) = self.iter.warnings_mut().last_mut() && *value == warning {
+        if warning.is_extendable() && let Some(Span { value, source }) = self.warnings.last_mut() && *value == warning {
             source.end = new_source.end;
             return;
         }
 
-        self.iter.warnings_mut().push(Span {
+        self.warnings.push(Span {
             value: warning,
             source: new_source,
         })
@@ -52,10 +53,8 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         // or else the borrow checker will get mad.
         let source = self.iter.peek().source.clone();
 
-        // TODO: maybe add warning extensions
-
         if self.iter.advance_skip_lb()? {
-            self.iter.warnings_mut().push(Span {
+            self.warnings.push(Span {
                 value: warning,
                 source,
             })
@@ -98,7 +97,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     }); // TODO: Add traits
                 }
                 Token::Symbol(Symbol::RightAngle) => break,
-                _ => todo!()
+                _ => return Err(Error::ExpectedTypeParameter)
             }
 
             self.iter.advance_skip_lb()?;
@@ -109,7 +108,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 Token::Symbol(Symbol::Comma) => {
                     self.iter.advance_skip_lb()?;
                 }
-                _ => todo!()
+                _ => return Err(Error::ExpectedTypeParameterDelimiter)
             }
         }
 
@@ -150,7 +149,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 }
                 Token::LineBreak => self.iter.advance()?,
                 Token::Symbol(Symbol::RightBrace) => break,
-                _ => todo!()
+                _ => return Err(Error::UnimplementedError)
             }
         }
 
@@ -164,7 +163,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
     pub(crate) fn parse_type(&mut self) -> Result<Span<Type<'a>>, Error> {
         let source = self.iter.peek().source.clone();
 
-        Ok(match &self.iter.peek().value {
+        Ok(match self.iter.peek().value {
             Token::Symbol(Symbol::ExclamationMark) => {
                 self.iter.advance()?;
 
@@ -174,7 +173,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 }
             }
             Token::Identifier(id) => {
-                let first = self.parse_item_path(*id)?;
+                let first = self.parse_item_path(id)?;
 
                 let tps = if let Token::Symbol(Symbol::LeftAngle) = self.iter.peek_non_lb()?.0.value {
                     self.iter.skip_lb()?;
@@ -203,7 +202,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                             }
                             Token::LineBreak => self.iter.advance()?,
-                            _ => todo!(),
+                            _ => return Err(Error::UnimplementedError),
                         }
                     }
 
@@ -223,7 +222,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 });
 
                 let remaining: Vec<RawType<'a>> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
-                    todo!("union types")
+                    return Err(Error::Unimplemented)
 
                     // self.iter.advance()?;
                     // self.iter.advance_skip_lb()?;
@@ -239,7 +238,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     },
                 }
             }
-            token => todo!("{:?}", token)
+            _ => return Err(Error::UnimplementedError)
         })
     }
 
@@ -276,7 +275,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             self.iter.advance()?;
                             break;
                         }
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     };
 
                     vec.push(value);
@@ -293,7 +292,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             break;
                         }
                         (_, true) => self.iter.advance()?,
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     }
                 }
 
@@ -304,7 +303,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             }
             Token::Identifier(id) => self.parse_use(id)?
                 .map(|u| UseChild::Single(Box::new(u))),
-            _ => todo!()
+            _ => return Err(Error::UnimplementedError)
         })
     }
 
@@ -353,7 +352,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 first_id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => todo!()
+                    _ => return Err(Error::UnimplementedError)
                 };
 
                 source.end = self.iter.peek().source.end;
@@ -396,14 +395,14 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
             let id = match self.iter.peek().value {
                 Token::Identifier(id) => id,
-                _ => todo!()
+                _ => return Err(Error::UnimplementedError)
             };
 
             self.iter.advance_skip_lb()?;
 
             match self.iter.peek().value {
                 Token::Symbol(Symbol::Colon) => {}
-                _ => todo!()
+                _ => return Err(Error::UnimplementedError)
             }
 
             self.iter.advance_skip_lb()?;
@@ -414,11 +413,11 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
             let lb = self.iter.skip_lb()?;
 
-            match &self.iter.peek().value {
+            match self.iter.peek().value {
                 Token::Symbol(Symbol::RightParenthesis) => break,
                 Token::Symbol(Symbol::Comma) => self.iter.advance()?,
                 _ if lb => {}
-                token => todo!("{:?}", token)
+                _ => return Err(Error::UnimplementedError)
             }
         }
 
@@ -441,7 +440,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         macro_rules! error_doc_comments {
             () => {{
                 if doc_comments.len() > 0 {
-                    todo!("Error: you can only add doc comments to items; last token: {:?}", self.iter.peek())
+                    return Err(Error::UnboundDocComment)
                 }
             }};
         }
@@ -461,14 +460,17 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         loop {
             match self.iter.peek().value {
                 Token::Symbol(Symbol::At) => {}
-                _ => break
+                _ => {
+                    self.iter.skip_lb()?;
+                    break
+                }
             }
 
             self.iter.advance_skip_lb()?;
 
             let id = match self.iter.peek().value {
                 Token::Identifier(id) => id,
-                _ => todo!()
+                _ => return Err(Error::UnimplementedError)
             };
 
             let path = self.parse_item_path(id)?;
@@ -487,7 +489,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 let mut id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => todo!()
+                    _ => return Err(Error::UnimplementedError)
                 };
 
                 let mut fn_target = None;
@@ -499,18 +501,18 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                     id = match self.iter.peek().value {
                         Token::Identifier(id) => id,
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     };
                 }
 
                 self.iter.advance_skip_lb()?;
 
-                match &self.iter.peek().value {
+                match self.iter.peek().value {
                     Token::Symbol(Symbol::LeftParenthesis) => {}
                     Token::Symbol(Symbol::Dot) => {
-                        todo!("On struct function decl")
+                        return Err(Error::Unimplemented)
                     }
-                    token => todo!("invalid token: {:?}", token)
+                    _ => return Err(Error::UnimplementedError)
                 }
 
                 self.iter.advance_skip_lb()?;
@@ -534,7 +536,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 // Validate that the block starts with `{`
                 match self.iter.peek().value {
                     Token::Symbol(Symbol::LeftBrace) => {}
-                    _ => todo!(),
+                    _ => return Err(Error::UnimplementedError),
                 }
 
                 let body = self.parse_block()?;
@@ -566,7 +568,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::E0071)
+                    _ => return Err(Error::ExpectedIdentifierOfModule)
                 };
 
                 self.iter.advance()?;
@@ -582,7 +584,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         // Validate that the module has ended on `}`:
                         match self.iter.peek().value {
                             Token::Symbol(Symbol::RightBrace) => {}
-                            _ => todo!()
+                            _ => return Err(Error::UnimplementedError)
                         }
 
                         source.end = self.iter.peek().source.end;
@@ -597,7 +599,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     }
                     (Span { value: Token::Symbol(Symbol::Semicolon), .. }, _) => None, // The caller handles this
                     (_, true) => None,
-                    token => todo!("{:?}", token)
+                    _ => return Err(Error::UnimplementedError)
                 };
 
                 Some(StatementKind::Module {
@@ -613,7 +615,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => todo!()
+                    _ => return Err(Error::UnimplementedError)
                 };
 
                 let mut fields = Vec::new();
@@ -645,9 +647,9 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 _ => false
                             };
 
-                            let id = match &self.iter.peek().value {
-                                Token::Identifier(id) => *id,
-                                token => todo!("{:?}", token)
+                            let id = match self.iter.peek().value {
+                                Token::Identifier(id) => id,
+                                _ => return Err(Error::UnimplementedError)
                             };
 
                             self.iter.advance_skip_lb()?;
@@ -657,7 +659,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                     self.iter.advance_skip_lb()?;
                                     self.parse_type()?
                                 }
-                                _ => todo!()
+                                _ => return Err(Error::UnimplementedError)
                             };
 
                             fields.push(Span {
@@ -672,13 +674,13 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                             let lb = self.iter.skip_lb()?;
 
-                            match &self.iter.peek().value {
+                            match self.iter.peek().value {
                                 Token::Symbol(Symbol::Comma) => {
                                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                 }
                                 Token::Symbol(Symbol::RightParenthesis) => break,
                                 _ if lb => {}
-                                token => todo!("{:?}", token)
+                                _ => return Err(Error::UnimplementedError)
                             }
                         }
 
@@ -687,7 +689,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         self.iter.advance()?;
                     }
                     (_, true) => {}
-                    _ => todo!()
+                    _ => return Err(Error::UnimplementedError)
                 }
 
                 Some(StatementKind::Struct {
@@ -714,7 +716,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => todo!(),
+                    _ => return Err(Error::UnimplementedError),
                 };
 
                 // Source end is at least the integer end
@@ -750,7 +752,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     (_, true) => None,
 
                     // Else (there is a token which is not separated by a line break), short-circuit.
-                    _ => todo!()
+                    _ => return Err(Error::UnimplementedError)
                 };
 
                 Some(StatementKind::Declaration {
@@ -768,14 +770,14 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             // use d.(x, y, z.*)
             Token::Keyword(Keyword::Use) => {
                 if doc_comments.len() > 0 {
-                    todo!("Error: cannot add a doc comment to a use-statement")
+                    return Err(Error::DocCommentOnUse)
                 }
 
                 self.iter.advance_skip_lb()?;
 
                 let root_id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => todo!(),
+                    _ => return Err(Error::UnimplementedError),
                 };
 
                 let Span { source: src, value } = self.parse_use(root_id)?;
@@ -799,7 +801,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                     match self.iter.peek().value {
                         Token::Symbol(Symbol::RightBrace) => {}
-                        _ => todo!(),
+                        _ => return Err(Error::UnimplementedError),
                     }
 
                     self.iter.advance()?;
@@ -812,7 +814,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     error_doc_comments!();
 
                     if annotations.len() > 0 {
-                        return Err(Error::E0041);
+                        return Err(Error::UnboundAnnotations);
                     }
 
                     None
@@ -822,7 +824,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 error_doc_comments!();
 
                 if annotations.len() > 0 {
-                    return Err(Error::E0041);
+                    return Err(Error::UnboundAnnotations);
                 }
 
                 None
@@ -857,19 +859,17 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
         let mut first_source = self.iter.peek().source.clone();
 
         Ok(Span {
-            value: match &self.iter.peek().value {
+            value: match self.iter.peek().value {
                 Token::String(s) => {
                     let s = s.process()?;
                     self.iter.advance()?;
                     Expression::String(s)
                 }
                 Token::Number(n) => {
-                    let n = *n;
                     self.iter.advance()?;
                     Expression::Number(n)
                 }
                 Token::Identifier(id) => {
-                    let id = *id;
                     self.iter.advance()?;
                     Expression::Identifier(id)
                 }
@@ -895,7 +895,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                         let id = match self.iter.peek().value {
                             Token::Identifier(id) => id,
-                            _ => todo!("expected id or mut")
+                            _ => return Err(Error::UnimplementedError)
                         };
 
                         let id_source = self.iter.peek().source.clone();
@@ -922,7 +922,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 value: Expression::Identifier(id),
                                 source: id_source,
                             },
-                            _ => todo!("Error")
+                            _ => return Err(Error::UnimplementedError)
                         };
 
                         fields.push(InstanceFieldInit {
@@ -941,7 +941,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                     Token::Symbol(Symbol::RightParenthesis) => true,
                                     _ => false
                                 } {
-                                    self.iter.warnings_mut().push(Span {
+                                    self.warnings.push(Span {
                                         value: Warning::UnnecessaryComma,
                                         source,
                                     })
@@ -975,13 +975,13 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                             self.iter.advance_skip_lb()?;
                             self.parse_fn_parameters()?
                         }
-                        _ => todo!("Expected `(`")
+                        _ => return Err(Error::UnimplementedError)
                     };
 
                     self.iter.advance_skip_lb()?;
 
                     let (return_type, body) = match self.iter.peek().value {
-                        Token::Symbol(Symbol::MinusRightAngle) => todo!("Return type of function expression"),
+                        Token::Symbol(Symbol::MinusRightAngle) => return Err(Error::Unimplemented),
                         _ => (None, self.parse_expression(0)?),
                     };
 
@@ -1003,7 +1003,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                     match self.iter.peek().value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     }
 
                     let body = self.parse_block()?;
@@ -1027,7 +1027,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                                 self.iter.advance()?;
                                 break Some(block);
                             }
-                            _ => todo!()
+                            _ => return Err(Error::UnimplementedError)
                         }
 
                         // else-if-branch
@@ -1039,7 +1039,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                         match self.iter.peek().value {
                             Token::Symbol(Symbol::LeftBrace) => {}
-                            _ => todo!()
+                            _ => return Err(Error::UnimplementedError)
                         }
 
                         let body = self.parse_block()?;
@@ -1075,7 +1075,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                     match self.iter.peek().value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     }
 
                     let body = self.parse_block()?;
@@ -1087,7 +1087,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                         body,
                     }
                 }
-                token => todo!("Unexpected token: {:?}", token)
+                _ => return Err(Error::UnimplementedError)
             },
             source: first_source,
         })
@@ -1126,7 +1126,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
             // At this point, a line break must not have been skipped.
             let (token, line_break) = self.iter.peek_non_lb()?;
 
-            let (end, value) = match &token.value {
+            let (end, value) = match token.value {
                 // Potential assignment operations
                 Token::Symbol(Symbol::Plus) => op!(Operation::PA(PAOperation::Addition), bp::ADDITIVE),
                 Token::Symbol(Symbol::Minus) => op!(Operation::PA(PAOperation::Subtraction), bp::ADDITIVE),
@@ -1227,12 +1227,12 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                                         match self.iter.peek().value {
                                             Token::Symbol(Symbol::Equals) => {}
-                                            _ => todo!("error")
+                                            _ => return Err(Error::UnimplementedError)
                                         }
 
                                         id
                                     }
-                                    _ => todo!("error")
+                                    _ => return Err(Error::UnimplementedError)
                                 };
 
                                 parse_that!();
@@ -1307,7 +1307,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                     let property = match self.iter.peek().value {
                         Token::Identifier(id) => id,
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     };
 
                     let end = self.iter.peek().source.end;
@@ -1332,7 +1332,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
                     let property = match self.iter.peek().value {
                         Token::Identifier(id) => id,
-                        _ => todo!()
+                        _ => return Err(Error::UnimplementedError)
                     };
 
                     let end = self.iter.peek().source.end;
@@ -1359,7 +1359,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                     break;
                 }
                 _ if line_break => break,
-                token => todo!("{:?}", token)
+                _ => return Err(Error::UnimplementedError)
             };
 
             first_term = Span {
@@ -1395,8 +1395,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
 
             items.push(TopLevelItem {
                 is_public,
-                statement: self.try_parse_statement()?
-                    .expect("This has to be a statement"), // TODO: turn this into an error
+                statement: self.try_parse_statement()?.ok_or(Error::UnimplementedError)?
             });
 
             match self.iter.peek().value {
@@ -1405,7 +1404,7 @@ impl<'a, T: TokenIterator<'a>> ParseContext<'a, T> {
                 }
                 Token::LineBreak => self.iter.advance()?,
                 Token::Symbol(Symbol::RightBrace) | Token::EndOfInput => break,
-                _ => todo!()
+                _ => return Err(Error::UnimplementedError)
             }
         }
 

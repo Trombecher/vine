@@ -1,58 +1,9 @@
 use std::fmt::Debug;
 
-use bytes::Cursor;
+use bytes::{Cursor, Span};
 use phf::phf_map;
 
-use error::Error;
-use warning::Warning;
-use crate::{Span, try_to_hex};
-
-#[inline]
-pub(crate) fn unescape_char(cursor: &mut Cursor) -> Result<char, Error> {
-    match cursor.next_lfn() {
-        None => Err(Error::E0013),
-        Some(b'0') => Ok('\0'),     // Null character
-        Some(b'\\') => Ok('\\'),    // Backslash
-        Some(b'f') => Ok('\u{0c}'), // Form feed
-        Some(b't') => Ok('\t'),     // Horizontal tab
-        Some(b'r') => Ok('\r'),     // Carriage return
-        Some(b'n') => Ok('\n'),     // Line feed / new line
-        Some(b'b') => Ok('\u{07}'), // Bell
-        Some(b'v') => Ok('\u{0b}'), // Vertical tab
-        Some(b'"') => Ok('"'),      // Double quote
-        Some(b'\'') => Ok('\''),    // Single quote
-        Some(b'[') => Ok('\u{1B}'), // Escape
-        Some(b'x') => {
-            // Hexadecimal code
-            match cursor.next_lfn() {
-                None => Err(Error::E0021),
-                Some(x) => match try_to_hex(x) {
-                    None => Err(Error::E0022),
-                    Some(8..) => Err(Error::E0023),
-                    Some(x) => match cursor.next_lfn() {
-                        None => Err(Error::E0024),
-                        Some(y) => match try_to_hex(y) {
-                            None => Err(Error::E0025),
-                            Some(y) => Ok(((x << 4) + y) as char),
-                        },
-                    },
-                },
-            }
-        }
-        Some(b'u') => {
-            // Unicode code point
-            match cursor.next_lfn() {
-                Some(b'{') => {}
-                _ => todo!(),
-            }
-
-            let code_point = 0_u32;
-
-            Ok(char::try_from(code_point).map_err(|_| todo!())?)
-        }
-        _ => Err(Error::E0014),
-    }
-}
+use crate::lex::{unescape_char, Error};
 
 /// Boxes an `&str` which has some characteristics it must obey.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -242,12 +193,12 @@ pub enum Symbol {
 pub trait TokenIterator<'a> {
     fn next_token(&mut self) -> Result<Span<Token<'a>>, Error>;
     
-    /// Returns a view of all warnings gathered so far.
-    fn warnings(&self) -> &[Span<Warning>];
+    // /// Returns a view of all warnings gathered so far.
+    // fn warnings(&self) -> &[Span<Warning>];
     
-    /// Returns a mutable reference to the warnings.
-    fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>>;
+    // /// Returns a mutable reference to the warnings.
+    // fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>>;
     
-    /// Consumes the iterator.
-    fn consume_warnings(self) -> Vec<Span<Warning>>;
+    // /// Consumes the iterator.
+    // fn consume_warnings(self) -> Vec<Span<Warning>>;
 }

@@ -1,7 +1,5 @@
-use error::Error;
-use lex::Span;
-use lex::token::{Token, TokenIterator};
-use warning::Warning;
+use bytes::Span;
+use crate::lex::{Error, Token, TokenIterator};
 
 /// Wraps a [TokenIterator] and buffers tokens.
 ///
@@ -24,20 +22,20 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
         })
     }
 
-    #[inline]
-    pub fn warnings(&self) -> &[Span<Warning>] {
-        self.iter.warnings()
-    }
+    // #[inline]
+    // pub fn warnings(&self) -> &[Span<Warning>] {
+    //     self.iter.warnings()
+    // }
     
-    #[inline]
-    pub fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
-        self.iter.warnings_mut()
-    }
+    // #[inline]
+    // pub fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
+    //     self.iter.warnings_mut()
+    // }
     
-    #[inline]
-    pub fn consume_warnings(self) -> Vec<Span<Warning>> {
-        self.iter.consume_warnings()
-    }
+    // #[inline]
+    // pub fn consume_warnings(self) -> Vec<Span<Warning>> {
+    //     self.iter.consume_warnings()
+    // }
     
     #[inline]
     pub fn peek<'b>(&'b self) -> &'b Span<Token<'a>> {
