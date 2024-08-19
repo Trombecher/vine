@@ -8,8 +8,8 @@ members = [
     "crates/frontend",
     "crates/js",
     "crates/queue",
-    "crates/resolve",
-    "crates/set", "crates/test-file-watch",
+    "crates/set",
+    "crates/test-file-watch",
     "crates/vine",
     "crates/vm",
 ]
