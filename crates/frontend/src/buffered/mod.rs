@@ -17,10 +17,10 @@
 //! });
 //! ```
 
+mod tests;
+
 use bytes::Span;
 use crate::lex::{Error, Token, TokenIterator};
-
-mod tests;
 
 /// Wraps a [TokenIterator] and buffers tokens.
 ///
