@@ -4,11 +4,13 @@
 #![feature(let_chains)]
 #![feature(allocator_api)]
 
+mod errors;
+mod warnings;
+
 pub mod parse;
 pub mod lex;
 pub mod resolve;
-mod errors;
-mod warnings;
+pub mod buffered;
 
 pub use bumpalo;
 

@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+oxc_ast = "0.25.0"
+oxc_codegen = "0.25.0"
+oxc_allocator = "0.25.0"

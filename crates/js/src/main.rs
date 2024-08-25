@@ -1,13 +1,63 @@
-use js::refs::{Ref, RefGenerator};
+use std::cell::Cell;
+use oxc_allocator::{Allocator, Vec, Box};
+use oxc_ast::ast::*;
+use oxc_codegen::{CodeGenerator, CodegenOptions};
 
 fn main() {
-    let iter = RefGenerator::new().map(|r| {
-        let mut vec = Vec::new();
-        r.write_into(&mut vec);
-        (r, unsafe { String::from_utf8_unchecked(vec) })
-    });
-
-    for (r, vec) in iter.take(1000) {
-        println!("{} => {vec:?} => {}", r.raw, Ref::from_encoded_iter(vec.as_bytes().iter().copied()).raw)
-    }
+    let arena = Allocator::default();
+    
+    let program = Program {
+        span: Default::default(),
+        source_type: Default::default(),
+        hashbang: None,
+        directives: Vec::new_in(&arena),
+        body: {
+            let mut vec = Vec::new_in(&arena);
+            
+            vec.push(Statement::VariableDeclaration(Box::new_in(VariableDeclaration {
+                span: Default::default(),
+                kind: VariableDeclarationKind::Let,
+                declarations: {
+                    let mut vec = Vec::new_in(&arena);
+                    
+                    vec.push(VariableDeclarator {
+                        span: Default::default(),
+                        kind: VariableDeclarationKind::Let,
+                        id: BindingPattern {
+                            kind: BindingPatternKind::BindingIdentifier(Box::new_in(BindingIdentifier {
+                                span: Default::default(),
+                                name: Atom::from("test_yo"),
+                                symbol_id: Cell::new(None),
+                            }, &arena)),
+                            type_annotation: None,
+                            optional: false,
+                        },
+                        init: Some(Expression::NumericLiteral(Box::new_in(NumericLiteral {
+                            span: Default::default(),
+                            value: 42.0,
+                            raw: "42",
+                            base: NumberBase::Decimal,
+                        }, &arena))),
+                        definite: false,
+                    });
+                    
+                    vec
+                },
+                declare: false,
+            }, &arena)));
+            
+            vec
+        },
+        scope_id: Cell::new(None),
+    };
+    
+    let text = CodeGenerator::new()
+        .with_options(CodegenOptions {
+            single_quote: false,
+            minify: true,
+        })
+        .build(&program)
+        .source_text;
+    
+    println!("{text}");
 }

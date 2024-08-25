@@ -1,6 +1,6 @@
-mod buffered;
 mod errors;
 mod warnings;
+
 pub mod bp;
 pub mod ast;
 
@@ -9,7 +9,8 @@ use bumpalo::Bump;
 use bytes::Span;
 use ast::*;
 use crate::lex::{Keyword, Symbol, Token, TokenIterator};
-pub use buffered::*;
+use crate::buffered::Buffered;
+
 pub use errors::*;
 pub use warnings::*;
 

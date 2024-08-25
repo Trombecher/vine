@@ -1,11 +1,32 @@
+//! This module contains the wrapper [Buffered] to allow peeking into a token iterator.
+//! 
+//! # Example
+//! 
+//! ```
+//! use frontend::{
+//!     buffered::Buffered,
+//!     lex::{Lexer, Token},
+//! };
+//! use bytes::Span;
+//!
+//! let mut buffered = Buffered::new(Lexer::new(b"Your code lives here")).unwrap();
+//! 
+//! assert_eq!(buffered.peek(), &Span {
+//!     value: Token::Identifier("Your"),
+//!     source: 0..4
+//! });
+//! ```
+
 use bytes::Span;
 use crate::lex::{Error, Token, TokenIterator};
+
+mod tests;
 
 /// Wraps a [TokenIterator] and buffers tokens.
 ///
 /// It allows to peek into the next token (via [Buffered::peek])
 /// or even into the token after that (via [Buffered::peek_after])
-/// **without advancing the iterator**.
+/// **without advancing**.
 pub struct Buffered<'a, T: TokenIterator<'a>> {
     iter: T,
     next_token: Span<Token<'a>>,
@@ -26,35 +47,35 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
     // pub fn warnings(&self) -> &[Span<Warning>] {
     //     self.iter.warnings()
     // }
-    
+
     // #[inline]
     // pub fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
     //     self.iter.warnings_mut()
     // }
-    
+
     // #[inline]
     // pub fn consume_warnings(self) -> Vec<Span<Warning>> {
     //     self.iter.consume_warnings()
     // }
-    
+
     #[inline]
     pub fn peek<'b>(&'b self) -> &'b Span<Token<'a>> {
         &self.next_token
     }
-    
+
     /// Returns a shared reference to the token after the token, [Self::peek] would return.
     /// In the process of generating a new token, a line break is skipped.
     #[inline]
     pub fn peek_after<'b>(&'b mut self) -> Result<&'b Span<Token<'a>>, Error> {
         if self.next_next_token.is_none() {
             self.next_next_token = Some(self.iter.next_token()?);
-            
+
             // Skip a line break
             if let Token::LineBreak = unsafe { self.next_next_token.as_ref().unwrap_unchecked() }.value {
                 self.next_next_token = Some(self.iter.next_token()?);
             }
         }
-        
+
         Ok(unsafe {
             self.next_next_token.as_ref().unwrap_unchecked()
         })
@@ -73,7 +94,7 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
             // token => (token, false)
         })
     }
-    
+
     // /// Returns the next token.
     // #[inline]
     // pub fn next(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
@@ -104,7 +125,7 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
         };
         Ok(())
     }
-    
+
     /// Advances the iterator one token.
     /// If the token is a [Token::LineBreak], it advances another token.
     #[inline]

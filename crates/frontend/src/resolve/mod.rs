@@ -2,17 +2,17 @@ use std::cell::RefCell;
 use bumpalo::Bump;
 use hashbrown::HashMap;
 use crate::parse::ast as parse_ast;
-use crate::resolve::ast::*;
+use ast::*;
 
 pub mod ast;
 
-pub fn resolve_module_content<'ids, 'arena>(
-    st: &mut SymbolTable<'ids, 'arena>,
-    mc: &parse_ast::ModuleContent<'ids>,
-    resolve_arena: &'arena Bump,
-    source_file_arena: &'ids Bump
+pub fn resolve_module_content<'sf: 'resolve_arena + 'parse_arena, 'resolve_arena, 'parse_arena>(
+    st: &mut SymbolTable<'sf, 'resolve_arena>,
+    items: impl Iterator<Item = &'parse_arena parse_ast::TopLevelItem<'sf, 'parse_arena>>,
+    resolve_arena: &'resolve_arena Bump,
+    source_file_arena: &'sf Bump
 ) {
-    for item in mc.0.iter() {
+    for item in items {
         let parse_ast::Statement {
             statement_kind,
             annotations: _
@@ -21,7 +21,16 @@ pub fn resolve_module_content<'ids, 'arena>(
         match statement_kind {
             parse_ast::StatementKind::TypeParameterAlias { .. } => todo!(),
             parse_ast::StatementKind::Enum { .. } => todo!(),
-            parse_ast::StatementKind::Declaration { .. } => todo!(),
+            parse_ast::StatementKind::Declaration {
+                id,
+                doc_comments,
+                value,
+                ty,
+                is_mutable
+            } => {
+                
+                todo!()
+            },
             parse_ast::StatementKind::Struct { .. } => todo!(),
             parse_ast::StatementKind::TypeAlias { .. } => todo!(),
             parse_ast::StatementKind::Use(_) => todo!(),
@@ -31,15 +40,15 @@ pub fn resolve_module_content<'ids, 'arena>(
                 id,
                 doc_comments: _
             } => {
-                let mut inner_st = HashMap::new_in(arena);
+                let mut inner_st = HashMap::new_in(resolve_arena);
                 
                 if let Some(content) = content {
-                    resolve_module_content(&mut inner_st, &content, &arena);
+                    resolve_module_content(&mut inner_st, content.0.iter(), resolve_arena, source_file_arena);
                 } else {
                     todo!("external module")
                 }
 
-                let entry_ref = arena.alloc(RefCell::new(SymbolTableEntry {
+                let entry_ref = resolve_arena.alloc(RefCell::new(SymbolTableEntry {
                     kind: SymbolTableEntryKind::Module {
                         st: inner_st,
                     },

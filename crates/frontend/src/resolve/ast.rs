@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+use bumpalo::Bump;
+use hashbrown::hash_map::DefaultHashBuilder;
 use bytes::Span;
 use hashbrown::HashMap;
 
@@ -6,13 +8,17 @@ use hashbrown::HashMap;
 pub type SymbolTable<'sf, 'arena> = HashMap<
     &'sf str,
     &'arena RefCell<SymbolTableEntry<'sf, 'arena>>,
+    DefaultHashBuilder,
+    &'arena Bump
 >;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct SymbolTableEntry<'sf, 'arena> {
     // annotations: Vec<Annotation<'a>>,
     pub kind: SymbolTableEntryKind<'sf, 'arena>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum SymbolTableEntryKind<'sf, 'arena> {
     Struct {
         tps: Vec<()>,
@@ -26,14 +32,14 @@ pub enum SymbolTableEntryKind<'sf, 'arena> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StructField<'arena> {
     pub is_mutable: bool,
     pub is_public: bool,
     pub ty: TypeUse<'arena>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TypeUse<'arena> {
     Never,
     Union {
@@ -42,7 +48,7 @@ pub enum TypeUse<'arena> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RawTypeUse<'arena> {
     Function,
     TypeRef {
