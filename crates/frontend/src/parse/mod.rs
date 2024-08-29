@@ -1,36 +1,34 @@
 mod errors;
 mod warnings;
+mod tests;
 
 pub mod bp;
 pub mod ast;
 
-use std::{boxed, vec};
-use bumpalo::Bump;
-use bytes::Span;
-use ast::*;
-use crate::lex::{Keyword, Symbol, Token, TokenIterator};
+use crate::{Box, Vec};
 use crate::buffered::Buffered;
-
+use crate::lex::{Keyword, Lexer, Symbol, Token, TokenIterator};
+use ast::*;
+use bytes::{Index, Span};
+use core::fmt::Debug;
+use core::ops::Range;
+use bumpalo::Bump;
 pub use errors::*;
 pub use warnings::*;
 
-// Wrap common data structures to use bump arena allocation.
-pub(crate) type Box<'arena, T> = boxed::Box<T, &'arena Bump>;
-pub(crate) type Vec<'arena, T> = vec::Vec<T, &'arena Bump>;
-
-pub struct ParseContext<'sf: 'arena, 'arena, T: TokenIterator<'sf>> {
-    pub iter: Buffered<'sf, T>,
-    pub arena: &'arena Bump,
-    pub warnings: Vec<'arena, Span<Warning>>
+pub struct ParseContext<'source: 'alloc, 'alloc, T: TokenIterator<'source>> {
+    pub iter: Buffered<'source, T>,
+    pub alloc: &'alloc Bump,
+    pub warnings: Vec<'alloc, Span<Warning>>,
 }
 
-impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
+impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, 'alloc, T> {
     #[inline]
-    pub const fn new(iter: Buffered<'sf, T>, arena: &'arena Bump) -> ParseContext<'sf, 'arena, T> {
+    pub const fn new(iter: Buffered<'source, T>, alloc: &'alloc Bump) -> ParseContext<'source, 'alloc, T> {
         Self {
-            warnings: Vec::new_in(arena),
+            warnings: Vec::new_in(alloc),
             iter,
-            arena,
+            alloc,
         }
     }
 
@@ -73,13 +71,13 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
     /// If `peek()` is a '<', then it parses type parameters.
     #[inline]
-    pub fn parse_opt_type_parameter_declarations(&mut self) -> Result<TypeParameters<'sf, 'arena>, Error> {
+    fn parse_opt_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, 'alloc>, Error> {
         Ok(match self.iter.peek().value {
             Token::Symbol(Symbol::LeftAngle) => {
                 self.iter.advance_skip_lb()?;
                 self.parse_type_parameter_declarations()?
             }
-            _ => Vec::new_in(self.arena)
+            _ => Vec::new_in(self.alloc)
         })
     }
 
@@ -91,8 +89,8 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     /// ```
     ///
     /// Expects the next token to be the marked. Ends on the non-lb token after `>`.
-    pub fn parse_type_parameter_declarations(&mut self) -> Result<TypeParameters<'sf, 'arena>, Error> {
-        let mut params = Vec::new_in(self.arena);
+    fn parse_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, 'alloc>, Error> {
+        let mut params = Vec::new_in(self.alloc);
 
         loop {
             match self.iter.peek().value {
@@ -100,7 +98,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     params.push(Span {
                         value: TypeParameter {
                             id,
-                            traits: Vec::new_in(self.arena),
+                            traits: Vec::new_in(self.alloc),
                         },
                         source: self.iter.peek().source.clone(),
                     }); // TODO: Add traits
@@ -129,12 +127,12 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     /// Parses a block.
     ///
     /// Expects `peek()` to be [Symbol::LeftBrace]. Ends on [Symbol::RightBrace].
-    fn parse_block(&mut self) -> Result<Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>, Error> {
+    fn parse_block(&mut self) -> Result<Span<Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>>, Error> {
         let start = self.iter.peek().source.start;
 
         self.iter.advance_skip_lb()?;
 
-        let mut items = Vec::new_in(self.arena);
+        let mut items = Vec::new_in(self.alloc);
 
         loop {
             match self.iter.peek().value {
@@ -169,7 +167,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     }
 
     /// Expects that the first token of the type is accessible via `peek()`. Ends on the token after the type.
-    pub(crate) fn parse_type(&mut self) -> Result<Span<Type<'sf, 'arena>>, Error> {
+    fn parse_type(&mut self) -> Result<Span<Type<'source, 'alloc>>, Error> {
         let source = self.iter.peek().source.clone();
 
         Ok(match self.iter.peek().value {
@@ -188,7 +186,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     self.iter.skip_lb()?;
 
                     let mut tps = Span {
-                        value: Vec::new_in(self.arena),
+                        value: Vec::new_in(self.alloc),
                         source: self.iter.peek().source.start..0,
                     };
 
@@ -220,7 +218,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     tps
                 } else {
                     Span {
-                        value: Vec::new_in(self.arena),
+                        value: Vec::new_in(self.alloc),
                         source: first.source.end..first.source.end,
                     }
                 };
@@ -230,13 +228,13 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     tps,
                 });
 
-                let remaining: Vec<RawType<'sf, 'arena>> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
+                let remaining: Vec<'alloc, RawType<'source, 'alloc>> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
                     return Err(Error::Unimplemented)
 
                     // self.iter.advance()?;
                     // self.iter.advance_skip_lb()?;
                 } else {
-                    Vec::new_in(self.arena)
+                    Vec::new_in(self.alloc)
                 };
 
                 Span {
@@ -251,7 +249,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
         })
     }
 
-    pub(crate) fn parse_use_child(&mut self) -> Result<Span<UseChild<'sf, 'arena>>, Error> {
+    fn parse_use_child(&mut self) -> Result<Span<UseChild<'source, 'alloc>>, Error> {
         self.iter.skip_lb()?;
         self.iter.advance_skip_lb()?;
 
@@ -268,7 +266,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
             Token::Symbol(Symbol::LeftParenthesis) => {
                 let mut source = self.iter.peek().source.clone();
 
-                let mut vec = Vec::new_in(self.arena);
+                let mut vec = Vec::new_in(self.alloc);
 
                 loop {
                     self.iter.advance_skip_lb()?;
@@ -311,13 +309,13 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                 }
             }
             Token::Identifier(id) => self.parse_use(id)?
-                .map(|u| UseChild::Single(Box::new_in(u, self.arena))),
+                .map(|u| UseChild::Single(Box::new_in(u, self.alloc))),
             _ => return Err(Error::UnimplementedError)
         })
     }
 
     /// Expects the . to not be consumed. Ends on the token after the use-statement
-    pub(crate) fn parse_use(&mut self, id: &'sf str) -> Result<Span<Use<'sf, 'arena>>, Error> {
+    fn parse_use(&mut self, id: &'source str) -> Result<Span<Use<'source, 'alloc>>, Error> {
         let source = self.iter.peek().source.clone();
 
         self.iter.advance()?;
@@ -346,13 +344,13 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
     /// Expects [Buffered::peek] to yield [Token::Identifier].
     /// Ends on the token after the last path segment (greedy).
-    pub(crate) fn parse_item_path(&mut self, mut first_id: &'sf str) -> Result<Span<ItemPath<'sf, 'arena>>, Error> {
+    fn parse_item_path(&mut self, mut first_id: &'source str) -> Result<Span<ItemPath<'source, 'alloc>>, Error> {
         let mut source = self.iter.peek().source.clone();
 
         self.iter.advance()?;
 
         let parents = if let Token::Symbol(Symbol::Dot) = self.iter.peek_non_lb()?.0.value {
-            let mut parents = Vec::new_in(self.arena);
+            let mut parents = Vec::new_in(self.alloc);
 
             loop {
                 parents.push(first_id);
@@ -376,7 +374,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
             parents
         } else {
-            Vec::new_in(self.arena)
+            Vec::new_in(self.alloc)
         };
 
         Ok(Span {
@@ -389,8 +387,8 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     }
 
     /// Expects peek() to be the token after `(`. Ends on `)`.
-    pub(crate) fn parse_fn_parameters(&mut self) -> Result<Vec<'arena, Parameter<'sf, 'arena>>, Error> {
-        let mut parameters = Vec::<Parameter<'sf, 'arena>>::new_in(self.arena);
+    fn parse_fn_parameters(&mut self) -> Result<Vec<'alloc, Parameter<'source, 'alloc>>, Error> {
+        let mut parameters: Vec<'alloc, Parameter<'source, 'alloc>> = Vec::new_in(self.alloc);
 
         loop {
             let is_mutable = match self.iter.peek().value {
@@ -440,10 +438,10 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     /// - Expects `peek()` to correspond to the first non-lb token of the statement (pre-advance).
     /// - Ends on the token after the statement. The caller must validate that token.
     /// **This may be a [Token::LineBreak]!**
-    pub(crate) fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'sf, 'arena>>>, Error> {
+    fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'source, 'alloc>>>, Error> {
         let mut source = self.iter.peek().source.clone();
 
-        let mut doc_comments = Vec::new_in(self.arena);
+        let mut doc_comments = Vec::new_in(self.alloc);
 
         // Against code repetition:
         macro_rules! error_doc_comments {
@@ -463,7 +461,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
             self.iter.advance()?;
         }
 
-        let mut annotations = Vec::new_in(self.arena);
+        let mut annotations = Vec::new_in(self.alloc);
 
         // Collect all available annotations associated with the statement.
         loop {
@@ -471,7 +469,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                 Token::Symbol(Symbol::At) => {}
                 _ => {
                     self.iter.skip_lb()?;
-                    break
+                    break;
                 }
             }
 
@@ -486,11 +484,11 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
             annotations.push(Annotation {
                 path,
-                arguments: Vec::new_in(self.arena), // TODO: arguments of annotations
+                arguments: Vec::new_in(self.alloc), // TODO: arguments of annotations
             });
         }
 
-        let statement_kind: Option<StatementKind<'sf, 'arena>> = match self.iter.peek().value {
+        let statement_kind: Option<StatementKind<'source, 'alloc>> = match self.iter.peek().value {
             Token::Keyword(Keyword::Fn) => {
                 self.iter.advance_skip_lb()?;
 
@@ -530,7 +528,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
                 self.iter.advance_skip_lb()?;
 
-                let return_type: Option<Span<Type<'sf, 'arena>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek().value {
+                let return_type: Option<Span<Type<'source, 'alloc>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek().value {
                     self.iter.advance_skip_lb()?;
 
                     let ty = self.parse_type()?;
@@ -566,10 +564,10 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                                 has_this_parameter: false,
                                 tps,
                             },
-                            body: Box::new_in(body.map(Expression::Block), self.arena),
+                            body: Box::new_in(body.map(Expression::Block), self.alloc),
                         },
                         source: source.clone(),
-                    }, self.arena)),
+                    }, self.alloc)),
                 })
             }
             Token::Keyword(Keyword::Mod) => {
@@ -627,7 +625,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     _ => return Err(Error::UnimplementedError)
                 };
 
-                let mut fields = Vec::new_in(self.arena);
+                let mut fields = Vec::new_in(self.alloc);
 
                 self.iter.advance()?;
 
@@ -709,7 +707,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                 })
             }
 
-            // Schema (brackets denote optionals, angles denote other constructs):
+            // Schema (brackets denote optionals, 'allocngles denote other constructs):
             //
             // let [mut] <variable_name>[: <type>] [= <expr>]
             Token::Keyword(Keyword::Let) => {
@@ -769,7 +767,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     is_mutable,
                     ty,
                     id,
-                    value: value.map(|v| Box::new_in(v, self.arena)),
+                    value: value.map(|v| Box::new_in(v, self.alloc)),
                 })
             }
 
@@ -779,7 +777,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
             // use d.(x, y, z.*)
             Token::Keyword(Keyword::Use) => {
                 if doc_comments.len() > 0 {
-                    return Err(Error::DocCommentOnUse)
+                    return Err(Error::DocCommentOnUse);
                 }
 
                 self.iter.advance_skip_lb()?;
@@ -856,23 +854,23 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     ///
     /// - [Token::EndOfInput], [Symbol::RightBrace], [Symbol::Semicolon],
     /// [Symbol::Comma], [Symbol::RightParenthesis] or [Symbol::RightBracket].
-    /// In this case, a line break before may have been skipped.
+    /// In this case, 'alloc line break before may have been skipped.
     /// - [Token::LineBreak]. In this case the token after the line break
     /// was already generated and may be anything (did not continue the expression).
-    pub fn parse_expression(&mut self, min_bp: u8) -> Result<Span<Expression<'sf, 'arena>>, Error> {
+    pub fn parse_expression(&mut self, min_bp: u8) -> Result<Span<Expression<'source, 'alloc>>, Error> {
         let first_term = self.parse_expression_first_term()?;
         self.parse_expression_remaining_terms(first_term, min_bp)
     }
 
-    pub fn parse_expression_first_term(&mut self) -> Result<Span<Expression<'sf, 'arena>>, Error> {
+    fn parse_expression_first_term(&mut self) -> Result<Span<Expression<'source, 'alloc>>, Error> {
         let mut first_source = self.iter.peek().source.clone();
 
         Ok(Span {
             value: match self.iter.peek().value {
                 Token::String(s) => {
-                    let s = s.process()?;
+                    let s = s.process(self.alloc)?;
                     self.iter.advance()?;
-                    Expression::String(s)
+                    Expression::String(s.into())
                 }
                 Token::Number(n) => {
                     self.iter.advance()?;
@@ -885,7 +883,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                 Token::Symbol(Symbol::LeftParenthesis) => {
                     self.iter.advance_skip_lb()?;
 
-                    let mut fields = Vec::new_in(self.arena);
+                    let mut fields = Vec::new_in(self.alloc);
 
                     loop {
                         let is_mutable = match self.iter.peek().value {
@@ -1001,7 +999,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                             has_this_parameter: false,
                             tps,
                         },
-                        body: Box::new_in(body, self.arena),
+                        body: Box::new_in(body, self.alloc),
                     }
                 }
                 Token::Keyword(Keyword::If) => {
@@ -1017,7 +1015,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
                     let body = self.parse_block()?;
 
-                    let mut else_ifs = Vec::new_in(self.arena);
+                    let mut else_ifs = Vec::new_in(self.alloc);
 
                     let else_body = loop {
                         self.iter.advance()?;
@@ -1054,14 +1052,14 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                         let body = self.parse_block()?;
 
                         else_ifs.push(If {
-                            condition: Box::new_in(condition, self.arena),
+                            condition: Box::new_in(condition, self.alloc),
                             body,
                         })
                     };
 
                     Expression::If {
                         base: If {
-                            condition: Box::new_in(condition, self.arena),
+                            condition: Box::new_in(condition, self.alloc),
                             body,
                         },
                         else_ifs,
@@ -1092,7 +1090,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     self.iter.advance()?;
 
                     Expression::While {
-                        condition: Box::new_in(condition, self.arena),
+                        condition: Box::new_in(condition, self.alloc),
                         body,
                     }
                 }
@@ -1102,11 +1100,11 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
         })
     }
 
-    pub fn parse_expression_remaining_terms(
+    fn parse_expression_remaining_terms(
         &mut self,
-        mut first_term: Span<Expression<'sf, 'arena>>,
+        mut first_term: Span<Expression<'source, 'alloc>>,
         min_bp: u8,
-    ) -> Result<Span<Expression<'sf, 'arena>>, Error> {
+    ) -> Result<Span<Expression<'source, 'alloc>>, Error> {
         let start = first_term.source.start;
 
         macro_rules! op {
@@ -1123,16 +1121,16 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                 (
                     right.source.end,
                     Expression::Operation {
-                        left: Box::new_in(first_term, self.arena),
+                        left: Box::new_in(first_term, self.alloc),
                         operation: $op,
-                        right: Box::new_in(right, self.arena)
+                        right: Box::new_in(right, self.alloc)
                     }
                 )
             }};
         }
 
         loop {
-            // At this point, a line break must not have been skipped.
+            // At this point, 'alloc line break must not have been skipped.
             let (token, line_break) = self.iter.peek_non_lb()?;
 
             let (end, value) = match token.value {
@@ -1179,10 +1177,10 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                         }
                     }
 
-                    let arguments: CallArguments<'sf, 'arena> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek().value {
+                    let arguments: CallArguments<'source, 'alloc> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek().value {
                         // There are no arguments. We must handle this special case,
                         // because we cannot parse an expression.
-                        CallArguments::Unnamed(Vec::new_in(self.arena))
+                        CallArguments::Unnamed(Vec::new_in(self.alloc))
                     } else {
                         let mut maybe_arg = self.parse_expression_first_term()?;
 
@@ -1195,7 +1193,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                             self.iter.skip_lb()?;
                             self.iter.advance_skip_lb()?;
 
-                            let mut args = Vec::new_in(self.arena);
+                            let mut args = Vec::new_in(self.alloc);
 
                             macro_rules! parse_that {
                                 () => {{
@@ -1250,8 +1248,8 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                             CallArguments::Named(args)
                         } else {
                             // Unnamed
-                            
-                            let mut args = Vec::new_in(self.arena);
+
+                            let mut args = Vec::new_in(self.alloc);
 
                             let expr = self.parse_expression_remaining_terms(maybe_arg, 0)?;
 
@@ -1301,7 +1299,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     (
                         end,
                         Expression::Call {
-                            target: Box::new_in(first_term, self.arena),
+                            target: Box::new_in(first_term, self.alloc),
                             arguments,
                         }
                     )
@@ -1326,7 +1324,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     (
                         end,
                         Expression::Access(Access {
-                            target: Box::new_in(first_term, self.arena),
+                            target: Box::new_in(first_term, self.alloc),
                             property,
                         })
                     )
@@ -1351,7 +1349,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
                     (
                         end,
                         Expression::OptionalAccess(Access {
-                            target: Box::new_in(first_term, self.arena),
+                            target: Box::new_in(first_term, self.alloc),
                             property,
                         })
                     )
@@ -1383,8 +1381,8 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
     /// Expects that the first non-lb token after `{` was already consumed.
     ///
     /// Ends on `}` or [Token::EndOfInput].
-    pub fn parse_module_content(&mut self) -> Result<ModuleContent<'sf, 'arena>, Error> {
-        let mut items = Vec::new_in(self.arena);
+    fn parse_module_content(&mut self) -> Result<ModuleContent<'source, 'alloc>, Error> {
+        let mut items = Vec::new_in(self.alloc);
 
         loop {
             let is_public = match self.iter.peek().value {
@@ -1404,7 +1402,7 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
             items.push(TopLevelItem {
                 is_public,
-                statement: self.try_parse_statement()?.ok_or(Error::UnimplementedError)?
+                statement: self.try_parse_statement()?.ok_or(Error::UnimplementedError)?,
             });
 
             match self.iter.peek().value {
@@ -1419,4 +1417,41 @@ impl<'sf: 'arena, 'arena, T: TokenIterator<'sf>> ParseContext<'sf, 'arena, T> {
 
         Ok(ModuleContent(items))
     }
+
+    fn parse_module(&mut self) -> Result<ModuleContent<'source, 'alloc>, Error> {
+        let content = self.parse_module_content()?;
+        match self.iter.peek().value {
+            Token::EndOfInput => Ok(content),
+            _ => Err(Error::TrailingClosingBraceInTopLevelModule),
+        }
+    }
+}
+
+/// Parses a source module commonly obtained from file content.
+pub fn parse_module<'source: 'lex_alloc + 'parse_alloc, 'lex_alloc: 'parse_alloc, 'parse_alloc>(
+    source: &'source [u8],
+    lex_alloc: &'lex_alloc Bump,
+    parse_alloc: &'parse_alloc Bump,
+) -> (
+    Result<ModuleContent<'source, 'parse_alloc>, (Error, Range<Index>)>,
+    Vec<'parse_alloc, Span<Warning>>
+) {
+    let mut lex = Lexer::new(source, lex_alloc);
+    let buf = Buffered::new_init(match lex.next_token() {
+        Ok(init) => init,
+        Err(err) => return (
+            Err((
+                Error::from(err),
+                lex.index() - 1..lex.index()
+            )),
+            Vec::new_in(parse_alloc)
+        )
+    }, lex);
+
+    let mut context = ParseContext::new(buf, parse_alloc);
+    let maybe_module = context.parse_module();
+
+    let ParseContext { iter, warnings, .. } = context;
+
+    (maybe_module.map_err(|err| (err, iter.peek().source.clone())), warnings)
 }

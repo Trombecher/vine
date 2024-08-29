@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use alloc::alloc::Global;
 use crate::lex::{Keyword, Lexer, Symbol, Token, TokenIterator, UnprocessedString};
 use bytes::{Span, Index};
 
@@ -27,7 +28,7 @@ macro_rules! match_tokens {
 fn lex_keywords() {
     let input = b"as break continue else enum extern false fn for if in let mod mut match pub return struct this trait true type while _ use";
 
-    let mut lexer = Lexer::new(input);
+    let mut lexer = Lexer::new(input, Global);
     let keywords = [
         Keyword::As,
         Keyword::Break,

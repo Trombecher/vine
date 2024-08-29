@@ -10,7 +10,8 @@ pub enum Error {
     ExpectedTypeParameter,
     ExpectedTypeParameterDelimiter,
     UnimplementedError,
-    Unimplemented
+    Unimplemented,
+    TrailingClosingBraceInTopLevelModule
 }
 
 impl From<lex::Error> for Error {

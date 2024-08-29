@@ -1,21 +1,4 @@
 //! This module contains the wrapper [Buffered] to allow peeking into a token iterator.
-//! 
-//! # Example
-//! 
-//! ```
-//! use frontend::{
-//!     buffered::Buffered,
-//!     lex::{Lexer, Token},
-//! };
-//! use bytes::Span;
-//!
-//! let mut buffered = Buffered::new(Lexer::new(b"Your code lives here")).unwrap();
-//! 
-//! assert_eq!(buffered.peek(), &Span {
-//!     value: Token::Identifier("Your"),
-//!     source: 0..4
-//! });
-//! ```
 
 mod tests;
 
@@ -41,6 +24,16 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
             iter,
             next_next_token: None,
         })
+    }
+
+    /// Creates a new [Buffered] with a specified first token.
+    #[inline]
+    pub fn new_init(init: Span<Token<'a>>, iter: T) -> Buffered<'a, T> {
+        Self {
+            iter,
+            next_token: init,
+            next_next_token: None,
+        }
     }
 
     // #[inline]

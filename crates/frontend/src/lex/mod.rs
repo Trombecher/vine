@@ -4,9 +4,11 @@
 //!
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
+use alloc::vec::Vec;
+use core::alloc::Allocator;
 use bytes::{Cursor, Index, Span};
 use core::str::from_raw_parts;
-use std::hint::unreachable_unchecked;
+use core::hint::unreachable_unchecked;
 
 mod tests;
 mod token;
@@ -26,19 +28,19 @@ pub enum Layer {
     StartTag,
 }
 
-pub struct Lexer<'a> {
+pub struct Lexer<'source, A: Allocator> {
     /// The start of the slice.
     start: *const u8,
 
     /// The underlying iterator over the bytes.
-    cursor: Cursor<'a>,
+    cursor: Cursor<'source>,
 
     /// Signals [Layer::Insert] or no layer that the following '<'
     /// may be interpreted as the start of a markup element.
     potential_markup: bool,
 
     /// A stack of layers to manage 
-    layers: Vec<Layer>,
+    layers: Vec<Layer, A>,
 
     // pub warnings: Vec<Span<Warning>>,
 }
@@ -95,13 +97,13 @@ const fn try_to_hex(byte: u8) -> Option<u8> {
     }
 }
 
-impl<'a> Lexer<'a> {
+impl<'source, A: Allocator> Lexer<'source, A> {
     /// Constructs a new [Lexer].
-    pub const fn new(slice: &'a [u8]) -> Self {
+    pub const fn new(slice: &'source [u8], alloc: A) -> Self {
         Self {
             start: slice.as_ptr(),
             potential_markup: false,
-            layers: Vec::new(),
+            layers: Vec::new_in(alloc),
             cursor: Cursor::new(slice),
             // warnings: Vec::new(),
         }
@@ -118,7 +120,7 @@ impl<'a> Lexer<'a> {
     ///
     /// Expects a next byte.
     #[inline]
-    fn parse_number_dec(&mut self, mut number: f64) -> Result<Token<'a>, Error> {
+    fn parse_number_dec(&mut self, mut number: f64) -> Result<Token<'source>, Error> {
         unsafe { self.cursor.advance_unchecked() }
 
         loop {
@@ -215,7 +217,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Expects the next byte to be after the quote.
-    pub(crate) fn parse_string(&mut self) -> Result<UnprocessedString<'a>, Error> {
+    pub(crate) fn parse_string(&mut self) -> Result<UnprocessedString<'source>, Error> {
         let first = self.cursor.cursor();
 
         loop {
@@ -241,7 +243,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub(crate) fn parse_id(&mut self) -> Result<&'a str, Error> {
+    pub(crate) fn parse_id(&mut self) -> Result<&'source str, Error> {
         let first = self.cursor.cursor();
 
         loop {
@@ -273,8 +275,8 @@ impl<'a> Lexer<'a> {
 
     /// Skips whitespace and line comments. It returns the first line break encountered, if any.
     #[must_use]
-    pub fn skip_whitespace_line(&mut self) -> Option<Span<Token<'a>>> {
-        let mut lb: Option<Span<Token<'a>>> = None;
+    pub fn skip_whitespace_line(&mut self) -> Option<Span<Token<'source>>> {
+        let mut lb: Option<Span<Token<'source>>> = None;
 
         macro_rules! handle_lf {
             () => {{
@@ -358,7 +360,7 @@ impl<'a> Lexer<'a> {
     /// # Safety
     ///
     /// Expects a next byte.
-    fn parse_number_bin(&mut self) -> Result<Token<'a>, Error> {
+    fn parse_number_bin(&mut self) -> Result<Token<'source>, Error> {
         unsafe { self.cursor.advance_unchecked() }
 
         // Skip initial underscores
@@ -396,7 +398,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token_default(&mut self) -> Result<Span<Token<'a>>, Error> {
+    pub fn next_token_default(&mut self) -> Result<Span<Token<'source>>, Error> {
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {{
                 unsafe { self.cursor.advance_unchecked() };
@@ -792,7 +794,7 @@ impl<'a> Lexer<'a> {
     /// ```
     ///
     /// Assumes that the next byte is the id.
-    pub fn parse_start_tag(&mut self) -> Result<Span<Token<'a>>, Error> {
+    pub fn parse_start_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
         let start = self.index();
 
         self.skip_whitespace();
@@ -811,7 +813,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    pub fn parse_end_tag(&mut self) -> Result<Span<Token<'a>>, Error> {
+    pub fn parse_end_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
         let start = self.index();
 
         self.skip_whitespace();
@@ -833,8 +835,8 @@ impl<'a> Lexer<'a> {
     }
 }
 
-impl<'a> TokenIterator<'a> for Lexer<'a> {
-    fn next_token(&mut self) -> Result<Span<Token<'a>>, Error> {
+impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
+    fn next_token(&mut self) -> Result<Span<Token<'source>>, Error> {
         match self.layers.pop() {
             None => {
                 if let Some(line_break) = self.skip_whitespace_line() {

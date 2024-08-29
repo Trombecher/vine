@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use bumpalo::Bump;
 use hashbrown::HashMap;
 use crate::parse::ast as parse_ast;
 use ast::*;

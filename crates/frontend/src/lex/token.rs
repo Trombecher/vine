@@ -1,36 +1,52 @@
-use std::fmt::Debug;
-
+use core::fmt::Debug;
+use core::mem::transmute;
+use bumpalo::Bump;
 use bytes::{Cursor, Span};
 use phf::phf_map;
 
 use crate::lex::{unescape_char, Error};
+use crate::{Box, Vec};
+
+/// This type solely exists because [Clone] is not implemented for `Box<str, A>`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct BoxStr<'alloc>(Box<'alloc, [u8]>);
+
+impl<'alloc> From<Box<'alloc, str>> for BoxStr<'alloc> {
+    #[inline]
+    fn from(value: Box<'alloc, str>) -> Self {
+        Self(unsafe { transmute(value) })
+    }
+}
+
+impl<'alloc> Into<Box<'alloc, str>> for BoxStr<'alloc> {
+    fn into(self) -> Box<'alloc, str> {
+        unsafe { transmute(self) }
+    }
+}
 
 /// Boxes an `&str` which has some characteristics it must obey.
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub struct UnprocessedString<'a>(&'a str);
+pub struct UnprocessedString<'source>(&'source str);
 
-impl<'a> UnprocessedString<'a> {
-    pub const unsafe fn from_raw(slice: &'a str) -> UnprocessedString<'a> {
+impl<'source> UnprocessedString<'source> {
+    pub const unsafe fn from_raw(slice: &'source str) -> UnprocessedString<'source> {
         UnprocessedString(slice)
     }
 
-    pub fn process(&self) -> Result<String, Error> {
-        // By allocating more, no reallocations will take place
-        let mut string = String::with_capacity(self.0.len());
-
-        // Get first and past-the-end pointers
+    pub fn process<'alloc>(&self, alloc: &'alloc Bump) -> Result<Box<'alloc, str>, Error> {
+        let mut string = Vec::with_capacity_in(self.0.len(), alloc);
         let mut cursor = Cursor::new(self.0.as_bytes());
 
         loop {
             match cursor.next() {
                 None => break,
-                Some(b'\\') => string.push(unescape_char(&mut cursor)?),
-                // SAFETY: self.0 is a string.
-                Some(byte) => unsafe { string.as_mut_vec() }.push(byte)
+                Some(b'\\') => string.extend_from_slice(unescape_char(&mut cursor)?.encode_utf8(&mut [0; 4]).as_bytes()),
+                Some(byte) => string.push(byte)
             }
         }
-
-        Ok(string)
+        
+        // SAFETY: this is a string
+        Ok(unsafe { transmute::<_, Box<'alloc, str>>(string.into_boxed_slice()) })
     }
 }
 

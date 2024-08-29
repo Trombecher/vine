@@ -1,6 +1,8 @@
-use std::ops::Range;
+use core::fmt::Debug;
+use core::ops::Range;
 use bytes::{Index, Span};
-use crate::parse::{Box, Vec};
+use crate::{Box, Vec};
+use crate::lex::BoxStr;
 
 /// A binary operation.
 #[derive(Debug, PartialEq, Clone)]
@@ -40,194 +42,194 @@ pub enum ComparativeOperation {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Expression<'sf, 'arena> {
+pub enum Expression<'source, 'alloc: 'alloc> {
     // Binary Expressions
     Operation {
-        left: Box<'arena, Span<Expression<'sf, 'arena>>>,
+        left: Box<'alloc, Span<Expression<'source, 'alloc>>>,
         operation: Operation,
-        right: Box<'arena, Span<Expression<'sf, 'arena>>>,
+        right: Box<'alloc, Span<Expression<'source, 'alloc>>>,
     },
     Assignment {
-        target: Box<'arena, Span<AssignmentTarget<'sf, 'arena>>>,
+        target: Box<'alloc, Span<AssignmentTarget<'source, 'alloc>>>,
         operation: Option<PAOperation>,
-        value: Box<'arena, Span<Expression<'sf, 'arena>>>
+        value: Box<'alloc, Span<Expression<'source, 'alloc>>>
     },
     
     // Unary Expressions
-    Not(Box<'arena, Span<Expression<'sf, 'arena>>>),
-    Return(Box<'arena, Span<Expression<'sf, 'arena>>>),
+    Not(Box<'alloc, Span<Expression<'source, 'alloc>>>),
+    Return(Box<'alloc, Span<Expression<'source, 'alloc>>>),
     
     // Control Flow
     Continue,
     Break,
     If {
-        base: If<'sf, 'arena>,
-        else_ifs: Vec<'arena, If<'sf, 'arena>>,
-        else_body: Option<Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>>,
+        base: If<'source, 'alloc>,
+        else_ifs: Vec<'alloc, If<'source, 'alloc>>,
+        else_body: Option<Span<Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>>>,
     },
     While {
-        condition: Box<'arena, Span<Expression<'sf, 'arena>>>,
-        body: Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>
+        condition: Box<'alloc, Span<Expression<'source, 'alloc>>>,
+        body: Span<Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>>
     },
     For {
         is_mutable: bool,
-        variable: &'sf str,
-        iter: Box<'arena, Expression<'sf, 'arena>>,
+        variable: &'source str,
+        iter: Box<'alloc, Expression<'source, 'alloc>>,
     },
-    Block(Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>),
+    Block(Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>),
     
     // Objects And Paths
-    Instance(Vec<'arena, InstanceFieldInit<'sf, 'arena>>),
-    Access(Access<'sf, 'arena>),
-    OptionalAccess(Access<'sf, 'arena>),
-    Array(Vec<'arena, Expression<'sf, 'arena>>),
+    Instance(Vec<'alloc, InstanceFieldInit<'source, 'alloc>>),
+    Access(Access<'source, 'alloc>),
+    OptionalAccess(Access<'source, 'alloc>),
+    Array(Vec<'alloc, Expression<'source, 'alloc>>),
 
     // Primitives
     Number(f64),
-    String(String),
-    Identifier(&'sf str),
+    String(BoxStr<'alloc>),
+    Identifier(&'source str),
     False,
     True,
     This,
-    Markup(MarkupElement<'sf, 'arena>),
+    Markup(MarkupElement<'source, 'alloc>),
     
     // Functions
     Function {
-        signature: FunctionSignature<'sf, 'arena>,
-        body: Box<'arena, Span<Expression<'sf, 'arena>>>,
+        signature: FunctionSignature<'source, 'alloc>,
+        body: Box<'alloc, Span<Expression<'source, 'alloc>>>,
     },
     Call {
-        target: Box<'arena, Span<Expression<'sf, 'arena>>>,
-        arguments: CallArguments<'sf, 'arena>
+        target: Box<'alloc, Span<Expression<'source, 'alloc>>>,
+        arguments: CallArguments<'source, 'alloc>
     },
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct InstanceFieldInit<'sf, 'arena> {
+pub struct InstanceFieldInit<'source, 'alloc> {
     pub is_mutable: bool,
-    pub id: &'sf str,
-    pub ty: Option<Span<Type<'sf, 'arena>>>,
-    pub init: Span<Expression<'sf, 'arena>>,
+    pub id: &'source str,
+    pub ty: Option<Span<Type<'source, 'alloc>>>,
+    pub init: Span<Expression<'source, 'alloc>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum CallArguments<'sf, 'arena> {
-    Unnamed(Vec<'arena, Span<Expression<'sf, 'arena>>>),
-    Named(Vec<'arena, (Span<&'sf str>, Span<Expression<'sf, 'arena>>)>),
+pub enum CallArguments<'source, 'alloc> {
+    Unnamed(Vec<'alloc, Span<Expression<'source, 'alloc>>>),
+    Named(Vec<'alloc, (Span<&'source str>, Span<Expression<'source, 'alloc>>)>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct If<'sf, 'arena> {
-    pub condition: Box<'arena, Span<Expression<'sf, 'arena>>>,
-    pub body: Span<Vec<'arena, Span<StatementOrExpression<'sf, 'arena>>>>,
+pub struct If<'source, 'alloc> {
+    pub condition: Box<'alloc, Span<Expression<'source, 'alloc>>>,
+    pub body: Span<Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>>,
 }
 
-pub type TypeParameters<'sf, 'arena> = Vec<'arena, Span<TypeParameter<'sf, 'arena>>>;
+pub type TypeParameters<'source, 'alloc> = Vec<'alloc, Span<TypeParameter<'source, 'alloc>>>;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StatementKind<'sf, 'arena> {
+pub enum StatementKind<'source, 'alloc> {
     TypeParameterAlias {
-        tps: TypeParameters<'sf, 'arena>,
-        content: ModuleContent<'sf, 'arena>
+        tps: TypeParameters<'source, 'alloc>,
+        content: ModuleContent<'source, 'alloc>
     },
     Enum {
-        doc_comments: Vec<'arena, &'sf str>,
-        id: &'sf str,
-        tps: TypeParameters<'sf, 'arena>,
-        variants: Vec<'arena, (&'sf str, Option<Span<Expression<'sf, 'arena>>>)>,
+        doc_comments: Vec<'alloc, &'source str>,
+        id: &'source str,
+        tps: TypeParameters<'source, 'alloc>,
+        variants: Vec<'alloc, (&'source str, Option<Span<Expression<'source, 'alloc>>>)>,
     },
     Declaration {
-        doc_comments: Vec<'arena, &'sf str>,
+        doc_comments: Vec<'alloc, &'source str>,
         is_mutable: bool,
-        ty: Option<Span<Type<'sf, 'arena>>>,
-        id: &'sf str,
-        value: Option<Box<'arena, Span<Expression<'sf, 'arena>>>>,
+        ty: Option<Span<Type<'source, 'alloc>>>,
+        id: &'source str,
+        value: Option<Box<'alloc, Span<Expression<'source, 'alloc>>>>,
     },
     Struct {
-        doc_comments: Vec<'arena, &'sf str>,
-        id: &'sf str,
-        tps: TypeParameters<'sf, 'arena>,
-        fields: Vec<'arena, Span<StructField<'sf, 'arena>>>
+        doc_comments: Vec<'alloc, &'source str>,
+        id: &'source str,
+        tps: TypeParameters<'source, 'alloc>,
+        fields: Vec<'alloc, Span<StructField<'source, 'alloc>>>
     },
     TypeAlias {
-        doc_comments: Vec<'arena, &'sf str>,
-        id: &'sf str,
-        tps: TypeParameters<'sf, 'arena>,
-        ty: Type<'sf, 'arena>,
+        doc_comments: Vec<'alloc, &'source str>,
+        id: &'source str,
+        tps: TypeParameters<'source, 'alloc>,
+        ty: Type<'source, 'alloc>,
     },
-    Use(Use<'sf, 'arena>),
-    RootUse(UseChild<'sf, 'arena>),
+    Use(Use<'source, 'alloc>),
+    RootUse(UseChild<'source, 'alloc>),
     Module {
-        doc_comments: Vec<'arena, &'sf str>,
-        id: &'sf str,
-        content: Option<ModuleContent<'sf, 'arena>>
+        doc_comments: Vec<'alloc, &'source str>,
+        id: &'source str,
+        content: Option<ModuleContent<'source, 'alloc>>
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TypeParameter<'sf, 'arena> {
-    pub id: &'sf str,
-    pub traits: Vec<'arena, ItemPath<'sf, 'arena>>
+pub struct TypeParameter<'source, 'alloc> {
+    pub id: &'source str,
+    pub traits: Vec<'alloc, ItemPath<'source, 'alloc>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StructField<'sf, 'arena> {
+pub struct StructField<'source, 'alloc> {
     pub is_public: bool,
     pub is_mutable: bool,
-    pub id: &'sf str,
-    pub ty: Span<Type<'sf, 'arena>>,
+    pub id: &'source str,
+    pub ty: Span<Type<'source, 'alloc>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Annotation<'sf, 'arena> {
-    pub path: Span<ItemPath<'sf, 'arena>>,
-    pub arguments: Vec<'arena, Span<Expression<'sf, 'arena>>>
+pub struct Annotation<'source, 'alloc> {
+    pub path: Span<ItemPath<'source, 'alloc>>,
+    pub arguments: Vec<'alloc, Span<Expression<'source, 'alloc>>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Statement<'sf, 'arena> {
-    pub annotations: Vec<'arena, Annotation<'sf, 'arena>>,
-    pub statement_kind: StatementKind<'sf, 'arena>
+pub struct Statement<'source, 'alloc> {
+    pub annotations: Vec<'alloc, Annotation<'source, 'alloc>>,
+    pub statement_kind: StatementKind<'source, 'alloc>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StatementOrExpression<'sf, 'arena> {
-    Statement(Statement<'sf, 'arena>),
-    Expression(Expression<'sf, 'arena>)
+pub enum StatementOrExpression<'source, 'alloc> {
+    Statement(Statement<'source, 'alloc>),
+    Expression(Expression<'source, 'alloc>)
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ModuleContent<'sf, 'arena>(pub Vec<'arena, TopLevelItem<'sf, 'arena>>);
+pub struct ModuleContent<'source, 'alloc>(pub Vec<'alloc, TopLevelItem<'source, 'alloc>>);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TopLevelItem<'sf, 'arena> {
+pub struct TopLevelItem<'source, 'alloc> {
     pub is_public: bool,
-    pub statement: Span<Statement<'sf, 'arena>>
+    pub statement: Span<Statement<'source, 'alloc>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Use<'sf, 'arena> {
-    pub id: &'sf str,
-    pub child: Option<Span<UseChild<'sf, 'arena>>>
+pub struct Use<'source, 'alloc> {
+    pub id: &'source str,
+    pub child: Option<Span<UseChild<'source, 'alloc>>>
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum UseChild<'sf, 'arena> {
-    Single(Box<'arena, Use<'sf, 'arena>>),
-    Multiple(Vec<'arena, Span<Use<'sf, 'arena>>>),
+pub enum UseChild<'source, 'alloc> {
+    Single(Box<'alloc, Use<'source, 'alloc>>),
+    Multiple(Vec<'alloc, Span<Use<'source, 'alloc>>>),
     All,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum AssignmentTarget<'sf, 'arena> {
-    Identifier(&'sf str),
-    Access(Access<'sf, 'arena>)
+pub enum AssignmentTarget<'source, 'alloc> {
+    Identifier(&'source str),
+    Access(Access<'source, 'alloc>)
 }
 
-impl<'sf, 'arena> TryFrom<Expression<'sf, 'arena>> for AssignmentTarget<'sf, 'arena> {
+impl<'source, 'alloc> TryFrom<Expression<'source, 'alloc>> for AssignmentTarget<'source, 'alloc> {
     type Error = ();
 
-    fn try_from(value: Expression<'sf, 'arena>) -> Result<Self, Self::Error> {
+    fn try_from(value: Expression<'source, 'alloc>) -> Result<Self, Self::Error> {
         match value {
             Expression::Access(access) => Ok(Self::Access(access)),
             Expression::Identifier(identifier) => Ok(Self::Identifier(identifier)),
@@ -237,48 +239,48 @@ impl<'sf, 'arena> TryFrom<Expression<'sf, 'arena>> for AssignmentTarget<'sf, 'ar
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Access<'sf, 'arena> {
-    pub target: Box<'arena, Span<Expression<'sf, 'arena>>>,
-    pub property: &'sf str,
+pub struct Access<'source, 'alloc> {
+    pub target: Box<'alloc, Span<Expression<'source, 'alloc>>>,
+    pub property: &'source str,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct MarkupElement<'sf, 'arena> {
-    pub identifier: &'sf str,
-    pub attributes: Vec<'arena, (&'sf str, Expression<'sf, 'arena>)>,
-    pub children: Vec<'arena, MarkupChild<'sf, 'arena>>,
+pub struct MarkupElement<'source, 'alloc> {
+    pub identifier: &'source str,
+    pub attributes: Vec<'alloc, (&'source str, Expression<'source, 'alloc>)>,
+    pub children: Vec<'alloc, MarkupChild<'source, 'alloc>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum MarkupChild<'sf, 'arena> {
-    Element(MarkupElement<'sf, 'arena>),
-    Text(&'sf str),
-    Insert(Expression<'sf, 'arena>),
+pub enum MarkupChild<'source, 'alloc> {
+    Element(MarkupElement<'source, 'alloc>),
+    Text(&'source str),
+    Insert(Expression<'source, 'alloc>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Parameter<'sf, 'arena> {
-    pub id: &'sf str,
+pub struct Parameter<'source, 'alloc> {
+    pub id: &'source str,
     pub is_mutable: bool,
-    pub ty: Span<Type<'sf, 'arena>>,
+    pub ty: Span<Type<'source, 'alloc>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Type<'sf, 'arena> {
+pub enum Type<'source, 'alloc> {
     Never,
     Union {
-        first: RawType<'sf, 'arena>, // Ensures the union has at least one RawType
-        remaining: Vec<'arena, RawType<'sf, 'arena>>
+        first: RawType<'source, 'alloc>, // Ensures the union has at least one RawType
+        remaining: Vec<'alloc, RawType<'source, 'alloc>>
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum RawType<'sf, 'arena> {
-    Function(Span<Box<'arena, FunctionSignature<'sf, 'arena>>>),
-    Item(ItemRef<'sf, 'arena>)
+pub enum RawType<'source, 'alloc> {
+    Function(Span<Box<'alloc, FunctionSignature<'source, 'alloc>>>),
+    Item(ItemRef<'source, 'alloc>)
 }
 
-impl<'sf, 'arena> RawType<'sf, 'arena> {
+impl<'source, 'alloc> RawType<'source, 'alloc> {
     #[inline]
     pub fn source_span(&self) -> Range<Index> {
         match self {
@@ -289,12 +291,12 @@ impl<'sf, 'arena> RawType<'sf, 'arena> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ItemRef<'sf, 'arena> {
-    pub path: Span<ItemPath<'sf, 'arena>>,
-    pub tps: Span<Vec<'arena, Span<Type<'sf, 'arena>>>>,
+pub struct ItemRef<'source, 'alloc> {
+    pub path: Span<ItemPath<'source, 'alloc>>,
+    pub tps: Span<Vec<'alloc, Span<Type<'source, 'alloc>>>>,
 }
 
-impl<'sf, 'arena> ItemRef<'sf, 'arena> {
+impl<'source, 'alloc> ItemRef<'source, 'alloc> {
     #[inline]
     pub const fn source_span(&self) -> Range<Index> {
         self.path.source.start..self.tps.source.end
@@ -302,15 +304,15 @@ impl<'sf, 'arena> ItemRef<'sf, 'arena> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FunctionSignature<'sf, 'arena> {
-    pub return_type: Option<Span<Type<'sf, 'arena>>>,
-    pub parameters: Vec<'arena, Parameter<'sf, 'arena>>,
+pub struct FunctionSignature<'source, 'alloc> {
+    pub return_type: Option<Span<Type<'source, 'alloc>>>,
+    pub parameters: Vec<'alloc, Parameter<'source, 'alloc>>,
     pub has_this_parameter: bool,
-    pub tps: TypeParameters<'sf, 'arena>,
+    pub tps: TypeParameters<'source, 'alloc>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ItemPath<'sf, 'arena> {
-    pub parents: Vec<'arena, &'sf str>,
-    pub id: &'sf str
+pub struct ItemPath<'source, 'alloc> {
+    pub parents: Vec<'alloc, &'source str>,
+    pub id: &'source str
 }
