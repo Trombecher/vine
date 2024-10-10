@@ -82,7 +82,7 @@ pub enum Expression<'source, 'alloc: 'alloc> {
     Instance(Vec<'alloc, InstanceFieldInit<'source, 'alloc>>),
     Access(Access<'source, 'alloc>),
     OptionalAccess(Access<'source, 'alloc>),
-    Array(Vec<'alloc, Expression<'source, 'alloc>>),
+    Array(Vec<'alloc, Span<Expression<'source, 'alloc>>>),
 
     // Primitives
     Number(f64),
@@ -102,6 +102,9 @@ pub enum Expression<'source, 'alloc: 'alloc> {
         target: Box<'alloc, Span<Expression<'source, 'alloc>>>,
         arguments: CallArguments<'source, 'alloc>
     },
+    As {
+        ty: Span<Type<'source, 'alloc>>
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -127,11 +130,13 @@ pub struct If<'source, 'alloc> {
 pub type TypeParameters<'source, 'alloc> = Vec<'alloc, Span<TypeParameter<'source, 'alloc>>>;
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum ThisParameter {
+    This,
+    ThisMut
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum StatementKind<'source, 'alloc> {
-    TypeParameterAlias {
-        tps: TypeParameters<'source, 'alloc>,
-        content: ModuleContent<'source, 'alloc>
-    },
     Enum {
         doc_comments: Vec<'alloc, &'source str>,
         id: &'source str,
@@ -144,6 +149,12 @@ pub enum StatementKind<'source, 'alloc> {
         ty: Option<Span<Type<'source, 'alloc>>>,
         id: &'source str,
         value: Option<Box<'alloc, Span<Expression<'source, 'alloc>>>>,
+    },
+    Function {
+        signature: FunctionSignature<'source, 'alloc>,
+        id: &'source str,
+        this_parameter: Option<ThisParameter>,
+        body: Box<'alloc, Span<Expression<'source, 'alloc>>>,
     },
     Struct {
         doc_comments: Vec<'alloc, &'source str>,
@@ -303,12 +314,13 @@ impl<'source, 'alloc> ItemRef<'source, 'alloc> {
     }
 }
 
+/// A struct containing information about type parameters,
+/// parameters and the return-type of a function.
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionSignature<'source, 'alloc> {
-    pub return_type: Option<Span<Type<'source, 'alloc>>>,
-    pub parameters: Vec<'alloc, Parameter<'source, 'alloc>>,
-    pub has_this_parameter: bool,
     pub tps: TypeParameters<'source, 'alloc>,
+    pub parameters: Vec<'alloc, Parameter<'source, 'alloc>>,
+    pub return_type: Option<Span<Type<'source, 'alloc>>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

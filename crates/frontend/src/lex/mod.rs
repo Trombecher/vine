@@ -922,7 +922,22 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                 })
             }
             Some(Layer::Insert) => {
-                let token = self.next_token_default()?;
+                if let Some(line_break) = self.skip_whitespace_line() {
+                    return Ok(line_break);
+                }
+
+                let token = if self.potential_markup {
+                    self.potential_markup = false;
+
+                    if self.cursor.peek() == Some(b'<') {
+                        unsafe { self.cursor.advance_unchecked() }
+                        self.parse_start_tag()?
+                    } else {
+                        self.next_token_default()?
+                    }
+                } else {
+                    self.next_token_default()?
+                };
 
                 match &token.value {
                     Token::Symbol(Symbol::LeftBrace) => {

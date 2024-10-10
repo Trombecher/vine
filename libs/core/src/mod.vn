@@ -1,0 +1,9 @@
+@lang("Range")
+pub struct<Index> Range(
+    mut start: Index
+    mut end: Index
+)
+
+impl<Index> Range<Index> {
+
+}

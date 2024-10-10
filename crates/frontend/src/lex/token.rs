@@ -1,4 +1,4 @@
-use core::fmt::Debug;
+use core::fmt::{Debug, Formatter};
 use core::mem::transmute;
 use bumpalo::Bump;
 use bytes::{Cursor, Span};
@@ -7,8 +7,8 @@ use phf::phf_map;
 use crate::lex::{unescape_char, Error};
 use crate::{Box, Vec};
 
-/// This type solely exists because [Clone] is not implemented for `Box<str, A>`.
-#[derive(Clone, PartialEq, Debug)]
+/// This type solely exists because [Clone] is not implemented for `Box<str, A>` (which is ridiculous).
+#[derive(Clone, PartialEq)]
 pub struct BoxStr<'alloc>(Box<'alloc, [u8]>);
 
 impl<'alloc> From<Box<'alloc, str>> for BoxStr<'alloc> {
@@ -21,6 +21,13 @@ impl<'alloc> From<Box<'alloc, str>> for BoxStr<'alloc> {
 impl<'alloc> Into<Box<'alloc, str>> for BoxStr<'alloc> {
     fn into(self) -> Box<'alloc, str> {
         unsafe { transmute(self) }
+    }
+}
+
+impl<'alloc> Debug for BoxStr<'alloc> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        // Steal the Debug impl from Box<str, A>
+        unsafe { transmute::<_, &Box<'alloc, str>>(self) }.fmt(f)
     }
 }
 
@@ -55,7 +62,7 @@ impl<'source> UnprocessedString<'source> {
 pub enum Token<'a> {
     Char(char),
 
-    /// An identifier token. Guaranteed to match against the regex `([a-zA-Z][a-zA-Z_0-9]*)|([a-zA-Z_][a-zA-Z_0-9]+)`.
+    /// An identifier token. Guaranteed to match against this regex `([a-zA-Z][a-zA-Z_0-9]*)|([a-zA-Z_][a-zA-Z_0-9]+)`.
     Identifier(&'a str),
 
     /// A number

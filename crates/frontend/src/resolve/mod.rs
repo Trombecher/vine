@@ -1,6 +1,9 @@
+use core::cell::RefCell;
+use bumpalo::Bump;
 use hashbrown::HashMap;
 use crate::parse::ast as parse_ast;
 use ast::*;
+use crate::parse::ast::StatementKind;
 
 pub mod ast;
 
@@ -17,23 +20,13 @@ pub fn resolve_module_content<'sf: 'resolve_arena + 'parse_arena, 'resolve_arena
         } = &item.statement.value;
 
         match statement_kind {
-            parse_ast::StatementKind::TypeParameterAlias { .. } => todo!(),
-            parse_ast::StatementKind::Enum { .. } => todo!(),
-            parse_ast::StatementKind::Declaration {
-                id,
-                doc_comments,
-                value,
-                ty,
-                is_mutable
-            } => {
-                
-                todo!()
-            },
-            parse_ast::StatementKind::Struct { .. } => todo!(),
-            parse_ast::StatementKind::TypeAlias { .. } => todo!(),
-            parse_ast::StatementKind::Use(_) => todo!(),
-            parse_ast::StatementKind::RootUse(_) => todo!(),
-            parse_ast::StatementKind::Module {
+            StatementKind::Enum { .. } => todo!(),
+            StatementKind::Declaration { .. } => todo!(),
+            StatementKind::Struct { .. } => todo!(),
+            StatementKind::TypeAlias { .. } => todo!(),
+            StatementKind::Use(_) => todo!(),
+            StatementKind::RootUse(_) => todo!(),
+            StatementKind::Module {
                 content,
                 id,
                 doc_comments: _
@@ -57,6 +50,7 @@ pub fn resolve_module_content<'sf: 'resolve_arena + 'parse_arena, 'resolve_arena
                     &*entry_ref
                 );
             },
+            StatementKind::Function { .. } => todo!()
         };
     }
 }
