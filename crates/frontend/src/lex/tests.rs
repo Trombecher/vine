@@ -17,10 +17,10 @@ macro_rules! match_tokens {
             );
         }
 
-        assert_eq!(lexer.next_token(), Ok(Span {
+        assert_eq!(lexer.next_token().unwrap(), Span {
             value: Token::EndOfInput,
             source: $source.len() as Index..$source.len() as Index
-        }));
+        });
     };
 }
 
@@ -59,17 +59,17 @@ fn lex_keywords() {
 
     for kw in keywords {
         assert_eq!(
-            lexer.next_token().map(|token| token.value),
-            Ok(Token::Keyword(kw))
+            lexer.next_token().map(|token| token.value).unwrap(),
+            Token::Keyword(kw)
         )
     }
 
     assert_eq!(
-        lexer.next_token(),
-        Ok(Span {
+        lexer.next_token().unwrap(),
+        Span {
             value: Token::EndOfInput,
             source: input.len() as Index..input.len() as Index
-        })
+        }
     )
 }
 

@@ -1,7 +1,6 @@
 use core::cell::RefCell;
 use bumpalo::Bump;
-use hashbrown::hash_map::DefaultHashBuilder;
-use hashbrown::HashMap;
+use hashbrown::{DefaultHashBuilder, HashMap};
 
 /// Maps identifiers (symbols) to items.
 pub type SymbolTable<'sf, 'arena> = HashMap<

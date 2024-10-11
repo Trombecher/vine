@@ -7,3 +7,4 @@ edition = "2021"
 huge_files = []
 
 [dependencies]
+errors = { path = "../errors" }

@@ -7,7 +7,7 @@ fn main() {
     
     let lex_alloc = Bump::new();
     let parse_alloc = Bump::new();
-
+    
     let (module, _warnings) = parse_module(source.as_bytes(), &lex_alloc, &parse_alloc);
 
     match module {

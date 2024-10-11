@@ -1,7 +1,7 @@
-use core::fmt::{Debug, Formatter};
-use core::mem::transmute;
 use bumpalo::Bump;
 use bytes::{Cursor, Span};
+use core::fmt::{Debug, Formatter};
+use core::mem::transmute;
 use phf::phf_map;
 
 use crate::lex::{unescape_char, Error};
@@ -32,14 +32,14 @@ impl<'alloc> Debug for BoxStr<'alloc> {
 }
 
 /// Boxes an `&str` which has some characteristics it must obey.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UnprocessedString<'source>(&'source str);
 
 impl<'source> UnprocessedString<'source> {
-    pub const unsafe fn from_raw(slice: &'source str) -> UnprocessedString<'source> {
-        UnprocessedString(slice)
+    pub const unsafe fn from_raw(raw: &'source str) -> Self {
+        Self(raw)
     }
-
+    
     pub fn process<'alloc>(&self, alloc: &'alloc Bump) -> Result<Box<'alloc, str>, Error> {
         let mut string = Vec::with_capacity_in(self.0.len(), alloc);
         let mut cursor = Cursor::new(self.0.as_bytes());
@@ -51,13 +51,13 @@ impl<'source> UnprocessedString<'source> {
                 Some(byte) => string.push(byte)
             }
         }
-        
+
         // SAFETY: this is a string
         Ok(unsafe { transmute::<_, Box<'alloc, str>>(string.into_boxed_slice()) })
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Token<'a> {
     Char(char),
@@ -198,6 +198,9 @@ pub enum Symbol {
     AmpersandAmpersand,
     AmpersandAmpersandEquals,
     Dot,
+    DotDot,
+    DotDotDot,
+    DotDotEquals,
     QuestionMark,
     QuestionMarkDot,
     Comma,
@@ -215,13 +218,13 @@ pub enum Symbol {
 
 pub trait TokenIterator<'a> {
     fn next_token(&mut self) -> Result<Span<Token<'a>>, Error>;
-    
+
     // /// Returns a view of all warnings gathered so far.
     // fn warnings(&self) -> &[Span<Warning>];
-    
+
     // /// Returns a mutable reference to the warnings.
     // fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>>;
-    
+
     // /// Consumes the iterator.
     // fn consume_warnings(self) -> Vec<Span<Warning>>;
 }

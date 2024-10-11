@@ -3,7 +3,8 @@
 mod tests;
 
 use bytes::Span;
-use crate::lex::{Error, Token, TokenIterator};
+use errors::Error;
+use crate::lex::{Token, TokenIterator};
 
 /// Wraps a [TokenIterator] and buffers tokens.
 ///
@@ -35,21 +36,6 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
             next_next_token: None,
         }
     }
-
-    // #[inline]
-    // pub fn warnings(&self) -> &[Span<Warning>] {
-    //     self.iter.warnings()
-    // }
-
-    // #[inline]
-    // pub fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
-    //     self.iter.warnings_mut()
-    // }
-
-    // #[inline]
-    // pub fn consume_warnings(self) -> Vec<Span<Warning>> {
-    //     self.iter.consume_warnings()
-    // }
 
     #[inline]
     pub fn peek<'b>(&'b self) -> &'b Span<Token<'a>> {
@@ -87,12 +73,6 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
             // token => (token, false)
         })
     }
-
-    // /// Returns the next token.
-    // #[inline]
-    // pub fn next(&mut self) -> Result<Span<'a, Token<'a>>, Error> {
-    //     Ok(replace(&mut self.next_token, self.iter.next_token()?))
-    // }
 
     /// Skips a potential line break.
     /// Returns `Ok(true)` if a line break was skipped or a [Token::EndOfInput] was encountered;

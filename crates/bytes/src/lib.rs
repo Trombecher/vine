@@ -1,13 +1,15 @@
+#![no_std]
+
 //! # Bytes
 //!
 //! This crate provides functionality to step and iterate through a slice of bytes.
 
 mod tests;
 
+use core::fmt::Debug;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
-use std::fmt::Debug;
-use std::ops::Range;
+use core::ops::Range;
 
 #[cfg(feature = "huge_files")]
 pub type Index = u64;
@@ -106,6 +108,9 @@ impl<'a> Cursor<'a> {
     pub const fn cursor(&self) -> *const u8 {
         self.cursor
     }
+    
+    #[inline]
+    pub const fn end(&self) -> *const u8 { self.end }
     
     #[inline]
     pub const fn new(slice: &[u8]) -> Self {

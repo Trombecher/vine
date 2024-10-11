@@ -9,5 +9,6 @@ huge_files = ["bytes/huge_files"]
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
 bytes = { path = "../bytes"}
-hashbrown = { version = "0.14.5", features = ["nightly"] }
+hashbrown = { version = "0.15.0", features = ["nightly"] }
 bumpalo = { version = "3.16.0", features = ["allocator_api"] }
+errors = { path = "../errors" }

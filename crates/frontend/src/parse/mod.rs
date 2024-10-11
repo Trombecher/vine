@@ -1,4 +1,3 @@
-mod errors;
 mod warnings;
 mod tests;
 
@@ -12,7 +11,7 @@ use ast::*;
 use bytes::{Index, Span};
 use core::ops::Range;
 use bumpalo::Bump;
-pub use errors::*;
+use errors::*;
 pub use warnings::*;
 
 pub struct ParseContext<'source: 'alloc, 'alloc, T: TokenIterator<'source>> {
@@ -103,7 +102,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }); // TODO: Add traits
                 }
                 Token::Symbol(Symbol::RightAngle) => break,
-                _ => return Err(Error::ExpectedTypeParameter)
+                _ => return error!("Expected type parameter")
             }
 
             self.iter.advance_skip_lb()?;
@@ -114,7 +113,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 Token::Symbol(Symbol::Comma) => {
                     self.iter.advance_skip_lb()?;
                 }
-                _ => return Err(Error::ExpectedTypeParameterDelimiter)
+                _ => return error!("Expected ',' or '>'")
             }
         }
 
@@ -139,6 +138,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 Token::Symbol(Symbol::Semicolon) => {
                     self.omit_single_token_warning(Warning::UnnecessarySemicolon);
                     self.iter.advance_skip_lb()?;
+                    continue
                 }
                 _ => {}
             }
@@ -155,7 +155,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 }
                 Token::LineBreak => self.iter.advance()?,
                 Token::Symbol(Symbol::RightBrace) => break,
-                _ => return Err(Error::ExpectedDelimiterInBlock)
+                _ => return error!("Expected ';', '}' or a line break")
             }
         }
 
@@ -208,7 +208,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                 self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                             }
                             Token::LineBreak => self.iter.advance()?,
-                            _ => return Err(Error::ExpectedDelimiterAfterItemInTPUsage),
+                            _ => return error!("Expected ',', '}' or a line break"),
                         }
                     }
 
@@ -228,7 +228,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 });
 
                 let remaining: Vec<'alloc, RawType<'source, 'alloc>> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
-                    return Err(Error::Unimplemented)
+                    return error!("TODO: this ain't be implemented :(")
 
                     // self.iter.advance()?;
                     // self.iter.advance_skip_lb()?;
@@ -244,7 +244,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     },
                 }
             }
-            _ => return Err(Error::InvalidTypeStart)
+            _ => return error!("Expected an identifier or '!' (the never type)")
         })
     }
 
@@ -281,7 +281,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             self.iter.advance()?;
                             break;
                         }
-                        _ => return Err(Error::ExpectedField)
+                        _ => return error!("Expected an identifier or ')'")
                     };
 
                     vec.push(value);
@@ -298,7 +298,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             break;
                         }
                         (_, true) => self.iter.advance()?,
-                        _ => return Err(Error::ExpectedDelimiterInObject)
+                        _ => return error!("Expected ',', ')' or a line break")
                     }
                 }
 
@@ -309,7 +309,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             }
             Token::Identifier(id) => self.parse_use(id)?
                 .map(|u| UseChild::Single(Box::new_in(u, self.alloc))),
-            _ => return Err(Error::InvalidStartOfUseChild)
+            _ => return error!("Expected an identifier, '*' or '('")
         })
     }
 
@@ -358,7 +358,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                 first_id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::UnimplementedError)
+                    _ => return error!("Expected an identifier"),
                 };
 
                 source.end = self.iter.peek().source.end;
@@ -401,14 +401,14 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
             let id = match self.iter.peek().value {
                 Token::Identifier(id) => id,
-                _ => return Err(Error::UnimplementedError)
+                _ => return error!("Expected an identifier")
             };
 
             self.iter.advance_skip_lb()?;
 
             match self.iter.peek().value {
                 Token::Symbol(Symbol::Colon) => {}
-                _ => return Err(Error::UnimplementedError)
+                _ => return error!("Expected ':'")
             }
 
             self.iter.advance_skip_lb()?;
@@ -423,7 +423,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 Token::Symbol(Symbol::RightParenthesis) => break,
                 Token::Symbol(Symbol::Comma) => self.iter.advance()?,
                 _ if lb => {}
-                _ => return Err(Error::UnimplementedError)
+                _ => return error!("Expected ',', ')' or a line break")
             }
         }
 
@@ -467,7 +467,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
             let id = match self.iter.peek().value {
                 Token::Identifier(id) => id,
-                _ => return Err(Error::UnimplementedError)
+                _ => return error!("Expected an identifier"),
             };
 
             let path = self.parse_item_path(id)?;
@@ -486,15 +486,16 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::UnimplementedError)
+                    _ => return error!("Expected an identifier"),
                 };
 
                 self.iter.advance_skip_lb()?;
 
                 match self.iter.peek().value {
                     Token::Symbol(Symbol::LeftParenthesis) => {}
-                    Token::Symbol(Symbol::LeftAngle) => return Err(Error::InvalidPositioningOfTypeParametersInFunction),
-                    _ => return Err(Error::UnimplementedError)
+                    Token::Symbol(Symbol::LeftAngle) =>
+                        return error!("Type parameter are declared after 'fn', not after the function name."),
+                    _ => return error!("Expected '('")
                 }
 
                 self.iter.advance_skip_lb()?;
@@ -510,7 +511,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             Token::Symbol(Symbol::Comma) => {
                                 self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                             }
-                            _ => return Err(Error::ExpectedDelimiterAfterThisParameter)
+                            _ => return error!("Expected ',' or a line break"),
                         }
                         
                         Some(ThisParameter::This)
@@ -529,7 +530,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                     Token::Symbol(Symbol::Comma) => {
                                         self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                     }
-                                    _ => return Err(Error::ExpectedDelimiterAfterThisParameter)
+                                    _ => return error!("Expected ',', ')' or a line break"),
                                 }
 
                                 Some(ThisParameter::ThisMut)
@@ -541,7 +542,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                                 match self.iter.peek().value {
                                     Token::Symbol(Symbol::Colon) => {}
-                                    _ => return Err(Error::UnimplementedError)
+                                    _ => return error!("Expected ':'"),
                                 }
 
                                 self.iter.advance_skip_lb()?;
@@ -562,12 +563,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                     Token::Symbol(Symbol::Comma) => {
                                         self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                     }
-                                    _ => return Err(Error::ExpectedDelimiterAfterParameter)
+                                    _ => return error!("Expected ',', ')' or a line break")
                                 }
                                 
                                 None
                             }
-                            _ => return Err(Error::ExpectedThisOrIdInFunctionParameters)
+                            _ => return error!("Expected an identifier or 'this'"),
                         }
                     }
                     _ => None,
@@ -592,7 +593,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 // Validate that the block starts with `{`
                 match self.iter.peek().value {
                     Token::Symbol(Symbol::LeftBrace) => {}
-                    _ => return Err(Error::UnimplementedError),
+                    _ => return error!("Expected '{'"),
                 }
 
                 let body = self.parse_block()?;
@@ -616,7 +617,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::ExpectedIdentifierOfModule)
+                    _ => return error!("Expected an identifier"),
                 };
 
                 self.iter.advance()?;
@@ -631,7 +632,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                         match self.iter.peek().value {
                             Token::Symbol(Symbol::RightBrace) => {}
-                            _ => return Err(Error::UnimplementedError)
+                            _ => return error!("Expected '}'"),
                         }
 
                         source.end = self.iter.peek().source.end;
@@ -646,7 +647,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }
                     (Span { value: Token::Symbol(Symbol::Semicolon), .. }, _) => None, // The caller handles this
                     (_, true) => None,
-                    _ => return Err(Error::UnimplementedError)
+                    _ => return error!("Expected module content (starting with '{') or a delimiter (';' or a line break)"),
                 };
 
                 Some(StatementKind::Module {
@@ -662,7 +663,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::UnimplementedError)
+                    _ => return error!("Expected an identifier"),
                 };
 
                 let mut fields = Vec::new_in(self.alloc);
@@ -696,7 +697,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                             let id = match self.iter.peek().value {
                                 Token::Identifier(id) => id,
-                                _ => return Err(Error::UnimplementedError)
+                                _ => return error!("Expected an identifier"),
                             };
 
                             self.iter.advance_skip_lb()?;
@@ -706,7 +707,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                     self.iter.advance_skip_lb()?;
                                     self.parse_type()?
                                 }
-                                _ => return Err(Error::UnimplementedError)
+                                _ => return error!("Expected ':'"),
                             };
 
                             fields.push(Span {
@@ -722,12 +723,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             let lb = self.iter.skip_lb()?;
 
                             match self.iter.peek().value {
+                                Token::Symbol(Symbol::RightParenthesis) => break,
                                 Token::Symbol(Symbol::Comma) => {
                                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                 }
-                                Token::Symbol(Symbol::RightParenthesis) => break,
                                 _ if lb => {}
-                                _ => return Err(Error::UnimplementedError)
+                                _ => return error!("Expected ',', ')' or a line break")
                             }
                         }
 
@@ -736,7 +737,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                         self.iter.advance()?;
                     }
                     (_, true) => {}
-                    _ => return Err(Error::UnimplementedError)
+                    _ => return error!("Expected struct content (starting with '(') or a delimiter (';' or a line break)"),
                 }
 
                 Some(StatementKind::Struct {
@@ -763,7 +764,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                 let id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::UnimplementedError),
+                    _ => return error!("Expected an identifier"),
                 };
 
                 // Source end is at least the integer end
@@ -799,7 +800,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     (_, true) => None,
 
                     // Else (there is a token which is not separated by a line break), short-circuit.
-                    _ => return Err(Error::UnimplementedError)
+                    _ => return error!("Expected an initialization (starting with '=') or a delimiter (';' or a line break)"),
                 };
 
                 Some(StatementKind::Declaration {
@@ -817,14 +818,15 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             // use d.(x, y, z.*)
             Token::Keyword(Keyword::Use) => {
                 if doc_comments.len() > 0 {
-                    return Err(Error::DocCommentOnUse);
+                    // TODO: Maybe change this from being an error (?)
+                    return error!("Doc comments cannot be attached to use statements");
                 }
 
                 self.iter.advance_skip_lb()?;
 
                 let root_id = match self.iter.peek().value {
                     Token::Identifier(id) => id,
-                    _ => return Err(Error::UnimplementedError),
+                    _ => return error!("Expected an identifier"),
                 };
 
                 let Span { source: src, value } = self.parse_use(root_id)?;
@@ -833,11 +835,11 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             }
             _ => {
                 if doc_comments.len() > 0 {
-                    return Err(Error::UnboundDocComment)
+                    return error!("Doc comments are not attached to a statement");
                 }
 
                 if annotations.len() > 0 {
-                    return Err(Error::UnboundAnnotations);
+                    return error!("Annotations are not attached to a statement");
                 }
 
                 None
@@ -908,7 +910,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                         let id = match self.iter.peek().value {
                             Token::Identifier(id) => id,
-                            _ => return Err(Error::UnimplementedError)
+                            _ => return error!("Expected an identifier"),
                         };
 
                         let id_source = self.iter.peek().source.clone();
@@ -935,7 +937,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                 value: Expression::Identifier(id),
                                 source: id_source,
                             },
-                            _ => return Err(Error::UnimplementedError)
+                            _ => return error!("Expected an initialization (starting with '='), ')' or a delimiter (';' or a line break)"),
                         };
 
                         fields.push(InstanceFieldInit {
@@ -1018,7 +1020,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     
                     match self.iter.peek().value {
                         Token::Symbol(Symbol::LeftParenthesis) => {}
-                        _ => return Err(Error::UnimplementedError)
+                        _ => return error!("Expected '('."),
                     };
                     
                     self.iter.advance_skip_lb()?;
@@ -1026,7 +1028,8 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     self.iter.advance_skip_lb()?;
 
                     let (return_type, body) = match self.iter.peek().value {
-                        Token::Symbol(Symbol::MinusRightAngle) => return Err(Error::Unimplemented),
+                        Token::Symbol(Symbol::MinusRightAngle) =>
+                            return error!("Closures cannot have return type annotations."),
                         _ => (None, self.parse_expression(0)?),
                     };
 
@@ -1047,7 +1050,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     match self.iter.peek().value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => return Err(Error::UnimplementedError)
+                        _ => return error!("Expected '{'")
                     }
 
                     let body = self.parse_block()?;
@@ -1071,7 +1074,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                 self.iter.advance()?;
                                 break Some(block);
                             }
-                            _ => return Err(Error::UnimplementedError)
+                            _ => return error!("Expected `if` or '{'"),
                         }
 
                         // else-if-branch
@@ -1083,7 +1086,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                         match self.iter.peek().value {
                             Token::Symbol(Symbol::LeftBrace) => {}
-                            _ => return Err(Error::UnimplementedError)
+                            _ => return error!("Expected '{' after 'else if' condition")
                         }
 
                         let body = self.parse_block()?;
@@ -1119,7 +1122,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     match self.iter.peek().value {
                         Token::Symbol(Symbol::LeftBrace) => {}
-                        _ => return Err(Error::UnimplementedError)
+                        _ => return error!("Expected '{'")
                     }
 
                     let body = self.parse_block()?;
@@ -1174,7 +1177,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                         arguments: CallArguments::Named(params),
                     }
                 }
-                _ => return Err(Error::InvalidStartOfExpression)
+                _ => return error!("Invalid start of expression"),
             },
             source: first_source,
         })
@@ -1313,12 +1316,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                                         match self.iter.peek().value {
                                             Token::Symbol(Symbol::Equals) => {}
-                                            _ => return Err(Error::UnimplementedError)
+                                            _ => return error!("Expected '='")
                                         }
 
                                         id
                                     }
-                                    _ => return Err(Error::UnimplementedError)
+                                    _ => return error!("Expected ',', ')' or an identifier")
                                 };
 
                                 parse_that!();
@@ -1393,7 +1396,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     let property = match self.iter.peek().value {
                         Token::Identifier(id) => id,
-                        _ => return Err(Error::UnimplementedError)
+                        _ => return error!("Expected an identifier")
                     };
 
                     let end = self.iter.peek().source.end;
@@ -1418,7 +1421,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     let property = match self.iter.peek().value {
                         Token::Identifier(id) => id,
-                        _ => return Err(Error::UnimplementedError)
+                        _ => return error!("Expected an identifier")
                     };
 
                     let end = self.iter.peek().source.end;
@@ -1445,7 +1448,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     break;
                 }
                 _ if line_break => break,
-                _ => return Err(Error::InvalidContinuationOfExpression)
+                _ => return error!("Invalid continuation of the expression")
             };
 
             first_term = Span {
@@ -1481,7 +1484,11 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
             items.push(TopLevelItem {
                 is_public,
-                statement: self.try_parse_statement()?.ok_or(Error::UnimplementedError)?,
+                statement: if let Some(statement) = self.try_parse_statement()? {
+                    statement
+                } else {
+                    return error!("Expected a statement")
+                }
             });
 
             match self.iter.peek().value {
@@ -1490,7 +1497,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 }
                 Token::LineBreak => self.iter.advance()?,
                 Token::Symbol(Symbol::RightBrace) | Token::EndOfInput => break,
-                _ => return Err(Error::UnimplementedError)
+                _ => return error!("Expected ';', '}' or a line break")
             }
         }
 
@@ -1501,7 +1508,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         let content = self.parse_module_content()?;
         match self.iter.peek().value {
             Token::EndOfInput => Ok(content),
-            _ => Err(Error::TrailingClosingBraceInTopLevelModule),
+            _ => error!("This '}' does not close anything; consider removing it")
         }
     }
 }

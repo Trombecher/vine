@@ -7,7 +7,6 @@
 
 extern crate alloc;
 
-mod errors;
 mod warnings;
 
 pub mod lex;
@@ -17,7 +16,6 @@ pub mod resolve;
 
 use alloc::{vec, boxed};
 pub use bumpalo;
-pub use errors::*;
 pub use warnings::*;
 
 // Enforce specification of an allocator.

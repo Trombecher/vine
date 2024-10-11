@@ -5,18 +5,16 @@
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
 use alloc::vec::Vec;
-use core::alloc::Allocator;
 use bytes::{Cursor, Index, Span};
+use core::alloc::Allocator;
 use core::str::from_raw_parts;
-use core::hint::unreachable_unchecked;
+use errors::*;
 
 mod tests;
 mod token;
 mod unit_tests;
-mod errors;
 
 pub use token::*;
-pub use errors::*;
 
 pub enum Layer {
     /// This layer expects `key=`, `/>` or `>`.
@@ -29,9 +27,8 @@ pub enum Layer {
 }
 
 pub struct Lexer<'source, A: Allocator> {
-    /// The start of the slice.
     start: *const u8,
-
+    
     /// The underlying iterator over the bytes.
     cursor: Cursor<'source>,
 
@@ -62,15 +59,20 @@ pub(super) fn unescape_char(cursor: &mut Cursor) -> Result<char, Error> {
         Some(b'x') => {
             // Hexadecimal code
             match cursor.next_lfn().and_then(try_to_hex) {
-                None => Err(Error::InvalidHexEscapeFirst),
+                None => error!("Expected hexadecimal digit in escape sequence"),
                 Some(x) => match cursor.next_lfn().and_then(try_to_hex) {
-                    None => Err(Error::InvalidHexEscapeSecond),
+                    None => error!("Expected a second hexadecimal digit in escape sequence"),
                     Some(y) => Ok(((x << 4) + y) as char),
                 },
             }
         }
-        Some(b'u') => Err(Error::UnimplementedError),
-        _ => Err(Error::InvalidEscapeSequence),
+        Some(b'u') => {
+            match cursor.next_lfn() {
+                None => error!("Expected '{' in unicode escape sequence"),
+                _ => error!("TODO"),
+            }
+        }
+        _ => error!("Invalid escape sequence"),
     }
 }
 
@@ -108,7 +110,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
             // warnings: Vec::new(),
         }
     }
-
+    
     /// Calculates the index of the next byte.
     pub fn index(&self) -> Index {
         unsafe { self.cursor.cursor().sub_ptr(self.start) as Index }
@@ -134,7 +136,8 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                     number = self.parse_number_dec_tail(number)?;
                     break;
                 }
-                Some(x) if x.is_ascii_alphabetic() => return Err(Error::InvalidDigitInDecimalNumber),
+                Some(x) if x.is_ascii_alphabetic() =>
+                    return error!("Invalid digit in hexadecimal number"),
                 _ => break,
             }
         }
@@ -208,7 +211,8 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                     multiplier *= 0.1;
                     9.0
                 }
-                Some(x) if x.is_ascii_alphabetic() => return Err(Error::InvalidDigitInDecimalNumberTail), // TODO: Expand this to unicode alphabetic
+                Some(x) if x.is_ascii_alphabetic() =>
+                    return error!("Expected a digit in decimal part"), // TODO: Expand this to unicode alphabetic
                 _ => break,
             } * multiplier;
         }
@@ -222,7 +226,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
         loop {
             match self.cursor.peek() {
-                None => break Err(Error::UnterminatedString),
+                None => break error!("Unterminated string"),
                 Some(b'"') => {
                     let end = self.cursor.cursor();
 
@@ -230,14 +234,16 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
                     break Ok(unsafe {
                         UnprocessedString::from_raw(from_raw_parts(first, end.sub_ptr(first)))
-                    });
+                    })
                 }
                 Some(b'\\') => {
                     unsafe { self.cursor.advance_unchecked() }
                     self.cursor.advance();
                 }
                 Some(_) => {
-                    self.cursor.advance_char().map_err(|e| Error::from(e))?
+                    if let Err(_) = self.cursor.advance_char() {
+                        return error!("UTF-8 Error: {}");
+                    }
                 }
             }
         }
@@ -251,7 +257,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 Some(x) if x.is_ascii_alphanumeric() || x == b'_' => unsafe {
                     self.cursor.advance_unchecked()
                 }
-                Some(128..=255) => return Err(Error::InvalidCharacterInIdentifier),
+                Some(128..=255) => return error!("Invalid character in identifier"),
                 _ => break,
             }
         }
@@ -377,7 +383,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         let mut number: u128 = match self.cursor.peek() {
             Some(b'0') => 0,
             Some(b'1') => 1,
-            _ => return Err(Error::ExpectedBinaryDigit)
+            _ => return error!("Expected binary digit")
         };
 
         unsafe { self.cursor.advance_unchecked() }
@@ -390,7 +396,8 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                     number |= 1;
                 }
                 Some(b'_') => {}
-                Some(digit) if digit.is_ascii_alphanumeric() => return Err(Error::InvalidDigitInBinaryNumber),
+                Some(digit) if digit.is_ascii_alphanumeric() =>
+                    return error!("Expected binary digit"),
                 _ => return Ok(Token::Number(number as f64)),
             }
 
@@ -480,8 +487,8 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 unsafe { self.cursor.advance_unchecked() };
 
                 match self.cursor.peek() {
-                    Some(b'x') => return Err(Error::UnimplementedError),
-                    Some(b'o') => return Err(Error::UnimplementedError),
+                    Some(b'x') => return error!("TODO: hexadecimal numbers ought to be implemented"),
+                    Some(b'o') => return error!("TODO: Octal numbers ought to be implemented"),
                     Some(b'b') => self.parse_number_bin()?,
                     Some(b'_') => self.parse_number_dec(0.)?,
                     Some(b'.') => Token::Number(self.parse_number_dec_tail(0.)?),
@@ -613,7 +620,9 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                                     break;
                                 }
                                 Some(128..=255) => {
-                                    self.cursor.advance_char().map_err(|e| Error::from(e))?;
+                                    if let Err(_) = self.cursor.advance_char() {
+                                        return error!("Some UTF-8 error")
+                                    }
                                 }
                                 _ => unsafe { self.cursor.advance_unchecked() }
                             }
@@ -699,7 +708,24 @@ impl<'source, A: Allocator> Lexer<'source, A> {
             Some(b'.') => {
                 unsafe { self.cursor.advance_unchecked() };
 
-                Token::Symbol(Symbol::Dot)
+                Token::Symbol(match self.cursor.peek() {
+                    Some(b'.') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        
+                        match self.cursor.peek() {
+                            Some(b'=') => {
+                                unsafe { self.cursor.advance_unchecked() };
+                                Symbol::DotDotEquals
+                            }
+                            Some(b'.') => {
+                                unsafe { self.cursor.advance_unchecked() };
+                                Symbol::DotDotDot
+                            }
+                            _ => Symbol::DotDot,
+                        }
+                    }
+                    _ => Symbol::Dot
+                })
             }
             Some(b',') => {
                 unsafe { self.cursor.advance_unchecked() };
@@ -717,7 +743,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 unsafe { self.cursor.advance_unchecked() };
 
                 Token::Symbol(match self.cursor.peek() {
-                    Some(b':') => return Err(Error::EncounteredPathSeparator),
+                    Some(b':') => return error!("Encountered Rust-style path separator '::'. Use '.' instead"),
                     _ => Symbol::Colon,
                 })
             }
@@ -749,22 +775,30 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 unsafe { self.cursor.advance_unchecked() };
 
                 let char = match self.cursor.next_lfn() {
-                    None => return Err(Error::UnterminatedCharacter),
+                    None => return error!("Expected character"),
                     Some(b'\\') => unescape_char(&mut self.cursor)?,
-                    Some(b'\n') => return Err(Error::UnimplementedError),
+                    Some(b'\n') => return error!("Character literals cannot span multiple lines.\
+                        If you meant to write a string, use a string literal \"\".\
+                        If you meant to write the newline character, use '\\n' instead"),
                     Some(char) => char.into(),
                 };
 
                 match self.cursor.next_lfn() {
                     Some(b'\'') => {}
-                    _ => return Err(Error::UnterminatedCharacter)
+                    _ => return error!("Unterminated character literal")
                 }
 
                 Token::Char(char)
             }
             Some(b'@') => {
                 unsafe { self.cursor.advance_unchecked() };
-                Token::Symbol(Symbol::At)
+                Token::Symbol(match self.cursor.peek() {
+                    Some(b'!') => {
+                        unsafe { self.cursor.advance_unchecked() };
+                        Symbol::AtExclamationMark
+                    }
+                    _ => Symbol::At,
+                })
             }
             Some(b'"') => {
                 unsafe { self.cursor.advance_unchecked() };
@@ -779,7 +813,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                     Token::Identifier(str)
                 }
             }
-            Some(_) => return Err(Error::IllegalCharacter),
+            Some(_) => return error!("Encountered unexpected character"),
         };
 
         Ok(Span {
@@ -802,7 +836,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         let identifier = self.parse_id()?;
 
         if KEYWORDS.contains_key(identifier) {
-            return Err(Error::KeywordAsTagName);
+            return error!("Cannot use a reserved keyword as a start tag identifier");
         }
 
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
@@ -820,7 +854,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
         let tag_name = self.parse_id()?;
         if KEYWORDS.contains_key(tag_name) {
-            return Err(Error::KeywordAsTagName);
+            return error!("Cannot use a reserved keyword as an end tag identifier");
         }
 
         self.skip_whitespace();
@@ -830,7 +864,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 value: Token::MarkupEndTag(tag_name),
                 source: start..self.index(),
             }),
-            _ => Err(Error::UnterminatedEndTag),
+            _ => error!("Unterminated end tag"),
         }
     }
 }
@@ -877,14 +911,14 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                         match self.cursor.next_lfn() {
                             Some(b'>') => Token::MarkupClose,
-                            _ => return Err(Error::UnterminatedSelfClosingTag),
+                            _ => return error!("Unterminated self-closing tag"),
                         }
                     }
                     Some(char) if char.is_ascii_alphabetic() || char == b'_' => {
                         self.layers.push(Layer::Value);
                         Token::MarkupKey(self.parse_id()?)
                     }
-                    _ => return Err(Error::IllegalCharacterInProps),
+                    _ => return error!("Expected '>' or '/' or a char"),
                 };
 
                 Ok(Span {
@@ -897,7 +931,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 match self.cursor.next_lfn() {
                     Some(b'=') => {}
-                    _ => return Err(Error::ExpectedEquals),
+                    _ => return error!("Expected '='"),
                 }
 
                 self.skip_whitespace();
@@ -913,7 +947,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                         self.potential_markup = true;
                         Token::Symbol(Symbol::LeftBrace)
                     }
-                    _ => return Err(Error::ExpectedValue),
+                    _ => return error!("Expected a html-style value \"...\" or a JSX-style value {...}"),
                 };
 
                 Ok(Span {
@@ -959,8 +993,10 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                 loop {
                     match self.cursor.peek() {
                         Some(b'<' | b'{') => break,
-                        Some(_) => self.cursor.advance_char().map_err(|e| Error::from(e))?,
-                        None => return Err(Error::UnterminatedMarkupElement),
+                        Some(_) => if let Err(_) = self.cursor.advance_char() {
+                            return error!("UTF-8 error");
+                        },
+                        None => return error!("Markup element is unterminated"),
                     }
                 }
 
@@ -979,7 +1015,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                             self.skip_whitespace();
 
                             match self.cursor.peek() {
-                                None => Err(Error::UnterminatedTagStart),
+                                None => error!("Unterminated start tag"),
 
                                 // End tag
                                 Some(b'/') => {
@@ -1010,7 +1046,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                         }
 
                         // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
-                        _ => unsafe { unreachable_unchecked() },
+                        _ => unreachable!(),
                     }
                 } else {
                     // There is some text, so we yield the text and prepare the next layer state.
@@ -1024,7 +1060,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                             self.skip_whitespace();
 
                             match self.cursor.peek() {
-                                None => return Err(Error::UnterminatedTagStart),
+                                None => return error!("Expected something"),
 
                                 // End tag
                                 Some(b'/') => {
@@ -1043,7 +1079,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                         Some(b'{') => self.layers.push(Layer::TextOrInsert),
 
                         // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
-                        _ => unsafe { unreachable_unchecked() },
+                        _ => unreachable!(),
                     }
 
                     Ok(Span {
@@ -1056,19 +1092,4 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
             Some(Layer::StartTag) => self.parse_start_tag(),
         }
     }
-
-    // #[inline]
-    // fn warnings(&self) -> &[Span<Warning>] {
-    //     &self.warnings
-    // }
-
-    // #[inline]
-    // fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>> {
-    //     &mut self.warnings
-    // }
-
-    // #[inline]
-    // fn consume_warnings(self) -> Vec<Span<Warning>> {
-    //     self.warnings
-    // }
 }

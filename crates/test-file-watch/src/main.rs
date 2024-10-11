@@ -42,7 +42,7 @@ fn main() -> Result<(), Error> {
                     }
                 }
             },
-            Err(e) => println!("watch error: {:?}", e),
+            Err(e) => println!("watch errors: {:?}", e),
         }
     })?;
 
