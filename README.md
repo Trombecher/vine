@@ -1,6 +1,6 @@
 # The Vine Programming Language
 
-Vine is a programming language with focus on simplicity and type safety. (it's written in Rust btw)
+Vine is a programming language with focus on simplicity and type safety (it's written in Rust btw).
 
 > [!WARNING]  
 > This project is in a very early stage of development.
@@ -22,14 +22,10 @@ Now you are ready to _cd_ into any crate in `crates/` and try to run the crate v
   - [ ] Control-Flow-Graph
   - [ ] IR (?)
 - [ ] Implement backend
-  - [ ] _Vine Virtual Machine_ backend
   - [ ] JavaScript backend
+  - [ ] _Vine Virtual Machine_ backend
+  - [ ] LLVM backend (?)
+  - [ ] WebAssembly backend
+  - [ ] JVM backend (?)
 - [ ] Implement CLI
 - [ ] Documentation
-
-## Maintained Crates
-
-The purpose of some crates in this project has vanished due to some changes in other crates. These crates are not used and therefore currently not maintained:
-
-- `set`
-- `queue`
