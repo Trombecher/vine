@@ -1,8 +1,9 @@
 #![cfg(test)]
 
 use bytes::Span;
+use errors::Error;
 use crate::buffered::Buffered;
-use crate::lex::{Error, Symbol, Token, TokenIterator};
+use crate::lex::{Symbol, Token, TokenIterator};
 
 struct TestIter<I: Iterator<Item = Span<Token<'static>>>> {
     inner: I,

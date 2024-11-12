@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use alloc::alloc::Global;
-use crate::lex::{Error, Lexer, Token, UnprocessedString};
+use crate::lex::{Lexer, Token, UnprocessedString};
 use bytes::Span;
 
 #[test]
@@ -31,10 +31,7 @@ fn parse_id() {
         Ok("abc_2340598")
     );
 
-    assert_eq!(
-        Lexer::new("a😃".as_bytes(), Global).parse_id(),
-        Err(Error::InvalidCharacterInIdentifier)
-    );
+    assert!(Lexer::new("a😃".as_bytes(), Global).parse_id().is_err());
 }
 
 #[test]
@@ -50,8 +47,5 @@ fn parse_start_tag() {
 
 #[test]
 fn parse_start_tag_e0015() {
-    assert_eq!(
-        Err(Error::KeywordAsTagName),
-        Lexer::new(b"fn ", Global).parse_start_tag(),
-    );
+    assert!(Lexer::new(b"fn ", Global).parse_start_tag().is_err());
 }

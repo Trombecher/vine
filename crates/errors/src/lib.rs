@@ -18,6 +18,12 @@ macro_rules! error {
 
 pub type Error = Box<ErrorData>;
 
+impl PartialEq for Box<ErrorData> {
+    fn eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
 #[derive(Debug)]
 pub struct ErrorData {
     pub file_path: &'static str,

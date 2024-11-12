@@ -6,7 +6,7 @@ use bytes::{Span, Index};
 
 macro_rules! match_tokens {
     ($source:literal, $tokens:expr) => {
-        let mut lexer = Lexer::new($source);
+        let mut lexer = Lexer::new($source, Global);
 
         for correct_token in $tokens {
             let lexer_token = lexer.next_token().unwrap();

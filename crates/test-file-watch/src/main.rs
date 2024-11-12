@@ -14,6 +14,10 @@ use frontend::lex::Lexer;
 use frontend::parse::{Buffered, ParseContext};
 use frontend::parse::ast::ModuleContent;
 
+fn x() {
+    // let x = 2 < 2 / < 4;
+}
+
 fn main() -> Result<(), Error> {
     let mut watcher = recommended_watcher(move |res| {
         match res {

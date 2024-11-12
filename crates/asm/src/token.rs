@@ -2,7 +2,7 @@ use bytes::Span;
 use vm::instruction::Instruction;
 use crate::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
     EndOfFile,
     Instruction(Instruction),

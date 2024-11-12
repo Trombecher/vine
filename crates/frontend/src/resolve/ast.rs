@@ -1,51 +1,61 @@
 use core::cell::RefCell;
 use bumpalo::Bump;
 use hashbrown::{DefaultHashBuilder, HashMap};
+use bytes::Span;
+use crate::parse::ast::Expression;
 
 /// Maps identifiers (symbols) to items.
-pub type SymbolTable<'sf, 'arena> = HashMap<
+pub type SymbolTable<'sf, 'ast> = HashMap<
     &'sf str,
-    &'arena RefCell<SymbolTableEntry<'sf, 'arena>>,
+    &'ast RefCell<SymbolTableEntry<'sf, 'ast>>,
     DefaultHashBuilder,
-    &'arena Bump
+    &'ast Bump
 >;
 
 #[derive(Clone, Debug)]
-pub struct SymbolTableEntry<'sf, 'arena> {
+pub struct SymbolTableEntry<'sf, 'ast> {
     // annotations: Vec<Annotation<'a>>,
-    pub kind: SymbolTableEntryKind<'sf, 'arena>,
+    pub kind: SymbolTableEntryKind<'sf, 'ast>,
 }
 
 #[derive(Clone, Debug)]
-pub enum SymbolTableEntryKind<'sf, 'arena> {
+pub enum SymbolTableEntryKind<'source, 'ast> {
     Struct {
-        fields: HashMap<&'sf str, StructField<'arena>, &'arena Bump>
+        fields: HashMap<&'source str, StructField<'ast>, &'ast Bump>
     },
     Module {
-        st: SymbolTable<'sf, 'arena>,
+        st: SymbolTable<'source, 'ast>,
     },
-}
-
-#[derive(Clone, Debug)]
-pub struct StructField<'arena> {
-    pub is_mutable: bool,
-    pub is_public: bool,
-    pub ty: TypeUse<'arena>,
-}
-
-#[derive(Clone, Debug)]
-pub enum TypeUse<'arena> {
-    Never,
-    Union {
-        first: RawTypeUse<'arena>,
-        // remaining: Vec<RawTypeUse<'arena>>
+    Enum {
+        variants: HashMap<&'source str, EnumVariant<'source, 'ast>, &'ast Bump>
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum RawTypeUse<'arena> {
+pub struct EnumVariant<'source, 'ast> {
+    value: Option<Span<Expression<'source, 'ast>>>
+}
+
+#[derive(Clone, Debug)]
+pub struct StructField<'ast> {
+    pub is_mutable: bool,
+    pub is_public: bool,
+    pub ty: TypeUse<'ast>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeUse<'ast> {
+    Never,
+    Union {
+        first: RawTypeUse<'ast>,
+        // remaining: Vec<RawTypeUse<'ast>>
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum RawTypeUse<'ast> {
     Function,
     TypeRef {
-        target: &'arena TypeUse<'arena>
+        target: &'ast TypeUse<'ast>
     }
 }

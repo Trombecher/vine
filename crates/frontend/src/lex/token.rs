@@ -39,7 +39,7 @@ impl<'source> UnprocessedString<'source> {
     pub const unsafe fn from_raw(raw: &'source str) -> Self {
         Self(raw)
     }
-    
+
     pub fn process<'alloc>(&self, alloc: &'alloc Bump) -> Result<Box<'alloc, str>, Error> {
         let mut string = Vec::with_capacity_in(self.0.len(), alloc);
         let mut cursor = Cursor::new(self.0.as_bytes());
@@ -47,8 +47,12 @@ impl<'source> UnprocessedString<'source> {
         loop {
             match cursor.next() {
                 None => break,
-                Some(b'\\') => string.extend_from_slice(unescape_char(&mut cursor)?.encode_utf8(&mut [0; 4]).as_bytes()),
-                Some(byte) => string.push(byte)
+                Some(b'\\') => string.extend_from_slice(
+                    unescape_char(&mut cursor)?
+                        .encode_utf8(&mut [0; 4])
+                        .as_bytes(),
+                ),
+                Some(byte) => string.push(byte),
             }
         }
 
@@ -73,6 +77,19 @@ pub enum Token<'a> {
 
     /// A [Symbol].
     Symbol(Symbol),
+    
+    /// A left angle '<' but with semantic meaning. It indicates the start of a type parameter use
+    /// declaration, like:
+    /// 
+    /// ```vine
+    /// fn main() {
+    ///     //     v this angle bracket
+    ///     println<Str>("Hello, World");
+    /// }
+    /// ```
+    /// 
+    /// This does not mean that the semantic applies exclusively to this token.
+    TypeParameterUseStart,
 
     /// A [Keyword].
     Keyword(Keyword),
@@ -82,6 +99,7 @@ pub enum Token<'a> {
     /// - Validate escape sequences
     /// - Normalize line breaks
     String(UnprocessedString<'a>),
+    StringEscape,
 
     MarkupStartTag(&'a str),
     MarkupKey(&'a str),
@@ -114,6 +132,7 @@ pub enum Keyword {
     Fn,
     For,
     If,
+    Is,
     In,
     Let,
     Mod,
@@ -123,6 +142,7 @@ pub enum Keyword {
     Return,
     Struct,
     This,
+    CapitalThis,
     Trait,
     True,
     Type,

@@ -12,7 +12,7 @@ mod warnings;
 pub mod lex;
 pub mod buffered;
 pub mod parse;
-pub mod resolve;
+// pub mod resolve;
 
 use alloc::{vec, boxed};
 pub use bumpalo;

@@ -1,3 +1,7 @@
-fn main() {
-    println("Hello, World!")
+fn<T: Display> hello(t: T) {
+    println("Hello, {t}")
+}
+
+fn doSomething() -> Bool {
+    hello < >,<
 }

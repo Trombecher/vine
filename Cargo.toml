@@ -8,8 +8,6 @@ members = [
     "crates/errors",
     "crates/frontend",
     "crates/js",
-    "crates/queue",
-    "crates/set",
     "crates/test-file-watch",
     "crates/test-stuff",
     "crates/vine",
