@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 frontend = { path = "../frontend" }
 bytes = { path = "../bytes" }
+errors = { path = "../errors" }

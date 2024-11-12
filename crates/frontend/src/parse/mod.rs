@@ -937,7 +937,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                 value: Expression::Identifier(id),
                                 source: id_source,
                             },
-                            _ => return error!("Expected an initialization (starting with '='), ')' or a delimiter (';' or a line break)"),
+                            _ => return error!("Expected an initialization (starting with '='), a type (starting with ':'), ')' or a delimiter (';' or a line break)"),
                         };
 
                         fields.push(InstanceFieldInit {
@@ -1215,6 +1215,8 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         loop {
             let (token, line_break) = self.iter.peek_non_lb()?;
 
+            println!("{:?}, {}", token, line_break);
+
             let (end, value) = match token.value {
                 // Potential assignment operations
                 Token::Symbol(Symbol::Plus) => op!(Operation::PA(PAOperation::Addition), bp::ADDITIVE),
@@ -1376,7 +1378,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     let end = self.iter.peek().source.end;
 
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
 
                     (
                         end,

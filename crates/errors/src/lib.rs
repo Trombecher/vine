@@ -1,33 +1,35 @@
 #![no_std]
-
 extern crate alloc;
-
-use alloc::boxed::Box;
 
 #[macro_export]
 macro_rules! error {
-    ($msg:literal) => {
-        Err(::alloc::boxed::Box::new($crate::ErrorData {
+    ($msg:literal) => {{
+        static OBJ: $crate::ErrorData = $crate::ErrorData {
             file_path: module_path!(),
             source_line: line!(),
             source_column: column!(),
+            file_name: file!(),
             message: $msg
-        }))
-    }
+        };
+
+        Err(Error(&OBJ))
+    }}
 }
 
-pub type Error = Box<ErrorData>;
-
-impl PartialEq for Box<ErrorData> {
-    fn eq(&self, other: &Self) -> bool {
-        self == other
-    }
-}
+#[derive(Copy, Clone, Debug)]
+pub struct Error(pub &'static ErrorData);
 
 #[derive(Debug)]
 pub struct ErrorData {
     pub file_path: &'static str,
     pub source_line: u32,
     pub source_column: u32,
-    pub message: &'static str
+    pub message: &'static str,
+    pub file_name: &'static str
+}
+
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 as *const ErrorData == other.0 as *const ErrorData
+    }
 }
