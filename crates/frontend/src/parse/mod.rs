@@ -1215,8 +1215,6 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         loop {
             let (token, line_break) = self.iter.peek_non_lb()?;
 
-            println!("{:?}, {}", token, line_break);
-
             let (end, value) = match token.value {
                 // Potential assignment operations
                 Token::Symbol(Symbol::Plus) => op!(Operation::PA(PAOperation::Addition), bp::ADDITIVE),

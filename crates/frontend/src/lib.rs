@@ -1,4 +1,4 @@
-// #![no_std]
+#![no_std]
 #![feature(str_from_raw_parts)]
 #![feature(ptr_sub_ptr)]
 #![feature(if_let_guard)]

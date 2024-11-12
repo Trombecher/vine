@@ -46,6 +46,6 @@ fn parse_start_tag() {
 }
 
 #[test]
-fn parse_start_tag_e0015() {
+fn parse_start_tag_error() {
     assert!(Lexer::new(b"fn ", Global).parse_start_tag().is_err());
 }

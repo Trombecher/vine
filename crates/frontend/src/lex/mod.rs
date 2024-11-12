@@ -44,7 +44,7 @@ pub struct Lexer<'source, A: Allocator> {
 /// if the output of this function is `true` _before_ the output of [is_tps_indicator].
 fn is_tps_indicator(byte: u8) -> bool {
     match byte {
-        b'<' | b'>' | b'A'..=b'Z' | b'a'..=b'z' | b'\'' | b'/' | b'`' => true,
+        b'<' | b'>' => true,
         _ => false,
     }
 }
@@ -53,7 +53,7 @@ fn is_tps_indicator(byte: u8) -> bool {
 /// More info: [is_tps_indicator].
 fn is_tps_terminator(byte: u8) -> bool {
     match byte {
-        b')' | b']' | b',' => true,
+        b')' | b']' | b']' => true,
         _ => false
     }
 }
