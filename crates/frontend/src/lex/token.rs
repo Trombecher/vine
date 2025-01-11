@@ -64,6 +64,7 @@ impl<'source> UnprocessedString<'source> {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Token<'a> {
+    /// A unicode character (`'?'`).
     Char(char),
 
     /// An identifier token. Guaranteed to match against this regex `([a-zA-Z][a-zA-Z_0-9]*)|([a-zA-Z_][a-zA-Z_0-9]+)`.
@@ -77,19 +78,6 @@ pub enum Token<'a> {
 
     /// A [Symbol].
     Symbol(Symbol),
-    
-    /// A left angle '<' but with semantic meaning. It indicates the start of a type parameter use
-    /// declaration, like:
-    /// 
-    /// ```vine
-    /// fn main() {
-    ///     //     v this angle bracket
-    ///     println<Str>("Hello, World");
-    /// }
-    /// ```
-    /// 
-    /// This does not mean that the semantic applies exclusively to this token.
-    TypeParameterUseStart,
 
     /// A [Keyword].
     Keyword(Keyword),
@@ -238,13 +226,4 @@ pub enum Symbol {
 
 pub trait TokenIterator<'a> {
     fn next_token(&mut self) -> Result<Span<Token<'a>>, Error>;
-
-    // /// Returns a view of all warnings gathered so far.
-    // fn warnings(&self) -> &[Span<Warning>];
-
-    // /// Returns a mutable reference to the warnings.
-    // fn warnings_mut(&mut self) -> &mut Vec<Span<Warning>>;
-
-    // /// Consumes the iterator.
-    // fn consume_warnings(self) -> Vec<Span<Warning>>;
 }

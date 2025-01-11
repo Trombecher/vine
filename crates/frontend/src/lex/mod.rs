@@ -5,9 +5,9 @@
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
 use alloc::vec::Vec;
-use bytes::{Cursor, Index, Span};
+use bytes::{Cursor, Span};
 use core::alloc::Allocator;
-use core::str::from_raw_parts;
+use core::str::from_utf8_unchecked;
 use errors::*;
 
 mod tests;
@@ -27,8 +27,6 @@ pub enum Layer {
 }
 
 pub struct Lexer<'source, A: Allocator> {
-    start: *const u8,
-
     /// The underlying iterator over the bytes.
     cursor: Cursor<'source>,
 
@@ -38,24 +36,6 @@ pub struct Lexer<'source, A: Allocator> {
 
     /// A stack of layers to manage
     layers: Vec<Layer, A>,
-}
-
-/// This function indicates whether a previous encountered '<' is the start of a type parameter use,
-/// if the output of this function is `true` _before_ the output of [is_tps_indicator].
-fn is_tps_indicator(byte: u8) -> bool {
-    match byte {
-        b'<' | b'>' => true,
-        _ => false,
-    }
-}
-
-/// Indicates whether a previous encountered '<' is **not** the start of a type parameter use.
-/// More info: [is_tps_indicator].
-fn is_tps_terminator(byte: u8) -> bool {
-    match byte {
-        b')' | b']' | b']' => true,
-        _ => false
-    }
 }
 
 #[inline]
@@ -117,17 +97,16 @@ impl<'source, A: Allocator> Lexer<'source, A> {
     /// Constructs a new [Lexer].
     pub const fn new(slice: &'source [u8], alloc: A) -> Self {
         Self {
-            start: slice.as_ptr(),
             potential_markup: false,
             layers: Vec::new_in(alloc),
             cursor: Cursor::new(slice),
-            // warnings: Vec::new(),
         }
     }
-
-    /// Calculates the index of the next byte.
-    pub fn index(&self) -> Index {
-        unsafe { self.cursor.cursor().sub_ptr(self.start) as Index }
+    
+    /// Returns a reference to the underlying cursor.
+    #[inline]
+    pub const fn cursor(&self) -> &Cursor<'source> {
+        &self.cursor
     }
 
     /// Parses a decimal number.
@@ -238,18 +217,18 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
     /// Expects the next byte to be after the quote.
     pub(crate) fn parse_string(&mut self) -> Result<UnprocessedString<'source>, Error> {
-        let first = self.cursor.cursor();
+        let start = self.cursor.position();
 
         loop {
             match self.cursor.peek() {
                 None => break error!("Unterminated string"),
                 Some(b'"') => {
-                    let end = self.cursor.cursor();
+                    let string_bytes = self.cursor.slice_from(start);
 
                     unsafe { self.cursor.advance_unchecked() }
 
                     break Ok(unsafe {
-                        UnprocessedString::from_raw(from_raw_parts(first, end.sub_ptr(first)))
+                        UnprocessedString::from_raw(from_utf8_unchecked(string_bytes))
                     });
                 }
                 Some(b'\\') => {
@@ -266,7 +245,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
     }
 
     pub(crate) fn parse_id(&mut self) -> Result<&'source str, Error> {
-        let first = self.cursor.cursor();
+        let start_position = self.cursor.position();
 
         loop {
             match self.cursor.peek() {
@@ -277,8 +256,11 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 _ => break,
             }
         }
-
-        Ok(unsafe { from_raw_parts(first, self.cursor.cursor().sub_ptr(first)) })
+        
+        Ok(unsafe {
+            // SAFETY: slice contains UTF-8 because of the loop.
+            from_utf8_unchecked(self.cursor.slice_from(start_position))
+        })
     }
 
     #[inline]
@@ -299,12 +281,12 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         macro_rules! handle_lf {
             () => {{
                 if lb.is_none() {
-                    let start = self.index();
+                    let start = self.cursor.index();
                     unsafe { self.cursor.advance_unchecked() }
 
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: start..self.index(),
+                        source: start..self.cursor.index(),
                     });
                 } else {
                     unsafe { self.cursor.advance_unchecked() }
@@ -315,7 +297,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         macro_rules! handle_crlf {
             () => {{
                 if lb.is_none() {
-                    let start = self.index();
+                    let start = self.cursor.index();
                     unsafe { self.cursor.advance_unchecked() }
 
                     if let Some(b'\n') = self.cursor.peek() {
@@ -324,7 +306,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: start..self.index(),
+                        source: start..self.cursor.index(),
                     });
                 } else {
                     unsafe { self.cursor.advance_unchecked() }
@@ -414,7 +396,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         }
     }
 
-    pub fn next_token_default(&mut self) -> Result<Span<Token<'source>>, Error> {
+    fn next_token_default(&mut self) -> Result<Span<Token<'source>>, Error> {
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {{
                 unsafe { self.cursor.advance_unchecked() };
@@ -443,7 +425,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
             return loop {
                 match self.cursor.peek() {
                     None => {
-                        let start = self.index();
+                        let start = self.cursor.index();
 
                         break Ok(Span {
                             value: Token::EndOfInput,
@@ -451,10 +433,9 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                         });
                     }
                     Some(b'\n') => {
-                        let start = self.index();
-                        unsafe {
-                            self.cursor.advance_unchecked();
-                        }
+                        let start = self.cursor.index();
+                        
+                        unsafe { self.cursor.advance_unchecked(); }
 
                         // Skip additional whitespace & line breaks.
                         self.skip_whitespace();
@@ -465,10 +446,9 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                         });
                     }
                     Some(b'\r') => {
-                        let start = self.index();
-                        unsafe {
-                            self.cursor.advance_unchecked();
-                        }
+                        let start = self.cursor.index();
+                        
+                        unsafe { self.cursor.advance_unchecked(); }
 
                         break Ok(if let Some(b'\n') = self.cursor.peek() {
                             unsafe {
@@ -497,7 +477,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
             };
         }
 
-        let start = self.index();
+        let start = self.cursor.index();
 
         let token: Token = match self.cursor.peek() {
             None => Token::EndOfInput,
@@ -512,16 +492,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                     Some(b'b') => self.parse_number_bin()?,
                     Some(b'_') => self.parse_number_dec(0.)?,
                     Some(b'.') => Token::Number(self.parse_number_dec_tail(0.)?),
-                    Some(b'0') => self.parse_number_dec(0.)?,
-                    Some(b'1') => self.parse_number_dec(1.)?,
-                    Some(b'2') => self.parse_number_dec(2.)?,
-                    Some(b'3') => self.parse_number_dec(3.)?,
-                    Some(b'4') => self.parse_number_dec(4.)?,
-                    Some(b'5') => self.parse_number_dec(5.)?,
-                    Some(b'6') => self.parse_number_dec(6.)?,
-                    Some(b'7') => self.parse_number_dec(7.)?,
-                    Some(b'8') => self.parse_number_dec(8.)?,
-                    Some(b'9') => self.parse_number_dec(9.)?,
+                    Some(x) if matches!(x, b'0'..=b'9') => self.parse_number_dec((x - b'0') as f64)?,
                     Some(_) => Token::Number(0.), // TODO: major bug here!!
                     None => Token::Number(0.),
                 }
@@ -540,25 +511,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                         Symbol::LeftAngleLeftAngle,
                         Symbol::LeftAngleLeftAngleEquals
                     )),
-                    _ => {
-                        let mut i = 0;
-                        let mut answer = Token::Symbol(Symbol::LeftAngle);
-                        
-                        while let Some(byte) = self.cursor.peek_n(i) {
-                            if is_tps_indicator(byte) {
-                                answer = Token::TypeParameterUseStart;
-                                break
-                            }
-                            
-                            if is_tps_terminator(byte) {
-                                break
-                            }
-                            
-                            i += 1;
-                        }
-
-                        answer
-                    }
+                    _ => Token::Symbol(Symbol::LeftAngle),
                 }
             }
             Some(b'>') => {
@@ -632,23 +585,23 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                         // instead of just one.
                         unsafe { self.cursor.advance_n_unchecked(2) };
 
-                        let first = self.cursor.cursor();
+                        let start = self.cursor.position();
                         let end;
 
                         loop {
                             match self.cursor.peek() {
                                 None => {
-                                    end = self.cursor.cursor();
+                                    end = self.cursor.position();
                                     break;
                                 }
                                 Some(b'\n') => {
-                                    end = self.cursor.cursor();
+                                    end = self.cursor.position();
                                     unsafe { self.cursor.advance_unchecked() }
 
                                     break;
                                 }
                                 Some(b'\r') => {
-                                    end = self.cursor.cursor();
+                                    end = self.cursor.position();
                                     unsafe { self.cursor.advance_unchecked() }
 
                                     if Some(b'\n') == self.cursor.peek() {
@@ -665,7 +618,10 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                             }
                         }
 
-                        Token::DocComment(unsafe { from_raw_parts(first, end.sub_ptr(first)) })
+                        Token::DocComment(unsafe {
+                            // SAFETY: validated during loop.
+                            from_utf8_unchecked(start.slice_to(end))
+                        })
                     }
                     _ => Token::Symbol(Symbol::Slash),
                 }
@@ -861,7 +817,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
         Ok(Span {
             value: token,
-            source: start..self.index(),
+            source: start..self.cursor.index(),
         })
     }
 
@@ -872,7 +828,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
     ///
     /// Assumes that the next byte is the id.
     pub fn parse_start_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
-        let start = self.index();
+        let start = self.cursor.index();
 
         self.skip_whitespace();
 
@@ -886,12 +842,12 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
         Ok(Span {
             value: Token::MarkupStartTag(identifier),
-            source: start..self.index(),
+            source: start..self.cursor.index(),
         })
     }
 
     pub fn parse_end_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
-        let start = self.index();
+        let start = self.cursor.index();
 
         self.skip_whitespace();
 
@@ -905,7 +861,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         match self.cursor.next_lfn() {
             Some(b'>') => Ok(Span {
                 value: Token::MarkupEndTag(tag_name),
-                source: start..self.index(),
+                source: start..self.cursor.index(),
             }),
             _ => error!("Unterminated end tag"),
         }
@@ -936,7 +892,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
             Some(Layer::KeyOrStartTagEndOrSelfClose) => {
                 self.skip_whitespace();
 
-                let start = self.index();
+                let start = self.cursor.index();
 
                 let token = match self.cursor.peek() {
                     Some(b'>') => {
@@ -966,7 +922,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 Ok(Span {
                     value: token,
-                    source: start..self.index(),
+                    source: start..self.cursor.index(),
                 })
             }
             Some(Layer::Value) => {
@@ -981,7 +937,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-                let start = self.index();
+                let start = self.cursor.index();
 
                 let token = match self.cursor.next_lfn() {
                     Some(b'"') => Token::String(self.parse_string()?),
@@ -999,7 +955,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 Ok(Span {
                     value: token,
-                    source: start..self.index(),
+                    source: start..self.cursor.index(),
                 })
             }
             Some(Layer::Insert) => {
@@ -1034,8 +990,8 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
             Some(Layer::TextOrInsert) => {
                 self.skip_whitespace();
 
-                let source = self.index();
-                let first = self.cursor.cursor();
+                let source = self.cursor.index();
+                let first = self.cursor.position();
 
                 loop {
                     match self.cursor.peek() {
@@ -1049,9 +1005,12 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                     }
                 }
 
-                let source = source..self.index();
+                let source = source..self.cursor.index();
 
-                let text = unsafe { from_raw_parts(first, self.cursor.cursor().sub_ptr(first)) };
+                let text = unsafe {
+                    // SAFETY: UTF-8 validated in the loop.
+                    from_utf8_unchecked(self.cursor.slice_from(first))
+                };
 
                 if text.len() == 0 {
                     // If there is no text, we have to yield something.
@@ -1084,7 +1043,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            let end = self.index();
+                            let end = self.cursor.index();
 
                             Ok(Span {
                                 value: Token::Symbol(Symbol::LeftBrace),
@@ -1100,9 +1059,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                     match self.cursor.peek() {
                         Some(b'<') => {
-                            unsafe {
-                                self.cursor.advance_unchecked();
-                            }
+                            unsafe { self.cursor.advance_unchecked(); }
 
                             self.skip_whitespace();
 
@@ -1111,9 +1068,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                                 // End tag
                                 Some(b'/') => {
-                                    unsafe {
-                                        self.cursor.advance_unchecked();
-                                    }
+                                    unsafe { self.cursor.advance_unchecked(); }
                                     self.layers.push(Layer::EndTag)
                                 }
 

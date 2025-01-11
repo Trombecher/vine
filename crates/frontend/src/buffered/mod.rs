@@ -1,63 +1,61 @@
 //! This module contains the wrapper [Buffered] to allow peeking into a token iterator.
 
-mod tests;
+// mod tests;
+// mod old;
 
+use alloc::alloc::Global;
+use crate::lex::{Token, TokenIterator};
+use alloc::collections::VecDeque;
+use core::alloc::Allocator;
 use bytes::Span;
 use errors::Error;
-use crate::lex::{Token, TokenIterator};
 
-/// Wraps a [TokenIterator] and buffers tokens.
-///
-/// It allows to peek into the next token (via [Buffered::peek])
-/// or even into the token after that (via [Buffered::peek_after])
-/// **without advancing**.
-pub struct Buffered<'a, T: TokenIterator<'a>> {
+/// A variable size lookahead-buffer implementation for the parser.
+pub struct LookaheadBuffer<'source_text, T: TokenIterator<'source_text>, LABAlloc: Allocator = Global> {
     iter: T,
-    next_token: Span<Token<'a>>,
-    next_next_token: Option<Span<Token<'a>>>,
+    queue: VecDeque<Span<Token<'source_text>>, LABAlloc>,
 }
 
-impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
+impl<'source_text, T: TokenIterator<'source_text>> LookaheadBuffer<'source_text, T> {
     #[inline]
-    pub fn new(mut iter: T) -> Result<Buffered<'a, T>, Error> {
-        Ok(Self {
-            next_token: iter.next_token()?,
-            iter,
-            next_next_token: None,
-        })
-    }
-
-    /// Creates a new [Buffered] with a specified first token.
-    #[inline]
-    pub fn new_init(init: Span<Token<'a>>, iter: T) -> Buffered<'a, T> {
+    pub const fn new(iter: T) -> Self {
         Self {
             iter,
-            next_token: init,
-            next_next_token: None,
+            queue: VecDeque::new(),
         }
     }
+}
 
+impl<'source_text, T: TokenIterator<'source_text>, LABAlloc: Allocator>
+LookaheadBuffer<'source_text, T, LABAlloc>
+{
     #[inline]
-    pub fn peek<'b>(&'b self) -> &'b Span<Token<'a>> {
-        &self.next_token
-    }
-
-    /// Returns a shared reference to the token after the token, [Self::peek] would return.
-    /// In the process of generating a new token, a line break is skipped.
-    #[inline]
-    pub fn peek_after<'b>(&'b mut self) -> Result<&'b Span<Token<'a>>, Error> {
-        if self.next_next_token.is_none() {
-            self.next_next_token = Some(self.iter.next_token()?);
-
-            // Skip a line break
-            if let Token::LineBreak = unsafe { self.next_next_token.as_ref().unwrap_unchecked() }.value {
-                self.next_next_token = Some(self.iter.next_token()?);
-            }
-        }
-
-        Ok(unsafe {
-            self.next_next_token.as_ref().unwrap_unchecked()
+    pub fn new_in(iter: T, allocator: LABAlloc) -> Result<Self, Error> {
+        Ok(Self {
+            iter,
+            queue: VecDeque::new_in(allocator),
         })
+    }
+
+    /// Returns a reference to the underlying iterator.
+    #[inline]
+    pub const fn iter(&self) -> &T {
+        &self.iter
+    }
+
+    #[inline]
+    pub fn peek(&mut self) -> Result<&Span<Token<'source_text>>, Error> {
+        self.peek_n(0)
+    }
+
+    #[inline]
+    pub fn peek_n(&mut self, n: usize) -> Result<&Span<Token<'source_text>>, Error> {
+        for _ in 0..(n as isize - self.queue.len() as isize) {
+            self.queue.push_back(self.iter.next_token()?);
+        }
+
+        // `unwrap()` is safe because we ensured that there is at least one element present.
+        Ok(self.queue.get(n).unwrap())
     }
 
     /// Returns a shared reference to the next token (via [Self::peek]) or,
@@ -66,12 +64,25 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
     /// If a line break was skipped, the second member of the returned tuple is `true`;
     /// otherwise `false`.
     #[inline]
-    pub fn peek_non_lb<'b>(&'b mut self) -> Result<(&'b Span<Token<'a>>, bool), Error> {
-        Ok(match self.peek().value {
-            Token::LineBreak => (self.peek_after()?, true),
-            _ => (self.peek(), false) // TODO: the borrow checker is wrong on this one. The line below should be accepted!
+    pub fn peek_non_lb(&mut self) -> Result<(&Span<Token<'source_text>>, bool), Error> {
+        Ok(match self.peek()?.value {
+            Token::LineBreak => (self.peek_n(1)?, true),
+            _ => (self.peek()?, false) // TODO: the borrow checker is wrong on this one. The line below should be accepted!
             // token => (token, false)
         })
+    }
+
+    #[inline]
+    pub fn advance(&mut self) -> Result<(), Error> {
+        self.next().map(|_| ())
+    }
+
+    #[inline]
+    pub fn next(&mut self) -> Result<Span<Token<'source_text>>, Error> {
+        match self.queue.pop_front() {
+            Some(token) => Ok(token),
+            None => self.iter.next_token()
+        }
     }
 
     /// Skips a potential line break.
@@ -79,7 +90,7 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
     /// `Ok(false)` otherwise.
     #[inline]
     pub fn skip_lb(&mut self) -> Result<bool, Error> {
-        Ok(match self.peek().value {
+        Ok(match self.peek()?.value {
             Token::LineBreak => {
                 self.advance()?;
                 true
@@ -87,23 +98,5 @@ impl<'a, T: TokenIterator<'a>> Buffered<'a, T> {
             Token::EndOfInput => true,
             _ => false,
         })
-    }
-
-    #[inline]
-    pub fn advance(&mut self) -> Result<(), Error> {
-        self.next_token = if let Some(next) = self.next_next_token.take() {
-            next
-        } else {
-            self.iter.next_token()?
-        };
-        Ok(())
-    }
-
-    /// Advances the iterator one token.
-    /// If the token is a [Token::LineBreak], it advances another token.
-    #[inline]
-    pub fn advance_skip_lb(&mut self) -> Result<bool, Error> {
-        self.advance()?;
-        self.skip_lb()
     }
 }

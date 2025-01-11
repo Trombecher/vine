@@ -1,3 +1,4 @@
+#![feature(ptr_sub_ptr)]
 #![no_std]
 
 //! # Bytes
@@ -10,6 +11,7 @@ use core::fmt::Debug;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 use core::ops::Range;
+use core::slice;
 
 #[cfg(feature = "huge_files")]
 pub type Index = u64;
@@ -34,8 +36,11 @@ impl<'a, T: Debug + Clone + PartialEq> Span<T> {
     }
 }
 
-/// An iterator over a slice.
+/// An iterator over a slice. It does not allow to go backwards.
 pub struct Cursor<'a> {
+    /// The pointer to the first element. Dangling if the initial slice is of length zero.
+    start: *const u8,
+
     /// The pointer to the next element.
     cursor: *const u8,
     
@@ -91,6 +96,23 @@ pub enum Error {
 }
 
 impl<'a> Cursor<'a> {
+    /// Returns the slice wrapped by this cursor.
+    #[inline]
+    pub fn slice(&self) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(
+            self.start,
+            self.end as usize - self.start as usize
+        ) }
+    }
+
+    /// Returns the index of the next byte. Therefore, it is equal to the number of bytes consumed.
+    #[inline]
+    pub fn index(&self) -> Index {
+        unsafe { self.cursor.sub_ptr(self.start) as Index }
+    }
+
+    /// Skips ASCII whitespace (meaning spaces, line breaks, carriage returns, vertical and
+    /// horizontal tabs).
     #[inline]
     pub fn skip_ascii_whitespace(&mut self) {
         loop {
@@ -103,18 +125,30 @@ impl<'a> Cursor<'a> {
             }
         }
     }
-    
+
+    /// Returns the current cursor position.
     #[inline]
-    pub const fn cursor(&self) -> *const u8 {
-        self.cursor
+    pub const fn position(&self) -> Position<'a> {
+        unsafe { Position::new(self.cursor) }
+    }
+
+    /// Returns the slice from the given position to the current position.
+    #[inline]
+    pub fn slice_from(&self, pos: Position<'a>) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(
+            pos.0,
+            self.cursor.sub_ptr(pos.0)
+        ) }
     }
     
-    #[inline]
-    pub const fn end(&self) -> *const u8 { self.end }
-    
+    // #[inline]
+    // pub const fn end(&self) -> *const u8 { self.end }
+
+    /// Constructs a new [Cursor].
     #[inline]
     pub const fn new(slice: &[u8]) -> Self {
         Self {
+            start: slice.as_ptr(),
             cursor: slice.as_ptr(),
             end: unsafe { slice.as_ptr().add(slice.len()) },
             _marker: PhantomData,
@@ -194,7 +228,7 @@ impl<'a> Cursor<'a> {
         self.cursor < self.end
     }
     
-    /// Peeks into the next byte. Does not advance the iterator.
+    /// Peeks into the next byte. Does not advance.
     /// 
     /// # Safety
     /// 
@@ -337,4 +371,33 @@ pub fn get_lines_and_columns(source: &str, byte_offset: usize) -> (usize, usize)
     }
 
     (lines, columns)
+}
+
+/// A cursor position.
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct Position<'a>(*const u8, PhantomData<&'a u8>);
+
+impl<'a> Position<'a> {
+    /// Creates a new position.
+    #[inline]
+    const unsafe fn new(ptr: *const u8) -> Self {
+        Self(ptr, PhantomData)
+    }
+    
+    /// Returns the slice bounded by `self` and the parameter `next`.
+    /// 
+    /// **Panics if `self > next`**.
+    #[inline]
+    pub fn slice_to(self, next: Position<'a>) -> &'a [u8] {
+        let size = unsafe { next.0.offset_from(self.0) };
+        
+        if size < 0 {
+            panic!("Next position is previous");
+        }
+        
+        unsafe { slice::from_raw_parts(
+            self.0,
+            size as usize
+        ) }
+    }
 }

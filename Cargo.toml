@@ -10,6 +10,5 @@ members = [
     "crates/js",
     "crates/test-file-watch",
     "crates/test-stuff",
-    "crates/vine",
     "crates/vm",
 ]

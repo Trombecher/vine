@@ -5,24 +5,23 @@ pub mod bp;
 pub mod ast;
 
 use crate::{Box, Vec};
-use crate::buffered::Buffered;
 use crate::lex::{Keyword, Lexer, Symbol, Token, TokenIterator};
 use ast::*;
 use bytes::{Index, Span};
-use core::ops::Range;
 use bumpalo::Bump;
 use errors::*;
 pub use warnings::*;
+use crate::buffered::LookaheadBuffer;
 
 pub struct ParseContext<'source: 'alloc, 'alloc, T: TokenIterator<'source>> {
-    pub iter: Buffered<'source, T>,
+    pub iter: LookaheadBuffer<'source, T>,
     pub alloc: &'alloc Bump,
     pub warnings: Vec<'alloc, Span<Warning>>,
 }
 
 impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, 'alloc, T> {
     #[inline]
-    pub const fn new(iter: Buffered<'source, T>, alloc: &'alloc Bump) -> ParseContext<'source, 'alloc, T> {
+    pub const fn new(iter: LookaheadBuffer<'source, T>, alloc: &'alloc Bump) -> ParseContext<'source, 'alloc, T> {
         Self {
             warnings: Vec::new_in(alloc),
             iter,
@@ -32,19 +31,21 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     /// Adds a warning with the span of the token returned by [Buffered::peek].
     #[inline]
-    fn omit_single_token_warning(&mut self, warning: Warning) {
-        let new_source = self.iter.peek().source.clone();
+    fn omit_single_token_warning(&mut self, warning: Warning) -> Result<(), Error> {
+        let new_source = self.iter.peek()?.source.clone();
 
         // If there is a last added warning that is equal to the new warning and has is extendable, extend it!
         if warning.is_extendable() && let Some(Span { value, source }) = self.warnings.last_mut() && *value == warning {
             source.end = new_source.end;
-            return;
+            return Ok(());
         }
 
         self.warnings.push(Span {
             value: warning,
             source: new_source,
-        })
+        });
+
+        Ok(())
     }
 
     /// Yields a warning if the delimiter is not needed due to a line break.
@@ -56,23 +57,27 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     fn opt_omit_unnecessary_delimiter_warning(&mut self, warning: Warning) -> Result<(), Error> {
         // We need to capture this source outside,
         // or else the borrow checker will get mad.
-        let source = self.iter.peek().source.clone();
+        let source = self.iter.peek()?.source.clone();
 
-        if self.iter.advance_skip_lb()? {
+        self.iter.advance()?;
+
+        if self.iter.skip_lb()? {
             self.warnings.push(Span {
                 value: warning,
                 source,
             })
         }
+
         Ok(())
     }
 
     /// If `peek()` is a '<', then it parses type parameters.
     #[inline]
     fn parse_opt_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, 'alloc>, Error> {
-        Ok(match self.iter.peek().value {
+        Ok(match self.iter.peek()?.value {
             Token::Symbol(Symbol::LeftAngle) => {
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
                 self.parse_type_parameter_declarations()?
             }
             _ => Vec::new_in(self.alloc)
@@ -91,33 +96,36 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         let mut params = Vec::new_in(self.alloc);
 
         loop {
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Identifier(id) => {
                     params.push(Span {
                         value: TypeParameter {
                             id,
                             traits: Vec::new_in(self.alloc),
                         },
-                        source: self.iter.peek().source.clone(),
+                        source: self.iter.peek()?.source.clone(),
                     }); // TODO: Add traits
                 }
                 Token::Symbol(Symbol::RightAngle) => break,
                 _ => return error!("Expected type parameter")
             }
 
-            self.iter.advance_skip_lb()?;
+            self.iter.advance()?;
+            self.iter.skip_lb()?;
 
             // TODO: Add lf for tp separation
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::RightAngle) => break,
                 Token::Symbol(Symbol::Comma) => {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
                 }
                 _ => return error!("Expected ',' or '>'")
             }
         }
 
-        self.iter.advance_skip_lb()?;
+        self.iter.advance()?;
+        self.iter.skip_lb()?;
 
         Ok(params)
     }
@@ -126,19 +134,21 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     ///
     /// Expects `peek()` to be [Symbol::LeftBrace]. Ends on [Symbol::RightBrace].
     fn parse_block(&mut self) -> Result<Span<Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>>, Error> {
-        let start = self.iter.peek().source.start;
+        let start = self.iter.peek()?.source.start;
 
-        self.iter.advance_skip_lb()?;
+        self.iter.advance()?; // Skip {
+        self.iter.skip_lb()?; // Skip potential lb
 
         let mut items = Vec::new_in(self.alloc);
 
         loop {
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::RightBrace) => break,
                 Token::Symbol(Symbol::Semicolon) => {
-                    self.omit_single_token_warning(Warning::UnnecessarySemicolon);
-                    self.iter.advance_skip_lb()?;
-                    continue
+                    self.omit_single_token_warning(Warning::UnnecessarySemicolon)?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+                    continue;
                 }
                 _ => {}
             }
@@ -149,7 +159,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 items.push(self.parse_expression(0)?.map(|e| StatementOrExpression::Expression(e)));
             }
 
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::Semicolon) => {
                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
                 }
@@ -161,15 +171,15 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
         Ok(Span {
             value: items,
-            source: start..self.iter.peek().source.end,
+            source: start..self.iter.peek()?.source.end,
         })
     }
 
     /// Expects that the first token of the type is accessible via `peek()`. Ends on the token after the type.
     fn parse_type(&mut self) -> Result<Span<Type<'source, 'alloc>>, Error> {
-        let source = self.iter.peek().source.clone();
+        let source = self.iter.peek()?.source.clone();
 
-        Ok(match self.iter.peek().value {
+        Ok(match self.iter.peek()?.value {
             Token::Symbol(Symbol::ExclamationMark) => {
                 self.iter.advance()?;
 
@@ -186,23 +196,24 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     let mut tps = Span {
                         value: Vec::new_in(self.alloc),
-                        source: self.iter.peek().source.start..0,
+                        source: self.iter.peek()?.source.start..0,
                     };
 
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
                     loop {
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::RightAngle) => break,
                             Token::Symbol(Symbol::Comma) => {
-                                self.omit_single_token_warning(Warning::UnnecessarySemicolon)
+                                self.omit_single_token_warning(Warning::UnnecessarySemicolon)?;
                             }
                             _ => {}
                         }
 
                         tps.value.push(self.parse_type()?);
 
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::RightAngle) => break,
                             Token::Symbol(Symbol::Comma) => {
                                 self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -250,11 +261,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     fn parse_use_child(&mut self) -> Result<Span<UseChild<'source, 'alloc>>, Error> {
         self.iter.skip_lb()?;
-        self.iter.advance_skip_lb()?;
+        self.iter.advance()?;
+        self.iter.skip_lb()?;
 
-        Ok(match self.iter.peek().value {
+        Ok(match self.iter.peek()?.value {
             Token::Symbol(Symbol::Star) => {
-                let source = self.iter.peek().source.clone();
+                let source = self.iter.peek()?.source.clone();
                 self.iter.advance()?;
 
                 Span {
@@ -263,21 +275,22 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 }
             }
             Token::Symbol(Symbol::LeftParenthesis) => {
-                let mut source = self.iter.peek().source.clone();
+                let mut source = self.iter.peek()?.source.clone();
 
                 let mut vec = Vec::new_in(self.alloc);
 
                 loop {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
-                    let value = match self.iter.peek().value {
+                    let value = match self.iter.peek()?.value {
                         Token::Identifier(id) => self.parse_use(id)?,
                         Token::Symbol(Symbol::Comma) => {
-                            self.omit_single_token_warning(Warning::UnnecessaryComma);
+                            self.omit_single_token_warning(Warning::UnnecessaryComma)?;
                             continue;
                         }
                         Token::Symbol(Symbol::RightParenthesis) => {
-                            source.end = self.iter.peek().source.end;
+                            source.end = self.iter.peek()?.source.end;
                             self.iter.advance()?;
                             break;
                         }
@@ -293,7 +306,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                         }
                         (Span { value: Token::Symbol(Symbol::RightParenthesis), .. }, _) => {
                             self.iter.skip_lb()?;
-                            source.end = self.iter.peek().source.end;
+                            source.end = self.iter.peek()?.source.end;
                             self.iter.advance()?;
                             break;
                         }
@@ -315,7 +328,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     /// Expects the . to not be consumed. Ends on the token after the use-statement
     fn parse_use(&mut self, id: &'source str) -> Result<Span<Use<'source, 'alloc>>, Error> {
-        let source = self.iter.peek().source.clone();
+        let source = self.iter.peek()?.source.clone();
 
         self.iter.advance()?;
 
@@ -344,7 +357,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// Expects [Buffered::peek] to yield [Token::Identifier].
     /// Ends on the token after the last path segment (greedy).
     fn parse_item_path(&mut self, mut first_id: &'source str) -> Result<Span<ItemPath<'source, 'alloc>>, Error> {
-        let mut source = self.iter.peek().source.clone();
+        let mut source = self.iter.peek()?.source.clone();
 
         self.iter.advance()?;
 
@@ -354,14 +367,15 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             loop {
                 parents.push(first_id);
 
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                first_id = match self.iter.peek().value {
+                first_id = match self.iter.peek()?.value {
                     Token::Identifier(id) => id,
                     _ => return error!("Expected an identifier"),
                 };
 
-                source.end = self.iter.peek().source.end;
+                source.end = self.iter.peek()?.source.end;
 
                 self.iter.advance()?;
 
@@ -386,32 +400,35 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     }
 
     /// Parses the parameters of a function expression.
-    /// 
+    ///
     /// Expects `peek()` to be the non-lb token after `(`. Ends on `)`.
     fn parse_fn_parameters(&mut self, parameters: &mut Vec<'alloc, Parameter<'source, 'alloc>>) -> Result<(), Error> {
         loop {
-            let is_mutable = match self.iter.peek().value {
+            let is_mutable = match self.iter.peek()?.value {
                 Token::Symbol(Symbol::RightParenthesis) => break,
                 Token::Keyword(Keyword::Mut) => {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
                     true
                 }
                 _ => false,
             };
 
-            let id = match self.iter.peek().value {
+            let id = match self.iter.peek()?.value {
                 Token::Identifier(id) => id,
                 _ => return error!("Expected an identifier")
             };
 
-            self.iter.advance_skip_lb()?;
+            self.iter.advance()?;
+            self.iter.skip_lb()?;
 
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::Colon) => {}
                 _ => return error!("Expected ':'")
             }
 
-            self.iter.advance_skip_lb()?;
+            self.iter.advance()?;
+            self.iter.skip_lb()?;
 
             let ty = self.parse_type()?;
 
@@ -419,7 +436,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
             let lb = self.iter.skip_lb()?;
 
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::RightParenthesis) => break,
                 Token::Symbol(Symbol::Comma) => self.iter.advance()?,
                 _ if lb => {}
@@ -438,13 +455,13 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// - Ends on the token after the statement. The caller must validate that token.
     /// **This may be a [Token::LineBreak]!**
     fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'source, 'alloc>>>, Error> {
-        let mut source = self.iter.peek().source.clone();
+        let mut source = self.iter.peek()?.source.clone();
 
         let mut doc_comments = Vec::new_in(self.alloc);
 
         // Collect all doc comments.
         loop {
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::DocComment(doc_comment) => doc_comments.push(doc_comment),
                 _ => break,
             }
@@ -455,7 +472,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
         // Collect all available annotations associated with the statement.
         loop {
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::At) => {}
                 _ => {
                     self.iter.skip_lb()?;
@@ -463,9 +480,10 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 }
             }
 
-            self.iter.advance_skip_lb()?;
+            self.iter.advance()?;
+            self.iter.skip_lb()?;
 
-            let id = match self.iter.peek().value {
+            let id = match self.iter.peek()?.value {
                 Token::Identifier(id) => id,
                 _ => return error!("Expected an identifier"),
             };
@@ -478,55 +496,61 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             });
         }
 
-        let statement_kind: Option<StatementKind<'source, 'alloc>> = match self.iter.peek().value {
+        let statement_kind: Option<StatementKind<'source, 'alloc>> = match self.iter.peek()?.value {
             Token::Keyword(Keyword::Fn) => {
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
                 let tps = self.parse_opt_type_parameter_declarations()?;
 
-                let id = match self.iter.peek().value {
+                let id = match self.iter.peek()?.value {
                     Token::Identifier(id) => id,
                     _ => return error!("Expected an identifier"),
                 };
 
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                match self.iter.peek().value {
+                match self.iter.peek()?.value {
                     Token::Symbol(Symbol::LeftParenthesis) => {}
                     Token::Symbol(Symbol::LeftAngle) =>
                         return error!("Type parameter are declared after 'fn', not after the function name."),
                     _ => return error!("Expected '('")
                 }
 
-                self.iter.advance_skip_lb()?;
-                
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
                 let mut parameters = Vec::new_in(self.alloc);
-                
-                let this_parameter = match self.iter.peek().value {
+
+                let this_parameter = match self.iter.peek()?.value {
                     Token::Keyword(Keyword::This) => {
-                        let lb = self.iter.advance_skip_lb()?;
-                        
-                        match self.iter.peek().value {
+                        self.iter.advance()?;
+                        let lb = self.iter.skip_lb()?;
+
+                        match self.iter.peek()?.value {
                             _ if lb => {}
                             Token::Symbol(Symbol::Comma) => {
                                 self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                             }
                             _ => return error!("Expected ',' or a line break"),
                         }
-                        
+
                         Some(ThisParameter::This)
                     }
                     Token::Keyword(Keyword::Mut) => {
-                        self.iter.advance_skip_lb()?;
-                        
-                        match self.iter.peek().value {
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
+
+                        match self.iter.peek()?.value {
                             // Case: `mut this`
                             Token::Keyword(Keyword::This) => {
-                                let lb = self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                let lb = self.iter.skip_lb()?;
 
-                                match self.iter.peek().value {
+                                match self.iter.peek()?.value {
                                     _ if lb => {}
-                                    Token::Symbol(Symbol::RightParenthesis) => {},
+                                    Token::Symbol(Symbol::RightParenthesis) => {}
                                     Token::Symbol(Symbol::Comma) => {
                                         self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                     }
@@ -535,37 +559,39 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                                 Some(ThisParameter::ThisMut)
                             }
-                            
+
                             // In this case we parse the first parameter ourselves.
                             Token::Identifier(id) => {
-                                self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
 
-                                match self.iter.peek().value {
+                                match self.iter.peek()?.value {
                                     Token::Symbol(Symbol::Colon) => {}
                                     _ => return error!("Expected ':'"),
                                 }
 
-                                self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
 
                                 let ty = self.parse_type()?;
 
                                 parameters.push(Parameter {
                                     id,
                                     is_mutable: true,
-                                    ty
+                                    ty,
                                 });
 
                                 let lb = self.iter.skip_lb()?;
 
-                                match self.iter.peek().value {
+                                match self.iter.peek()?.value {
                                     _ if lb => {}
-                                    Token::Symbol(Symbol::RightParenthesis) => {},
+                                    Token::Symbol(Symbol::RightParenthesis) => {}
                                     Token::Symbol(Symbol::Comma) => {
                                         self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                                     }
                                     _ => return error!("Expected ',', ')' or a line break")
                                 }
-                                
+
                                 None
                             }
                             _ => return error!("Expected an identifier or 'this'"),
@@ -576,10 +602,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                 self.parse_fn_parameters(&mut parameters)?;
 
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                let return_type: Option<Span<Type<'source, 'alloc>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek().value {
-                    self.iter.advance_skip_lb()?;
+                let return_type: Option<Span<Type<'source, 'alloc>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek()?.value {
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
                     let ty = self.parse_type()?;
                     self.iter.skip_lb()?;
@@ -591,7 +619,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 };
 
                 // Validate that the block starts with `{`
-                match self.iter.peek().value {
+                match self.iter.peek()?.value {
                     Token::Symbol(Symbol::LeftBrace) => {}
                     _ => return error!("Expected '{'"),
                 }
@@ -613,9 +641,10 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 })
             }
             Token::Keyword(Keyword::Mod) => {
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                let id = match self.iter.peek().value {
+                let id = match self.iter.peek()?.value {
                     Token::Identifier(id) => id,
                     _ => return error!("Expected an identifier"),
                 };
@@ -626,16 +655,17 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     // Code: mod xyz { ... }
                     (Span { value: Token::Symbol(Symbol::LeftBrace), .. }, _) => {
                         self.iter.skip_lb()?;
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
 
                         let content = self.parse_module_content()?;
 
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::RightBrace) => {}
                             _ => return error!("Expected '}'"),
                         }
 
-                        source.end = self.iter.peek().source.end;
+                        source.end = self.iter.peek()?.source.end;
 
                         self.iter.advance()?;
 
@@ -657,11 +687,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 })
             }
             Token::Keyword(Keyword::Struct) => {
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
                 let tps = self.parse_opt_type_parameter_declarations()?;
 
-                let id = match self.iter.peek().value {
+                let id = match self.iter.peek()?.value {
                     Token::Identifier(id) => id,
                     _ => return error!("Expected an identifier"),
                 };
@@ -673,38 +704,43 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 match self.iter.peek_non_lb()? {
                     (Span { value: Token::Symbol(Symbol::LeftParenthesis), .. }, _) => {
                         self.iter.skip_lb()?;
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
 
                         loop {
-                            let start = self.iter.peek().source.start;
+                            let start = self.iter.peek()?.source.start;
 
-                            let is_public = match self.iter.peek().value {
+                            let is_public = match self.iter.peek()?.value {
                                 Token::Keyword(Keyword::Pub) => {
-                                    self.iter.advance_skip_lb()?;
+                                    self.iter.advance()?;
+                                    self.iter.skip_lb()?;
                                     true
                                 }
                                 Token::Symbol(Symbol::RightParenthesis) => break,
                                 _ => false
                             };
 
-                            let is_mutable = match self.iter.peek().value {
+                            let is_mutable = match self.iter.peek()?.value {
                                 Token::Keyword(Keyword::Mut) => {
-                                    self.iter.advance_skip_lb()?;
+                                    self.iter.advance()?;
+                                    self.iter.skip_lb()?;
                                     true
                                 }
                                 _ => false
                             };
 
-                            let id = match self.iter.peek().value {
+                            let id = match self.iter.peek()?.value {
                                 Token::Identifier(id) => id,
                                 _ => return error!("Expected an identifier"),
                             };
 
-                            self.iter.advance_skip_lb()?;
+                            self.iter.advance()?;
+                            self.iter.skip_lb()?;
 
-                            let ty = match self.iter.peek().value {
+                            let ty = match self.iter.peek()?.value {
                                 Token::Symbol(Symbol::Colon) => {
-                                    self.iter.advance_skip_lb()?;
+                                    self.iter.advance()?;
+                                    self.iter.skip_lb()?;
                                     self.parse_type()?
                                 }
                                 _ => return error!("Expected ':'"),
@@ -722,7 +758,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                             let lb = self.iter.skip_lb()?;
 
-                            match self.iter.peek().value {
+                            match self.iter.peek()?.value {
                                 Token::Symbol(Symbol::RightParenthesis) => break,
                                 Token::Symbol(Symbol::Comma) => {
                                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -732,7 +768,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             }
                         }
 
-                        source.end = self.iter.peek().source.end;
+                        source.end = self.iter.peek()?.source.end;
 
                         self.iter.advance()?;
                     }
@@ -752,30 +788,33 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             //
             // let [mut] <variable_name>[: <type>] [= <expr>]
             Token::Keyword(Keyword::Let) => {
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                let is_mutable = match self.iter.peek().value {
+                let is_mutable = match self.iter.peek()?.value {
                     Token::Keyword(Keyword::Mut) => {
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
                         true
                     }
                     _ => false,
                 };
 
-                let id = match self.iter.peek().value {
+                let id = match self.iter.peek()?.value {
                     Token::Identifier(id) => id,
                     _ => return error!("Expected an identifier"),
                 };
 
                 // Source end is at least the integer end
-                source.end = self.iter.peek().source.end;
+                source.end = self.iter.peek()?.source.end;
 
                 self.iter.advance()?;
 
                 let ty = match self.iter.peek_non_lb()? {
                     (Span { value: Token::Symbol(Symbol::Colon), .. }, _) => {
                         self.iter.skip_lb()?;
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
                         let ty = self.parse_type()?;
 
                         source.end = ty.source.end; // Adjust end of statement
@@ -788,7 +827,8 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     // If the next non-line-break token is '=', then an expression is parsed.
                     (Span { value: Token::Symbol(Symbol::Equals), .. }, _) => {
                         self.iter.skip_lb()?;
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
 
                         let expr = self.parse_expression(0)?;
                         source.end = expr.source.end; // Adjust end of statement
@@ -822,9 +862,10 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     return error!("Doc comments cannot be attached to use statements");
                 }
 
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                let root_id = match self.iter.peek().value {
+                let root_id = match self.iter.peek()?.value {
                     Token::Identifier(id) => id,
                     _ => return error!("Expected an identifier"),
                 };
@@ -871,10 +912,10 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     }
 
     fn parse_expression_first_term(&mut self) -> Result<Span<Expression<'source, 'alloc>>, Error> {
-        let mut first_source = self.iter.peek().source.clone();
+        let mut first_source = self.iter.peek()?.source.clone();
 
         Ok(Span {
-            value: match self.iter.peek().value {
+            value: match self.iter.peek()?.value {
                 Token::String(s) => {
                     let s = s.process(self.alloc)?;
                     self.iter.advance()?;
@@ -889,38 +930,42 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     Expression::Identifier(id)
                 }
                 Token::Symbol(Symbol::LeftParenthesis) => {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
                     let mut fields = Vec::new_in(self.alloc);
 
                     loop {
-                        let is_mutable = match self.iter.peek().value {
+                        let is_mutable = match self.iter.peek()?.value {
                             Token::Symbol(Symbol::RightParenthesis) => break,
                             Token::Symbol(Symbol::Comma) => {
-                                self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                self.iter.advance_skip_lb()?;
+                                self.omit_single_token_warning(Warning::UnnecessaryComma)?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
                                 continue;
                             }
                             Token::Keyword(Keyword::Mut) => {
-                                self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
                                 true
                             }
                             _ => false,
                         };
 
-                        let id = match self.iter.peek().value {
+                        let id = match self.iter.peek()?.value {
                             Token::Identifier(id) => id,
                             _ => return error!("Expected an identifier"),
                         };
 
-                        let id_source = self.iter.peek().source.clone();
+                        let id_source = self.iter.peek()?.source.clone();
 
                         self.iter.advance()?;
 
                         let ty = match self.iter.peek_non_lb()? {
                             (Span { value: Token::Symbol(Symbol::Colon), .. }, _) => {
                                 self.iter.skip_lb()?;
-                                self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
 
                                 Some(self.parse_type()?)
                             }
@@ -930,7 +975,8 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                         let init = match self.iter.peek_non_lb()? {
                             (Span { value: Token::Symbol(Symbol::Equals), .. }, _) => {
                                 self.iter.skip_lb()?;
-                                self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
                                 self.parse_expression(0)?
                             }
                             (Span { value: Token::Symbol(Symbol::RightParenthesis | Symbol::Comma), .. }, _) | (_, true) => Span {
@@ -947,12 +993,14 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             init,
                         });
 
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::Comma) => {
-                                let source = self.iter.peek().source.clone();
-
+                                let source = self.iter.peek()?.source.clone();
+                                
+                                self.iter.advance()?;
+                                
                                 // Capture ",\n" and ",)" groups
-                                if self.iter.advance_skip_lb()? || match self.iter.peek().value {
+                                if self.iter.skip_lb()? || match self.iter.peek()?.value {
                                     Token::Symbol(Symbol::RightParenthesis) => true,
                                     _ => false
                                 } {
@@ -969,30 +1017,32 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                     // peek() == ')'
 
-                    first_source.end = self.iter.peek().source.end;
+                    first_source.end = self.iter.peek()?.source.end;
                     self.iter.advance()?;
 
                     Expression::Instance(fields)
                 }
                 Token::Symbol(Symbol::LeftBracket) => {
-                    self.iter.advance_skip_lb()?;
-                    
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+
                     let mut items = Vec::new_in(self.alloc);
 
                     loop {
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::RightBracket) => break,
                             Token::Symbol(Symbol::Comma) => {
-                                self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                self.iter.advance_skip_lb()?;
-                                continue
+                                self.omit_single_token_warning(Warning::UnnecessaryComma)?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
+                                continue;
                             }
                             _ => {}
                         }
-                        
+
                         items.push(self.parse_expression(0)?);
 
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::LineBreak => self.iter.advance()?,
                             Token::Symbol(Symbol::Comma) => {
                                 self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -1000,9 +1050,9 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             _ => {}
                         }
                     }
-                    
+
                     self.iter.advance()?;
-                    
+
                     Expression::Array(items)
                 }
                 Token::Symbol(Symbol::LeftBrace) => {
@@ -1012,22 +1062,27 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     Expression::Block(block.value)
                 }
                 Token::Keyword(Keyword::Fn) => {
-                    self.iter.advance_skip_lb()?;
-                    
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+
                     let tps = self.parse_opt_type_parameter_declarations()?;
 
                     let mut parameters = Vec::new_in(self.alloc);
-                    
-                    match self.iter.peek().value {
+
+                    match self.iter.peek()?.value {
                         Token::Symbol(Symbol::LeftParenthesis) => {}
                         _ => return error!("Expected '('."),
                     };
-                    
-                    self.iter.advance_skip_lb()?;
-                    self.parse_fn_parameters(&mut parameters)?;
-                    self.iter.advance_skip_lb()?;
 
-                    let (return_type, body) = match self.iter.peek().value {
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+                    
+                    self.parse_fn_parameters(&mut parameters)?;
+                    
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+
+                    let (return_type, body) = match self.iter.peek()?.value {
                         Token::Symbol(Symbol::MinusRightAngle) =>
                             return error!("Closures cannot have return type annotations."),
                         _ => (None, self.parse_expression(0)?),
@@ -1043,12 +1098,13 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }
                 }
                 Token::Keyword(Keyword::If) => {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
                     let condition = self.parse_expression(0)?;
                     self.iter.skip_lb()?;
 
-                    match self.iter.peek().value {
+                    match self.iter.peek()?.value {
                         Token::Symbol(Symbol::LeftBrace) => {}
                         _ => return error!("Expected '{'")
                     }
@@ -1065,9 +1121,10 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             _ => break None,
                         }
 
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
 
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Keyword(Keyword::If) => {}
                             Token::Symbol(Symbol::LeftBrace) => {
                                 let block = self.parse_block()?;
@@ -1079,12 +1136,13 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                         // else-if-branch
 
-                        self.iter.advance_skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
 
                         let condition = self.parse_expression(0)?;
                         self.iter.skip_lb()?;
 
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::LeftBrace) => {}
                             _ => return error!("Expected '{' after 'else if' condition")
                         }
@@ -1115,12 +1173,13 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     Expression::False
                 }
                 Token::Keyword(Keyword::While) => {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
                     let condition = self.parse_expression(0)?;
                     self.iter.skip_lb()?;
 
-                    match self.iter.peek().value {
+                    match self.iter.peek()?.value {
                         Token::Symbol(Symbol::LeftBrace) => {}
                         _ => return error!("Expected '{'")
                     }
@@ -1135,44 +1194,45 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }
                 }
                 Token::MarkupStartTag(tag_name) => {
-                    let target_source = self.iter.peek().source.clone();
+                    let target_source = self.iter.peek()?.source.clone();
                     let mut params = Vec::new_in(self.alloc);
 
                     loop {
                         self.iter.advance()?;
-                        
+
                         let key = Span {
-                            value: match self.iter.peek().value {
+                            value: match self.iter.peek()?.value {
                                 Token::MarkupClose => break,
                                 Token::MarkupKey(key) => key,
                                 _ => todo!()
                             },
-                            source: self.iter.peek().source.clone(),
+                            source: self.iter.peek()?.source.clone(),
                         };
-                        
+
                         self.iter.advance()?;
-                        
-                        let value = match self.iter.peek().value {
+
+                        let value = match self.iter.peek()?.value {
                             Token::String(str) => Span {
                                 value: Expression::String(str.process(self.alloc)?.into()),
-                                source: self.iter.peek().source.clone(),
+                                source: self.iter.peek()?.source.clone(),
                             },
                             Token::Symbol(Symbol::LeftBrace) => {
-                                self.iter.advance_skip_lb()?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
                                 self.parse_expression(0)?
                             }
                             _ => unreachable!()
                         };
-                        
+
                         params.push((key, value));
                     }
-                    
+
                     self.iter.advance()?;
-                    
+
                     Expression::Call {
                         target: Box::new_in(Span {
                             value: Expression::Identifier(tag_name),
-                            source: target_source
+                            source: target_source,
                         }, self.alloc),
                         arguments: CallArguments::Named(params),
                     }
@@ -1197,7 +1257,8 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 }
 
                 self.iter.skip_lb()?;
-                self.iter.advance_skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
                 let right = self.parse_expression($bp.1)?;
 
@@ -1246,20 +1307,22 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }
 
                     self.iter.skip_lb()?;
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
                     // Skip initial commas
                     loop {
-                        match self.iter.peek().value {
+                        match self.iter.peek()?.value {
                             Token::Symbol(Symbol::Comma) => {
-                                self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                self.iter.advance_skip_lb()?;
+                                self.omit_single_token_warning(Warning::UnnecessaryComma)?;
+                                self.iter.advance()?;
+                                self.iter.skip_lb()?;
                             }
                             _ => break
                         }
                     }
 
-                    let arguments: CallArguments<'source, 'alloc> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek().value {
+                    let arguments: CallArguments<'source, 'alloc> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek()?.value {
                         // There are no arguments. We must handle this special case,
                         // because we cannot parse an expression.
                         CallArguments::Unnamed(Vec::new_in(self.alloc))
@@ -1273,7 +1336,8 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             // Named
 
                             self.iter.skip_lb()?;
-                            self.iter.advance_skip_lb()?;
+                            self.iter.advance()?;
+                            self.iter.skip_lb()?;
 
                             let mut args = Vec::new_in(self.alloc);
 
@@ -1281,7 +1345,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                 () => {{
                                     let expr = self.parse_expression(0)?;
     
-                                    match self.iter.peek().value {
+                                    match self.iter.peek()?.value {
                                         Token::LineBreak => self.iter.advance()?,
                                         Token::Symbol(Symbol::Comma) => {
                                             self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -1302,19 +1366,21 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             parse_that!();
 
                             loop {
-                                arg = match self.iter.peek().value {
+                                arg = match self.iter.peek()?.value {
                                     Token::Symbol(Symbol::Comma) => {
-                                        self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                        self.iter.advance_skip_lb()?;
+                                        self.omit_single_token_warning(Warning::UnnecessaryComma)?;
+                                        self.iter.advance()?;
+                                        self.iter.skip_lb()?;
                                         continue;
                                     }
                                     Token::Symbol(Symbol::RightParenthesis) => break,
                                     Token::Identifier(id) => {
-                                        *source = self.iter.peek().source.clone();
+                                        *source = self.iter.peek()?.source.clone();
 
-                                        self.iter.advance_skip_lb()?;
+                                        self.iter.advance()?;
+                                        self.iter.skip_lb()?;
 
-                                        match self.iter.peek().value {
+                                        match self.iter.peek()?.value {
                                             Token::Symbol(Symbol::Equals) => {}
                                             _ => return error!("Expected '='")
                                         }
@@ -1335,7 +1401,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
                             let expr = self.parse_expression_remaining_terms(maybe_arg, 0)?;
 
-                            match self.iter.peek().value {
+                            match self.iter.peek()?.value {
                                 Token::LineBreak => self.iter.advance()?,
                                 Token::Symbol(Symbol::Comma) => {
                                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -1346,10 +1412,11 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             args.push(expr);
 
                             loop {
-                                match self.iter.peek().value {
+                                match self.iter.peek()?.value {
                                     Token::Symbol(Symbol::Comma) => {
-                                        self.omit_single_token_warning(Warning::UnnecessaryComma);
-                                        self.iter.advance_skip_lb()?;
+                                        self.omit_single_token_warning(Warning::UnnecessaryComma)?;
+                                        self.iter.advance()?;
+                                        self.iter.skip_lb()?;
                                         continue;
                                     }
                                     Token::Symbol(Symbol::RightParenthesis) => break,
@@ -1359,7 +1426,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                                 maybe_arg = self.parse_expression_first_term()?;
                                 let expr = self.parse_expression_remaining_terms(maybe_arg, 0)?;
 
-                                match self.iter.peek().value {
+                                match self.iter.peek()?.value {
                                     Token::LineBreak => self.iter.advance()?,
                                     Token::Symbol(Symbol::Comma) => {
                                         self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
@@ -1374,7 +1441,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                         }
                     };
 
-                    let end = self.iter.peek().source.end;
+                    let end = self.iter.peek()?.source.end;
 
                     self.iter.advance()?;
 
@@ -1392,14 +1459,15 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }
 
                     self.iter.skip_lb()?;
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
-                    let property = match self.iter.peek().value {
+                    let property = match self.iter.peek()?.value {
                         Token::Identifier(id) => id,
                         _ => return error!("Expected an identifier")
                     };
 
-                    let end = self.iter.peek().source.end;
+                    let end = self.iter.peek()?.source.end;
 
                     self.iter.advance()?;
 
@@ -1417,14 +1485,15 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     }
 
                     self.iter.skip_lb()?;
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
 
-                    let property = match self.iter.peek().value {
+                    let property = match self.iter.peek()?.value {
                         Token::Identifier(id) => id,
                         _ => return error!("Expected an identifier")
                     };
 
-                    let end = self.iter.peek().source.end;
+                    let end = self.iter.peek()?.source.end;
 
                     self.iter.advance()?;
 
@@ -1467,16 +1536,21 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         let mut items = Vec::new_in(self.alloc);
 
         loop {
-            let is_public = match self.iter.peek().value {
+            let is_public = match self.iter.peek()?.value {
                 // Ignore semicolons
                 Token::Symbol(Symbol::Semicolon) => {
-                    self.omit_single_token_warning(Warning::UnnecessarySemicolon);
-                    self.iter.advance_skip_lb()?;
+                    self.omit_single_token_warning(Warning::UnnecessarySemicolon)?;
+                    
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+                    
                     continue;
                 }
                 Token::EndOfInput | Token::Symbol(Symbol::RightBrace) => break,
                 Token::Keyword(Keyword::Pub) => {
-                    self.iter.advance_skip_lb()?;
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+                    
                     true
                 }
                 _ => false
@@ -1488,10 +1562,10 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     statement
                 } else {
                     return error!("Expected a statement")
-                }
+                },
             });
 
-            match self.iter.peek().value {
+            match self.iter.peek()?.value {
                 Token::Symbol(Symbol::Semicolon) => {
                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
                 }
@@ -1506,7 +1580,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     fn parse_module(&mut self) -> Result<ModuleContent<'source, 'alloc>, Error> {
         let content = self.parse_module_content()?;
-        match self.iter.peek().value {
+        match self.iter.peek()?.value {
             Token::EndOfInput => Ok(content),
             _ => error!("This '}' does not close anything; consider removing it")
         }
@@ -1518,26 +1592,17 @@ pub fn parse_module<'source: 'lex_alloc + 'parse_alloc, 'lex_alloc: 'parse_alloc
     source: &'source [u8],
     lex_alloc: &'lex_alloc Bump,
     parse_alloc: &'parse_alloc Bump,
-) -> (
-    Result<ModuleContent<'source, 'parse_alloc>, (Error, Range<Index>)>,
-    Vec<'parse_alloc, Span<Warning>>
-) {
-    let mut lex = Lexer::new(source, lex_alloc);
-    let buf = Buffered::new_init(match lex.next_token() {
-        Ok(init) => init,
-        Err(err) => return (
-            Err((
-                Error::from(err),
-                lex.index() - 1..lex.index()
-            )),
-            Vec::new_in(parse_alloc)
-        )
-    }, lex);
+) -> Result<
+    (ModuleContent<'source, 'parse_alloc>, Vec<'parse_alloc, Span<Warning>>),
+    (Error, Index)
+> {
+    let buf = LookaheadBuffer::new(Lexer::new(source, lex_alloc));
 
     let mut context = ParseContext::new(buf, parse_alloc);
     let maybe_module = context.parse_module();
-
     let ParseContext { iter, warnings, .. } = context;
 
-    (maybe_module.map_err(|err| (err, iter.peek().source.clone())), warnings)
+    maybe_module
+        .map(|module| (module, warnings))
+        .map_err(|err| (err, iter.iter().cursor().index()))
 }

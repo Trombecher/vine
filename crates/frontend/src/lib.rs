@@ -16,6 +16,7 @@ pub mod parse;
 
 use alloc::{vec, boxed};
 pub use bumpalo;
+#[allow(unused_imports)]
 pub use warnings::*;
 
 // Enforce specification of an allocator.
