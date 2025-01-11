@@ -1,33 +1,37 @@
-use bumpalo::Bump;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::alloc::Allocator;
 use bytes::{Cursor, Span};
 use core::fmt::{Debug, Formatter};
 use core::mem::transmute;
+use derive_where::derive_where;
 use phf::phf_map;
 
 use crate::lex::{unescape_char, Error};
-use crate::{Box, Vec};
 
 /// This type solely exists because [Clone] is not implemented for `Box<str, A>` (which is ridiculous).
-#[derive(Clone, PartialEq)]
-pub struct BoxStr<'alloc>(Box<'alloc, [u8]>);
+#[derive_where(PartialEq, Clone)]
+pub struct BoxStr<A: Allocator + Clone>(Box<[u8], A>);
 
-impl<'alloc> From<Box<'alloc, str>> for BoxStr<'alloc> {
+impl<A: Allocator + Clone> BoxStr<A> {
     #[inline]
-    fn from(value: Box<'alloc, str>) -> Self {
-        Self(unsafe { transmute(value) })
+    pub fn unbox(self) -> Box<str, A> {
+        let (raw, alloc) = Box::into_raw_with_allocator(self.0);
+        unsafe { Box::from_raw_in(raw as *mut str, alloc) }
     }
 }
 
-impl<'alloc> Into<Box<'alloc, str>> for BoxStr<'alloc> {
-    fn into(self) -> Box<'alloc, str> {
-        unsafe { transmute(self) }
+impl<A: Allocator + Clone> From<Box<str, A>> for BoxStr<A> {
+    #[inline]
+    fn from(value: Box<str, A>) -> Self {
+        Self(value.into())
     }
 }
 
-impl<'alloc> Debug for BoxStr<'alloc> {
+impl<A: Allocator + Clone> Debug for BoxStr<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         // Steal the Debug impl from Box<str, A>
-        unsafe { transmute::<_, &Box<'alloc, str>>(self) }.fmt(f)
+        unsafe { transmute::<_, &Box<str, A>>(self) }.fmt(f)
     }
 }
 
@@ -40,7 +44,7 @@ impl<'source> UnprocessedString<'source> {
         Self(raw)
     }
 
-    pub fn process<'alloc>(&self, alloc: &'alloc Bump) -> Result<Box<'alloc, str>, Error> {
+    pub fn process<A: Allocator>(&self, alloc: A) -> Result<Box<str, A>, Error> {
         let mut string = Vec::with_capacity_in(self.0.len(), alloc);
         let mut cursor = Cursor::new(self.0.as_bytes());
 
@@ -56,8 +60,10 @@ impl<'source> UnprocessedString<'source> {
             }
         }
 
+        let (raw, alloc) = Box::into_raw_with_allocator(string.into_boxed_slice());
+        
         // SAFETY: this is a string
-        Ok(unsafe { transmute::<_, Box<'alloc, str>>(string.into_boxed_slice()) })
+        Ok(unsafe { Box::from_raw_in(raw as *mut str, alloc) })
     }
 }
 

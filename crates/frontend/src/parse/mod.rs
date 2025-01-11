@@ -4,28 +4,29 @@ mod tests;
 pub mod bp;
 pub mod ast;
 
-use crate::{Box, Vec};
+use alloc::vec::Vec;
+use alloc::boxed::Box;
+use core::alloc::Allocator;
 use crate::lex::{Keyword, Lexer, Symbol, Token, TokenIterator};
 use ast::*;
 use bytes::{Index, Span};
-use bumpalo::Bump;
 use errors::*;
 pub use warnings::*;
 use crate::buffered::LookaheadBuffer;
 
-pub struct ParseContext<'source: 'alloc, 'alloc, T: TokenIterator<'source>> {
+pub struct ParseContext<'source, T: TokenIterator<'source>, A: Allocator + Copy> {
     pub iter: LookaheadBuffer<'source, T>,
-    pub alloc: &'alloc Bump,
-    pub warnings: Vec<'alloc, Span<Warning>>,
+    pub alloc: A,
+    pub warnings: Vec<Span<Warning>, A>,
 }
 
-impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, 'alloc, T> {
+impl<'source, T: TokenIterator<'source>, A: Allocator + Copy> ParseContext<'source, T, A> {
     #[inline]
-    pub const fn new(iter: LookaheadBuffer<'source, T>, alloc: &'alloc Bump) -> ParseContext<'source, 'alloc, T> {
+    pub const fn new(iter: LookaheadBuffer<'source, T>, alloc: A) -> Self {
         Self {
+            alloc,
             warnings: Vec::new_in(alloc),
             iter,
-            alloc,
         }
     }
 
@@ -73,7 +74,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     /// If `peek()` is a '<', then it parses type parameters.
     #[inline]
-    fn parse_opt_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, 'alloc>, Error> {
+    fn parse_opt_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, A>, Error> {
         Ok(match self.iter.peek()?.value {
             Token::Symbol(Symbol::LeftAngle) => {
                 self.iter.advance()?;
@@ -92,7 +93,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// ```
     ///
     /// Expects the next token to be the marked. Ends on the non-lb token after `>`.
-    fn parse_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, 'alloc>, Error> {
+    fn parse_type_parameter_declarations(&mut self) -> Result<TypeParameters<'source, A>, Error> {
         let mut params = Vec::new_in(self.alloc);
 
         loop {
@@ -133,7 +134,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// Parses a block.
     ///
     /// Expects `peek()` to be [Symbol::LeftBrace]. Ends on [Symbol::RightBrace].
-    fn parse_block(&mut self) -> Result<Span<Vec<'alloc, Span<StatementOrExpression<'source, 'alloc>>>>, Error> {
+    fn parse_block(&mut self) -> Result<Span<Vec<Span<StatementOrExpression<'source, A>>, A>>, Error> {
         let start = self.iter.peek()?.source.start;
 
         self.iter.advance()?; // Skip {
@@ -176,7 +177,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     }
 
     /// Expects that the first token of the type is accessible via `peek()`. Ends on the token after the type.
-    fn parse_type(&mut self) -> Result<Span<Type<'source, 'alloc>>, Error> {
+    fn parse_type(&mut self) -> Result<Span<Type<'source, A>>, Error> {
         let source = self.iter.peek()?.source.clone();
 
         Ok(match self.iter.peek()?.value {
@@ -238,7 +239,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                     tps,
                 });
 
-                let remaining: Vec<'alloc, RawType<'source, 'alloc>> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
+                let remaining: Vec<RawType<'source, A>, A> = if let Token::Symbol(Symbol::Pipe) = self.iter.peek_non_lb()?.0.value {
                     return error!("TODO: this ain't be implemented :(")
 
                     // self.iter.advance()?;
@@ -259,7 +260,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         })
     }
 
-    fn parse_use_child(&mut self) -> Result<Span<UseChild<'source, 'alloc>>, Error> {
+    fn parse_use_child(&mut self) -> Result<Span<UseChild<'source, A>>, Error> {
         self.iter.skip_lb()?;
         self.iter.advance()?;
         self.iter.skip_lb()?;
@@ -327,7 +328,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     }
 
     /// Expects the . to not be consumed. Ends on the token after the use-statement
-    fn parse_use(&mut self, id: &'source str) -> Result<Span<Use<'source, 'alloc>>, Error> {
+    fn parse_use(&mut self, id: &'source str) -> Result<Span<Use<'source, A>>, Error> {
         let source = self.iter.peek()?.source.clone();
 
         self.iter.advance()?;
@@ -356,7 +357,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     /// Expects [Buffered::peek] to yield [Token::Identifier].
     /// Ends on the token after the last path segment (greedy).
-    fn parse_item_path(&mut self, mut first_id: &'source str) -> Result<Span<ItemPath<'source, 'alloc>>, Error> {
+    fn parse_item_path(&mut self, mut first_id: &'source str) -> Result<Span<ItemPath<'source, A>>, Error> {
         let mut source = self.iter.peek()?.source.clone();
 
         self.iter.advance()?;
@@ -402,7 +403,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// Parses the parameters of a function expression.
     ///
     /// Expects `peek()` to be the non-lb token after `(`. Ends on `)`.
-    fn parse_fn_parameters(&mut self, parameters: &mut Vec<'alloc, Parameter<'source, 'alloc>>) -> Result<(), Error> {
+    fn parse_fn_parameters(&mut self, parameters: &mut Vec<Parameter<'source, A>, A>) -> Result<(), Error> {
         loop {
             let is_mutable = match self.iter.peek()?.value {
                 Token::Symbol(Symbol::RightParenthesis) => break,
@@ -454,7 +455,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// - Expects `peek()` to correspond to the first non-lb token of the statement (pre-advance).
     /// - Ends on the token after the statement. The caller must validate that token.
     /// **This may be a [Token::LineBreak]!**
-    fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'source, 'alloc>>>, Error> {
+    fn try_parse_statement(&mut self) -> Result<Option<Span<Statement<'source, A>>>, Error> {
         let mut source = self.iter.peek()?.source.clone();
 
         let mut doc_comments = Vec::new_in(self.alloc);
@@ -496,7 +497,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
             });
         }
 
-        let statement_kind: Option<StatementKind<'source, 'alloc>> = match self.iter.peek()?.value {
+        let statement_kind: Option<StatementKind<'source, A>> = match self.iter.peek()?.value {
             Token::Keyword(Keyword::Fn) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
@@ -605,7 +606,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
-                let return_type: Option<Span<Type<'source, 'alloc>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek()?.value {
+                let return_type: Option<Span<Type<'source, A>>> = if let Token::Symbol(Symbol::MinusRightAngle) = self.iter.peek()?.value {
                     self.iter.advance()?;
                     self.iter.skip_lb()?;
 
@@ -874,6 +875,11 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                 source = src;
                 Some(StatementKind::Use(value))
             }
+            Token::Keyword(Keyword::Break) => {
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+                Some(StatementKind::Break)
+            }
             _ => {
                 if doc_comments.len() > 0 {
                     return error!("Doc comments are not attached to a statement");
@@ -906,12 +912,12 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// In this case, the line break before may have been skipped.
     /// - [Token::LineBreak]. In this case the token after the line break
     /// was already generated and may be anything (did not continue the expression).
-    pub fn parse_expression(&mut self, min_bp: u8) -> Result<Span<Expression<'source, 'alloc>>, Error> {
+    pub fn parse_expression(&mut self, min_bp: u8) -> Result<Span<Expression<'source, A>>, Error> {
         let first_term = self.parse_expression_first_term()?;
         self.parse_expression_remaining_terms(first_term, min_bp)
     }
 
-    fn parse_expression_first_term(&mut self) -> Result<Span<Expression<'source, 'alloc>>, Error> {
+    fn parse_expression_first_term(&mut self) -> Result<Span<Expression<'source, A>>, Error> {
         let mut first_source = self.iter.peek()?.source.clone();
 
         Ok(Span {
@@ -1204,7 +1210,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                             value: match self.iter.peek()?.value {
                                 Token::MarkupClose => break,
                                 Token::MarkupKey(key) => key,
-                                _ => todo!()
+                                _ => todo!("markup children")
                             },
                             source: self.iter.peek()?.source.clone(),
                         };
@@ -1245,9 +1251,9 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 
     fn parse_expression_remaining_terms(
         &mut self,
-        mut first_term: Span<Expression<'source, 'alloc>>,
+        mut first_term: Span<Expression<'source, A>>,
         min_bp: u8,
-    ) -> Result<Span<Expression<'source, 'alloc>>, Error> {
+    ) -> Result<Span<Expression<'source, A>>, Error> {
         let start = first_term.source.start;
 
         macro_rules! op {
@@ -1322,7 +1328,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
                         }
                     }
 
-                    let arguments: CallArguments<'source, 'alloc> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek()?.value {
+                    let arguments: CallArguments<'source, A> = if let Token::Symbol(Symbol::RightParenthesis) = self.iter.peek()?.value {
                         // There are no arguments. We must handle this special case,
                         // because we cannot parse an expression.
                         CallArguments::Unnamed(Vec::new_in(self.alloc))
@@ -1532,7 +1538,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
     /// Expects that the first non-lb token after `{` was already consumed.
     ///
     /// Ends on `}` or [Token::EndOfInput].
-    fn parse_module_content(&mut self) -> Result<ModuleContent<'source, 'alloc>, Error> {
+    fn parse_module_content(&mut self) -> Result<ModuleContent<'source, A>, Error> {
         let mut items = Vec::new_in(self.alloc);
 
         loop {
@@ -1578,7 +1584,7 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
         Ok(ModuleContent(items))
     }
 
-    fn parse_module(&mut self) -> Result<ModuleContent<'source, 'alloc>, Error> {
+    fn parse_module(&mut self) -> Result<ModuleContent<'source, A>, Error> {
         let content = self.parse_module_content()?;
         match self.iter.peek()?.value {
             Token::EndOfInput => Ok(content),
@@ -1588,14 +1594,11 @@ impl<'source: 'alloc, 'alloc, T: TokenIterator<'source>> ParseContext<'source, '
 }
 
 /// Parses a source module commonly obtained from file content.
-pub fn parse_module<'source: 'lex_alloc + 'parse_alloc, 'lex_alloc: 'parse_alloc, 'parse_alloc>(
-    source: &'source [u8],
-    lex_alloc: &'lex_alloc Bump,
-    parse_alloc: &'parse_alloc Bump,
-) -> Result<
-    (ModuleContent<'source, 'parse_alloc>, Vec<'parse_alloc, Span<Warning>>),
-    (Error, Index)
-> {
+pub fn parse_module<LexA: Allocator + Copy, ParseA: Allocator + Copy>(
+    source: &[u8],
+    lex_alloc: LexA,
+    parse_alloc: ParseA,
+) -> Result<(ModuleContent<ParseA>, Vec<Span<Warning>, ParseA>), (Error, Index)> {
     let buf = LookaheadBuffer::new(Lexer::new(source, lex_alloc));
 
     let mut context = ParseContext::new(buf, parse_alloc);

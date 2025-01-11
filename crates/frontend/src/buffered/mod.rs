@@ -50,8 +50,10 @@ LookaheadBuffer<'source_text, T, LABAlloc>
 
     #[inline]
     pub fn peek_n(&mut self, n: usize) -> Result<&Span<Token<'source_text>>, Error> {
-        for _ in 0..(n as isize - self.queue.len() as isize) {
-            self.queue.push_back(self.iter.next_token()?);
+        for _ in 0..(n as isize - self.queue.len() as isize + 1) {
+            let new_token = self.iter.next_token()?;
+            // println!("Lexer generated: {new_token:?}");
+            self.queue.push_back(new_token);
         }
 
         // `unwrap()` is safe because we ensured that there is at least one element present.

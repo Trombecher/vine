@@ -1,0 +1,11 @@
+pub fn gcd() {
+    let result = a.min(b)
+
+    while result > 0 {
+        if a % result == 0 && b % result == 0 {
+            break
+        }
+
+        result.x.x.x.x.x.x -= 1
+    }
+}
