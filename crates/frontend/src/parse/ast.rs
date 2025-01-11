@@ -85,6 +85,7 @@ pub enum Expression<'source, A: Allocator + Copy> {
     Instance(Vec<InstanceFieldInit<'source, A>, A>),
     Access(Access<'source, A>),
     OptionalAccess(Access<'source, A>),
+    // TODO: Array access
     Array(Vec<Span<Expression<'source, A>>, A>),
 
     // Primitives

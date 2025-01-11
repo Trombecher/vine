@@ -6,6 +6,6 @@ pub fn gcd() {
             break
         }
 
-        result.x.x.x.x.x.x -= 1
+        result -= 1
     }
 }
