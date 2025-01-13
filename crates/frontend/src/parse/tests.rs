@@ -19,7 +19,7 @@ fn t1() {
                             annotations: vec![],
                             statement_kind: StatementKind::Function {
                                 signature: FunctionSignature {
-                                    tps: vec![],
+                                    const_parameters: vec![],
                                     parameters: vec![],
                                     return_type: None,
                                 },

@@ -1,11 +1,7 @@
-pub fn gcd() {
-    let result = a.min(b)
+fn main() {
 
-    while result > 0 {
-        if a % result == 0 && b % result == 0 {
-            break
-        }
+}
 
-        result -= 1
-    }
+fn<A, B, C> compose(f: F, g: G) -> H {
+
 }

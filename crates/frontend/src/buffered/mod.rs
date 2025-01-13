@@ -7,6 +7,7 @@ use alloc::alloc::Global;
 use crate::lex::{Token, TokenIterator};
 use alloc::collections::VecDeque;
 use core::alloc::Allocator;
+use core::mem::transmute;
 use bytes::Span;
 use errors::Error;
 
@@ -60,6 +61,27 @@ LookaheadBuffer<'source_text, T, LABAlloc>
         Ok(self.queue.get(n).unwrap())
     }
 
+    /// Returns a shared reference to the nth token in the future, while skipping line breaks.
+    #[inline]
+    pub fn peek_n_non_lb(&mut self, mut n: usize) -> Result<(&Span<Token<'source_text>>, bool), Error> {
+        let mut real_index = 0;
+
+        loop {
+            if real_index >= self.queue.len() {
+                self.queue.push_back(self.iter.next_token()?);
+            }
+            
+            match self.queue.get(real_index).unwrap() {
+                Span { value: Token::LineBreak, .. } => {}
+                _ if n > 0 => n -= 1,
+                // Why do I have to borrow again???
+                _ => return Ok((self.queue.get(real_index).unwrap(), real_index == n)),
+            }
+
+            real_index += 1;
+        }
+    }
+
     /// Returns a shared reference to the next token (via [Self::peek]) or,
     /// if that token is a line break, to the token after that (via [Self::peek_after]).
     ///
@@ -67,11 +89,7 @@ LookaheadBuffer<'source_text, T, LABAlloc>
     /// otherwise `false`.
     #[inline]
     pub fn peek_non_lb(&mut self) -> Result<(&Span<Token<'source_text>>, bool), Error> {
-        Ok(match self.peek()?.value {
-            Token::LineBreak => (self.peek_n(1)?, true),
-            _ => (self.peek()?, false) // TODO: the borrow checker is wrong on this one. The line below should be accepted!
-            // token => (token, false)
-        })
+        self.peek_n_non_lb(0)
     }
 
     #[inline]

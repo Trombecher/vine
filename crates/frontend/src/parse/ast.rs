@@ -46,69 +46,138 @@ pub enum ComparativeOperation {
 
 #[derive_where(Clone, PartialEq, Debug)]
 pub enum Expression<'source, A: Allocator + Copy> {
-    // Binary Expressions
+    /// `left operation right`
     Operation {
         left: Box<Span<Expression<'source, A>>, A>,
         operation: Operation,
         right: Box<Span<Expression<'source, A>>, A>,
     },
+
+    /// `target operation value`
     Assignment {
         target: Box<Span<AssignmentTarget<'source, A>>, A>,
         operation: Option<PAOperation>,
         value: Box<Span<Expression<'source, A>>, A>
     },
     
-    // Unary Expressions
+    /// `!expr`
     Not(Box<Span<Expression<'source, A>>, A>),
+
+    /// `return expr`
     Return(Box<Span<Expression<'source, A>>, A>),
-    
-    // Control Flow
+
+    /// `continue`
     Continue,
+
+    /// `break`
     Break,
+
+    /// ```plaintext
+    /// if condition { ... }
+    /// if condition { ... } else { ...}
+    /// if condition { ... } else if c1 { ... }
+    /// if condition { ... } else if c1 { ... } else { ...}
+    /// ...
+    /// ```
     If {
         base: If<'source, A>,
         else_ifs: Vec<If<'source, A>, A>,
         else_body: Option<Span<Vec<Span<StatementOrExpression<'source, A>>, A>>>,
     },
+
+    /// `while condition { body... }`
     While {
         condition: Box<Span<Expression<'source, A>>, A>,
         body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>
     },
+
+    /// `for variable in iter { body... }`
     For {
         is_mutable: bool,
         variable: &'source str,
         iter: Box<Expression<'source, A>, A>,
+        body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>
     },
+
+    /// `{ ... }`
     Block(Vec<Span<StatementOrExpression<'source, A>>, A>),
     
-    // Objects And Paths
+    /// `(p0 = v0, p1 = v1, ...)`
     Instance(Vec<InstanceFieldInit<'source, A>, A>),
+
+    /// `target.property`
     Access(Access<'source, A>),
+
+    /// `target?.property`
     OptionalAccess(Access<'source, A>),
-    // TODO: Array access
+
+    /// `target[index]`
+    ArrayAccess {
+        target: Box<Expression<'source, A>, A>,
+        index: Box<Expression<'source, A>, A>
+    },
+
+    /// `[v0, v1, ...]`
     Array(Vec<Span<Expression<'source, A>>, A>),
 
-    // Primitives
+    /// `123457657_234234234.11321`
     Number(f64),
+
+    /// `"Hello, World!"`
     String(BoxStr<A>),
+
+    /// `identifier`
     Identifier(&'source str),
+
+    /// `false`
     False,
+
+    /// `true`
     True,
+
+    /// `this`
     This,
+
+    /// `<element args...> children... </element>`
     Markup(MarkupElement<'source, A>),
     
-    // Functions
+    /// `fn(params...) body`
     Function {
         signature: FunctionSignature<'source, A>,
         body: Box<Span<Expression<'source, A>>, A>,
     },
+
+    /// `target(args...)`
     Call {
         target: Box<Span<Expression<'source, A>>, A>,
-        arguments: CallArguments<'source, A>
+        arguments: CallArguments<'source, A>,
     },
+
+    /// `target.<const_args...>(args...)`
+    CallWithConstParameters {
+        target: Box<Span<ConstParametersCallTarget<'source, A>>, A>,
+        arguments: CallArguments<'source, A>,
+        const_arguments: Vec<Span<ConstArgument<'source, A>>, A>
+    },
+    
+    /// `expression as ty`
     As {
+        expression: Box<Expression<'source, A>, A>,
         ty: Span<Type<'source, A>>
     }
+}
+
+#[derive_where(Debug, PartialEq, Clone)]
+pub enum ConstParametersCallTarget<'source, A: Allocator + Copy> {
+    Identifier(&'source str),
+    Access(Access<'source, A>),
+    OptionalAccess(Access<'source, A>),
+}
+
+#[derive_where(Debug, PartialEq, Clone)]
+pub enum ConstArgument<'source, A: Allocator + Copy> {
+    Type(Type<'source, A>),
+    Expression(Expression<'source, A>)
 }
 
 #[derive_where(Debug, PartialEq, Clone)]
@@ -121,7 +190,7 @@ pub struct InstanceFieldInit<'source, A: Allocator + Copy> {
 
 #[derive_where(Debug, PartialEq, Clone)]
 pub enum CallArguments<'source, A: Allocator + Copy> {
-    Unnamed(Vec<Span<Expression<'source, A>>, A>),
+    Single(Box<Span<Expression<'source, A>>, A>),
     Named(Vec<(Span<&'source str>, Span<Expression<'source, A>>), A>),
 }
 
@@ -131,7 +200,7 @@ pub struct If<'source, A: Allocator + Copy> {
     pub body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
 }
 
-pub type TypeParameters<'source, A> = Vec<Span<TypeParameter<'source, A>>, A>;
+pub type ConstParameters<'source, A> = Vec<Span<ConstParameter<'source, A>>, A>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ThisParameter {
@@ -144,7 +213,7 @@ pub enum StatementKind<'source, A: Allocator + Copy> {
     Enum {
         doc_comments: Vec<&'source str, A>,
         id: &'source str,
-        tps: TypeParameters<'source, A>,
+        const_parameters: ConstParameters<'source, A>,
         variants: Vec<(&'source str, Option<Span<Expression<'source, A>>>), A>,
     },
     Declaration {
@@ -163,13 +232,13 @@ pub enum StatementKind<'source, A: Allocator + Copy> {
     Struct {
         doc_comments: Vec<&'source str, A>,
         id: &'source str,
-        tps: TypeParameters<'source, A>,
+        const_parameters: ConstParameters<'source, A>,
         fields: Vec<Span<StructField<'source, A>>, A>
     },
     TypeAlias {
         doc_comments: Vec<&'source str, A>,
         id: &'source str,
-        tps: TypeParameters<'source, A>,
+        const_parameters: ConstParameters<'source, A>,
         ty: Type<'source, A>,
     },
     Use(Use<'source, A>),
@@ -184,9 +253,15 @@ pub enum StatementKind<'source, A: Allocator + Copy> {
 }
 
 #[derive_where(Debug, PartialEq, Clone)]
-pub struct TypeParameter<'source, A: Allocator + Copy> {
-    pub id: &'source str,
-    pub traits: Vec<ItemPath<'source, A>, A>
+pub enum ConstParameter<'source, A: Allocator + Copy> {
+    Type {
+        id: &'source str,
+        trait_bounds: Vec<RawType<'source, A>, A>
+    },
+    Let {
+        id: &'source str,
+        ty: Type<'source, A>
+    }
 }
 
 #[derive_where(Debug, PartialEq, Clone)]
@@ -310,13 +385,13 @@ impl<'source, A: Allocator + Copy> RawType<'source, A> {
 #[derive_where(Debug, PartialEq, Clone)]
 pub struct ItemRef<'source, A: Allocator + Copy> {
     pub path: Span<ItemPath<'source, A>>,
-    pub tps: Span<Vec<Span<Type<'source, A>>, A>>,
+    pub const_parameters: Span<Vec<Span<Type<'source, A>>, A>>,
 }
 
 impl<'source, A: Allocator + Copy> ItemRef<'source, A> {
     #[inline]
     pub const fn source_span(&self) -> Range<Index> {
-        self.path.source.start..self.tps.source.end
+        self.path.source.start..self.const_parameters.source.end
     }
 }
 
@@ -324,7 +399,7 @@ impl<'source, A: Allocator + Copy> ItemRef<'source, A> {
 /// parameters and the return-type of a function.
 #[derive_where(Debug, PartialEq, Clone)]
 pub struct FunctionSignature<'source, A: Allocator + Copy> {
-    pub tps: TypeParameters<'source, A>,
+    pub const_parameters: ConstParameters<'source, A>,
     pub parameters: Vec<Parameter<'source, A>, A>,
     pub return_type: Option<Span<Type<'source, A>>>,
 }
