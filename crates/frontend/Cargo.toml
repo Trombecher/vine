@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-huge_files = ["bytes/huge_files"]
+huge_files = ["span/huge_files"]
 
 [dependencies]
+span = { path = "../span" }
 phf = { version = "0.11.2", features = ["macros"] }
-bytes = { path = "../bytes"}
+byte_reader = { git = "https://github.com/Trombecher/byte-reader" }
 bumpalo = { version = "3.16.0", features = ["allocator_api"] }
 errors = { path = "../errors" }
 derive-where = "1.2.7"

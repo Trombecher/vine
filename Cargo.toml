@@ -3,11 +3,11 @@ resolver = "2"
 
 members = [
     "crates/asm",
-    "crates/bytes",
     "crates/cli",
     "crates/errors",
     "crates/frontend",
     "crates/js",
+    "crates/span",
     "crates/test-file-watch",
     "crates/test-stuff",
     "crates/vm",

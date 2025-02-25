@@ -1,7 +1,0 @@
-fn main() {
-
-}
-
-fn<A, B, C> compose(f: F, g: G) -> H {
-
-}

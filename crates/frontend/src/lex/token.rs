@@ -1,7 +1,8 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::Allocator;
-use bytes::{Cursor, Span};
+use byte_reader::Cursor;
+use span::Span;
 use core::fmt::{Debug, Formatter};
 use core::mem::transmute;
 use derive_where::derive_where;
@@ -93,11 +94,23 @@ pub enum Token<'a> {
     /// - Validate escape sequences
     /// - Normalize line breaks
     String(UnprocessedString<'a>),
-    StringEscape,
 
+    /// A special token that indicates a string escape (`"{}"`).
+    StringEscape,
+    
+    /// A special token that indicates that the string continues after an escape.
+    StringReturn(UnprocessedString<'a>),
+
+    /// `<tag`
     MarkupStartTag(&'a str),
+    
+    /// `key`
     MarkupKey(&'a str),
+    
+    /// `>`
     MarkupStartTagEnd,
+    
+    /// `/>`
     MarkupClose,
 
     /// The contained text needs processing.
@@ -106,7 +119,10 @@ pub enum Token<'a> {
     /// and internal whitespace needs to be collapsed.
     MarkupText(&'a str),
 
+    /// `</tag>`
     MarkupEndTag(&'a str),
+    
+    /// A line break (yes, line breaks have semantic meaning).
     LineBreak,
 
     /// This token means that the lexer has finished lexing.

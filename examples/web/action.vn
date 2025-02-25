@@ -1,9 +1,0 @@
-use vine_web
-
-fn build() {
-    vine_web.build()
-}
-
-fn dev() {
-    vine_web.dev()
-}

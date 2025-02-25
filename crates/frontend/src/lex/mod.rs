@@ -5,9 +5,9 @@
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
 use alloc::vec::Vec;
-use bytes::{Cursor, Span};
 use core::alloc::Allocator;
 use core::str::from_utf8_unchecked;
+use byte_reader::Cursor;
 use errors::*;
 
 mod tests;

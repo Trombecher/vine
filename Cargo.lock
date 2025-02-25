@@ -61,6 +61,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "byte_reader"
+version = "0.1.0"
+source = "git+https://github.com/Trombecher/byte-reader#6a920ccf553af7c910044a99aa1c857c9fe913dc"
+
+[[package]]
 name = "bytes"
 version = "0.1.0"
 dependencies = [
@@ -225,10 +230,11 @@ name = "frontend"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
- "bytes",
+ "byte_reader",
  "derive-where",
  "errors",
  "phf",
+ "span",
 ]
 
 [[package]]
@@ -903,6 +909,10 @@ name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
+
+[[package]]
+name = "span"
+version = "0.1.0"
 
 [[package]]
 name = "static_assertions"

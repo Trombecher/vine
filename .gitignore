@@ -3,3 +3,4 @@ target
 log.txt
 src/error/mod.rs
 out
+scratch
