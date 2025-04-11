@@ -1,15 +1,13 @@
 #![cfg(test)]
 
-use alloc::alloc::Global;
 use alloc::boxed::Box;
 use alloc::vec;
-use bytes::Span;
 use crate::parse::{parse_module, ast::*};
 
 #[test]
 fn t1() {
     assert_eq!(
-        parse_module(b"fn x() { }", Global, Global),
+        parse_module(b"fn x() { }"),
         Ok((
             ModuleContent(vec![
                 TopLevelItem {

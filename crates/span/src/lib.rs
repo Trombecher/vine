@@ -1,7 +1,6 @@
 #![no_std]
-#![feature(new_range_api)]
 
-use core::range::Range;
+use core::ops::Range;
 use core::fmt::Debug;
 
 #[cfg(feature = "huge_files")]

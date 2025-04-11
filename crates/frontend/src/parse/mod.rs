@@ -4,28 +4,26 @@ mod warnings;
 pub mod ast;
 pub mod bp;
 
-use crate::buffered::LookaheadBuffer;
-use crate::lex::{Keyword, Lexer, Symbol, Token, TokenIterator};
+use crate::lex::{Keyword, Lexer, Symbol, Token};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use fallible_iterator::FallibleIterator;
+use labuf::LookaheadBuffer;
 use ast::*;
-use bytes::{Index, Span};
-use core::alloc::Allocator;
 use errors::*;
+use span::Span;
 pub use warnings::*;
 
-pub struct ParseContext<'source, T: TokenIterator<'source>, A: Allocator + Copy> {
-    pub iter: LookaheadBuffer<'source, T>,
-    pub alloc: A,
-    pub warnings: Vec<Span<Warning>, A>,
+pub struct ParseContext<'source, I: FallibleIterator<Item = Span<Token<'source>>, Error = Error>> {
+    pub iter: LookaheadBuffer<I>,
+    pub warnings: Vec<Span<Warning>>,
 }
 
-impl<'source, T: TokenIterator<'source>, A: Allocator + Copy> ParseContext<'source, T, A> {
+impl<'source, I: FallibleIterator<Item = Span<Token<'source>>, Error = Error>> ParseContext<'source, I> {
     #[inline]
-    pub const fn new(iter: LookaheadBuffer<'source, T>, alloc: A) -> Self {
+    pub const fn new(iter: LookaheadBuffer<I>) -> Self {
         Self {
-            alloc,
-            warnings: Vec::new_in(alloc),
+            warnings: Vec::new(),
             iter,
         }
     }

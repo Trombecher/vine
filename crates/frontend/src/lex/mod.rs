@@ -5,10 +5,12 @@
 //! **The lexer will NOT produce two adjacent line break tokens.**
 
 use alloc::vec::Vec;
-use core::alloc::Allocator;
-use core::str::from_utf8_unchecked;
 use byte_reader::Cursor;
+use core::str::from_utf8_unchecked;
+use ecow::EcoString;
+use fallible_iterator::FallibleIterator;
 use errors::*;
+use span::{Index, Span};
 
 mod tests;
 mod token;
@@ -16,6 +18,7 @@ mod unit_tests;
 
 pub use token::*;
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum Layer {
     /// This layer expects `key=`, `/>` or `>`.
     KeyOrStartTagEndOrSelfClose,
@@ -26,7 +29,7 @@ pub enum Layer {
     StartTag,
 }
 
-pub struct Lexer<'source, A: Allocator> {
+pub struct Lexer<'source> {
     /// The underlying iterator over the bytes.
     cursor: Cursor<'source>,
 
@@ -35,7 +38,7 @@ pub struct Lexer<'source, A: Allocator> {
     potential_markup: bool,
 
     /// A stack of layers to manage
-    layers: Vec<Layer, A>,
+    layers: Vec<Layer>,
 }
 
 #[inline]
@@ -93,16 +96,16 @@ const fn try_to_hex(byte: u8) -> Option<u8> {
     }
 }
 
-impl<'source, A: Allocator> Lexer<'source, A> {
+impl<'source> Lexer<'source> {
     /// Constructs a new [Lexer].
-    pub const fn new(slice: &'source [u8], alloc: A) -> Self {
+    pub const fn new(slice: &'source [u8]) -> Self {
         Self {
             potential_markup: false,
-            layers: Vec::new_in(alloc),
+            layers: Vec::new(),
             cursor: Cursor::new(slice),
         }
     }
-    
+
     /// Returns a reference to the underlying cursor.
     #[inline]
     pub const fn cursor(&self) -> &Cursor<'source> {
@@ -216,20 +219,19 @@ impl<'source, A: Allocator> Lexer<'source, A> {
     }
 
     /// Expects the next byte to be after the quote.
-    pub(crate) fn parse_string(&mut self) -> Result<UnprocessedString<'source>, Error> {
+    pub(crate) fn parse_string(&mut self) -> Result<Token<'source>, Error> {
         let start = self.cursor.position();
 
         loop {
             match self.cursor.peek() {
                 None => break error!("Unterminated string"),
                 Some(b'"') => {
-                    let string_bytes = self.cursor.slice_from(start);
+                    let string_bytes =
+                        unsafe { from_utf8_unchecked(self.cursor.position().slice_to(start)) };
 
                     unsafe { self.cursor.advance_unchecked() }
 
-                    break Ok(unsafe {
-                        UnprocessedString::from_raw(from_utf8_unchecked(string_bytes))
-                    });
+                    break Ok(Token::String(EcoString::from(string_bytes)));
                 }
                 Some(b'\\') => {
                     unsafe { self.cursor.advance_unchecked() }
@@ -256,10 +258,10 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 _ => break,
             }
         }
-        
+
         Ok(unsafe {
             // SAFETY: slice contains UTF-8 because of the loop.
-            from_utf8_unchecked(self.cursor.slice_from(start_position))
+            from_utf8_unchecked(self.cursor.position().slice_to(start_position))
         })
     }
 
@@ -281,12 +283,12 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         macro_rules! handle_lf {
             () => {{
                 if lb.is_none() {
-                    let start = self.cursor.index();
+                    let start = self.cursor.bytes_consumed();
                     unsafe { self.cursor.advance_unchecked() }
 
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: start..self.cursor.index(),
+                        source: start..self.cursor.bytes_consumed(),
                     });
                 } else {
                     unsafe { self.cursor.advance_unchecked() }
@@ -297,7 +299,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         macro_rules! handle_crlf {
             () => {{
                 if lb.is_none() {
-                    let start = self.cursor.index();
+                    let start = self.cursor.bytes_consumed();
                     unsafe { self.cursor.advance_unchecked() }
 
                     if let Some(b'\n') = self.cursor.peek() {
@@ -306,7 +308,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: start..self.cursor.index(),
+                        source: start..self.cursor.bytes_consumed(),
                     });
                 } else {
                     unsafe { self.cursor.advance_unchecked() }
@@ -396,7 +398,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         }
     }
 
-    fn next_token_default(&mut self) -> Result<Span<Token<'source>>, Error> {
+    fn next_token_default(&mut self) -> Result<Option<Span<Token<'source>>>, Error> {
         macro_rules! opt_eq {
             ($symbol: expr, $eq: expr) => {{
                 unsafe { self.cursor.advance_unchecked() };
@@ -425,32 +427,31 @@ impl<'source, A: Allocator> Lexer<'source, A> {
             return loop {
                 match self.cursor.peek() {
                     None => {
-                        let start = self.cursor.index();
-
-                        break Ok(Span {
-                            value: Token::EndOfInput,
-                            source: start..start,
-                        });
+                        break Ok(None);
                     }
                     Some(b'\n') => {
-                        let start = self.cursor.index();
-                        
-                        unsafe { self.cursor.advance_unchecked(); }
+                        let start = self.cursor.bytes_consumed() as Index;
+
+                        unsafe {
+                            self.cursor.advance_unchecked();
+                        }
 
                         // Skip additional whitespace & line breaks.
                         self.skip_whitespace();
 
-                        break Ok(Span {
+                        break Ok(Some(Span {
                             value: Token::LineBreak,
                             source: start..start + 1,
-                        });
+                        }));
                     }
                     Some(b'\r') => {
-                        let start = self.cursor.index();
-                        
-                        unsafe { self.cursor.advance_unchecked(); }
+                        let start = self.cursor.bytes_consumed() as Index;
 
-                        break Ok(if let Some(b'\n') = self.cursor.peek() {
+                        unsafe {
+                            self.cursor.advance_unchecked();
+                        }
+
+                        break Ok(Some(if let Some(b'\n') = self.cursor.peek() {
                             unsafe {
                                 self.cursor.advance_unchecked();
                             }
@@ -470,355 +471,360 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                                 value: Token::LineBreak,
                                 source: start..start + 1,
                             }
-                        });
+                        }));
                     }
                     _ => unsafe { self.cursor.advance_unchecked() },
                 }
             };
         }
 
-        let start = self.cursor.index();
+        let start = self.cursor.bytes_consumed() as Index;
 
-        let token: Token = match self.cursor.peek() {
-            None => Token::EndOfInput,
-            Some(b'0') => {
-                unsafe { self.cursor.advance_unchecked() };
+        if let Some(byte) = self.cursor.peek() {
+            let token: Token = match byte {
+                b'0' => {
+                    unsafe { self.cursor.advance_unchecked() };
 
-                match self.cursor.peek() {
-                    Some(b'x') => {
-                        return error!("TODO: hexadecimal numbers ought to be implemented")
+                    match self.cursor.peek() {
+                        Some(b'x') => {
+                            return error!("TODO: hexadecimal numbers ought to be implemented")
+                        }
+                        Some(b'o') => return error!("TODO: Octal numbers ought to be implemented"),
+                        Some(b'b') => self.parse_number_bin()?,
+                        Some(b'_') => self.parse_number_dec(0.)?,
+                        Some(b'.') => Token::Number(self.parse_number_dec_tail(0.)?),
+                        Some(x) if matches!(x, b'0'..=b'9') => {
+                            self.parse_number_dec((x - b'0') as f64)?
+                        }
+                        Some(_) => Token::Number(0.), // TODO: major bug here!!
+                        None => Token::Number(0.),
                     }
-                    Some(b'o') => return error!("TODO: Octal numbers ought to be implemented"),
-                    Some(b'b') => self.parse_number_bin()?,
-                    Some(b'_') => self.parse_number_dec(0.)?,
-                    Some(b'.') => Token::Number(self.parse_number_dec_tail(0.)?),
-                    Some(x) if matches!(x, b'0'..=b'9') => self.parse_number_dec((x - b'0') as f64)?,
-                    Some(_) => Token::Number(0.), // TODO: major bug here!!
-                    None => Token::Number(0.),
                 }
-            }
-            Some(d) if matches!(d, b'1'..=b'9') => self.parse_number_dec((d - b'0') as f64)?,
-            Some(b'<') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
+                d @ b'1'..=b'9' => self.parse_number_dec((d - b'0') as f64)?,
+                b'<' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
 
-                match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Token::Symbol(Symbol::LeftAngleEquals)
-                    }
-                    Some(b'<') => Token::Symbol(opt_eq!(
+                    match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Token::Symbol(Symbol::LeftAngleEquals)
+                        }
+                        Some(b'<') => Token::Symbol(opt_eq!(
                         Symbol::LeftAngleLeftAngle,
                         Symbol::LeftAngleLeftAngleEquals
                     )),
-                    _ => Token::Symbol(Symbol::LeftAngle),
-                }
-            }
-            Some(b'>') => {
-                unsafe { self.cursor.advance_unchecked() };
-
-                self.potential_markup = true;
-
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::RightAngleEquals
+                        _ => Token::Symbol(Symbol::LeftAngle),
                     }
-                    Some(b'>') => opt_eq!(
+                }
+                b'>' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    self.potential_markup = true;
+
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::RightAngleEquals
+                        }
+                        Some(b'>') => opt_eq!(
                         Symbol::RightAngleRightAngle,
                         Symbol::RightAngleRightAngleEquals
                     ),
-                    _ => Symbol::RightAngle,
-                })
-            }
-            Some(b'=') => {
-                self.potential_markup = true;
-                Token::Symbol(opt_eq!(Symbol::Equals, Symbol::EqualsEquals))
-            }
-            Some(b'+') => {
-                self.potential_markup = true;
-                Token::Symbol(opt_eq!(Symbol::Plus, Symbol::PlusEquals))
-            }
-            Some(b'-') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::MinusEquals
-                    }
-                    Some(b'>') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::MinusRightAngle
-                    }
-                    _ => Symbol::Minus,
-                })
-            }
-            Some(b'*') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::StarEquals
-                    }
-                    Some(b'*') => opt_eq!(Symbol::StarStar, Symbol::StarStarEquals),
-                    _ => Symbol::Star,
-                })
-            }
-            Some(b'/') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Token::Symbol(Symbol::SlashEquals)
-                    }
-                    Some(b'/') => {
-                        // SAFETY: We can skip two bytes here, since the "//?" case
-                        // is already covered while skipping single line comments.
-                        // Therefore, instead of any byte except of '/', the byte must be '/',
-                        // which means there is a byte, which justifies skipping two bytes here
-                        // instead of just one.
-                        unsafe { self.cursor.advance_n_unchecked(2) };
-
-                        let start = self.cursor.position();
-                        let end;
-
-                        loop {
-                            match self.cursor.peek() {
-                                None => {
-                                    end = self.cursor.position();
-                                    break;
-                                }
-                                Some(b'\n') => {
-                                    end = self.cursor.position();
-                                    unsafe { self.cursor.advance_unchecked() }
-
-                                    break;
-                                }
-                                Some(b'\r') => {
-                                    end = self.cursor.position();
-                                    unsafe { self.cursor.advance_unchecked() }
-
-                                    if Some(b'\n') == self.cursor.peek() {
-                                        unsafe { self.cursor.advance_unchecked() }
-                                    }
-                                    break;
-                                }
-                                Some(128..=255) => {
-                                    if let Err(_) = self.cursor.advance_char() {
-                                        return error!("Some UTF-8 error");
-                                    }
-                                }
-                                _ => unsafe { self.cursor.advance_unchecked() },
-                            }
-                        }
-
-                        Token::DocComment(unsafe {
-                            // SAFETY: validated during loop.
-                            from_utf8_unchecked(start.slice_to(end))
-                        })
-                    }
-                    _ => Token::Symbol(Symbol::Slash),
+                        _ => Symbol::RightAngle,
+                    })
                 }
-            }
-            Some(b'%') => {
-                self.potential_markup = true;
-                Token::Symbol(opt_eq!(Symbol::Percent, Symbol::PercentEquals))
-            }
-            Some(b'|') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
+                b'=' => {
+                    self.potential_markup = true;
+                    Token::Symbol(opt_eq!(Symbol::Equals, Symbol::EqualsEquals))
+                }
+                b'+' => {
+                    self.potential_markup = true;
+                    Token::Symbol(opt_eq!(Symbol::Plus, Symbol::PlusEquals))
+                }
+                b'-' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
 
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::PipeEquals
-                    }
-                    Some(b'|') => opt_eq!(Symbol::PipePipe, Symbol::PipePipeEquals),
-                    _ => Symbol::Pipe,
-                })
-            }
-            Some(b'&') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::AmpersandEquals
-                    }
-                    Some(b'&') => {
-                        opt_eq!(Symbol::AmpersandAmpersand, Symbol::AmpersandAmpersandEquals)
-                    }
-                    _ => Symbol::Ampersand,
-                })
-            }
-            Some(b'^') => {
-                self.potential_markup = true;
-
-                Token::Symbol(opt_eq!(Symbol::Caret, Symbol::CaretEquals))
-            }
-            Some(b'(') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                Token::Symbol(Symbol::LeftParenthesis)
-            }
-            Some(b')') => {
-                unsafe { self.cursor.advance_unchecked() };
-
-                Token::Symbol(Symbol::RightParenthesis)
-            }
-            Some(b'[') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                Token::Symbol(Symbol::LeftBracket)
-            }
-            Some(b']') => {
-                unsafe { self.cursor.advance_unchecked() };
-
-                Token::Symbol(Symbol::RightBracket)
-            }
-            Some(b'{') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
-
-                Token::Symbol(Symbol::LeftBrace)
-            }
-            Some(b'}') => {
-                unsafe { self.cursor.advance_unchecked() };
-
-                Token::Symbol(Symbol::RightBrace)
-            }
-            Some(b'.') => {
-                unsafe { self.cursor.advance_unchecked() };
-
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'.') => {
-                        unsafe { self.cursor.advance_unchecked() };
-
-                        match self.cursor.peek() {
-                            Some(b'=') => {
-                                unsafe { self.cursor.advance_unchecked() };
-                                Symbol::DotDotEquals
-                            }
-                            Some(b'.') => {
-                                unsafe { self.cursor.advance_unchecked() };
-                                Symbol::DotDotDot
-                            }
-                            _ => Symbol::DotDot,
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::MinusEquals
                         }
+                        Some(b'>') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::MinusRightAngle
+                        }
+                        _ => Symbol::Minus,
+                    })
+                }
+                b'*' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::StarEquals
+                        }
+                        Some(b'*') => opt_eq!(Symbol::StarStar, Symbol::StarStarEquals),
+                        _ => Symbol::Star,
+                    })
+                }
+                b'/' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Token::Symbol(Symbol::SlashEquals)
+                        }
+                        Some(b'/') => {
+                            // SAFETY: We can skip two bytes here, since the "//?" case
+                            // is already covered while skipping single line comments.
+                            // Therefore, instead of any byte except of '/', the byte must be '/',
+                            // which means there is a byte, which justifies skipping two bytes here
+                            // instead of just one.
+                            unsafe { self.cursor.advance_n_unchecked(2) };
+
+                            let start = self.cursor.position();
+                            let end;
+
+                            loop {
+                                match self.cursor.peek() {
+                                    None => {
+                                        end = self.cursor.position();
+                                        break;
+                                    }
+                                    Some(b'\n') => {
+                                        end = self.cursor.position();
+                                        unsafe { self.cursor.advance_unchecked() }
+
+                                        break;
+                                    }
+                                    Some(b'\r') => {
+                                        end = self.cursor.position();
+                                        unsafe { self.cursor.advance_unchecked() }
+
+                                        if Some(b'\n') == self.cursor.peek() {
+                                            unsafe { self.cursor.advance_unchecked() }
+                                        }
+                                        break;
+                                    }
+                                    Some(128..=255) => {
+                                        if let Err(_) = self.cursor.advance_char() {
+                                            return error!("Some UTF-8 error");
+                                        }
+                                    }
+                                    _ => unsafe { self.cursor.advance_unchecked() },
+                                }
+                            }
+
+                            Token::DocComment(unsafe {
+                                // SAFETY: validated during loop.
+                                from_utf8_unchecked(start.slice_to(end))
+                            })
+                        }
+                        _ => Token::Symbol(Symbol::Slash),
                     }
-                    _ => Symbol::Dot,
-                })
-            }
-            Some(b',') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
+                }
+                b'%' => {
+                    self.potential_markup = true;
+                    Token::Symbol(opt_eq!(Symbol::Percent, Symbol::PercentEquals))
+                }
+                b'|' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
 
-                Token::Symbol(Symbol::Comma)
-            }
-            Some(b';') => {
-                unsafe { self.cursor.advance_unchecked() };
-                self.potential_markup = true;
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::PipeEquals
+                        }
+                        Some(b'|') => opt_eq!(Symbol::PipePipe, Symbol::PipePipeEquals),
+                        _ => Symbol::Pipe,
+                    })
+                }
+                b'&' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
 
-                Token::Symbol(Symbol::Semicolon)
-            }
-            Some(b':') => {
-                unsafe { self.cursor.advance_unchecked() };
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::AmpersandEquals
+                        }
+                        Some(b'&') => {
+                            opt_eq!(Symbol::AmpersandAmpersand, Symbol::AmpersandAmpersandEquals)
+                        }
+                        _ => Symbol::Ampersand,
+                    })
+                }
+                b'^' => {
+                    self.potential_markup = true;
 
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b':') => {
-                        return error!(
+                    Token::Symbol(opt_eq!(Symbol::Caret, Symbol::CaretEquals))
+                }
+                b'(' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    Token::Symbol(Symbol::LeftParenthesis)
+                }
+                b')' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    Token::Symbol(Symbol::RightParenthesis)
+                }
+                b'[' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    Token::Symbol(Symbol::LeftBracket)
+                }
+                b']' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    Token::Symbol(Symbol::RightBracket)
+                }
+                b'{' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    Token::Symbol(Symbol::LeftBrace)
+                }
+                b'}' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    Token::Symbol(Symbol::RightBrace)
+                }
+                b'.' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'.') => {
+                            unsafe { self.cursor.advance_unchecked() };
+
+                            match self.cursor.peek() {
+                                Some(b'=') => {
+                                    unsafe { self.cursor.advance_unchecked() };
+                                    Symbol::DotDotEquals
+                                }
+                                Some(b'.') => {
+                                    unsafe { self.cursor.advance_unchecked() };
+                                    Symbol::DotDotDot
+                                }
+                                _ => Symbol::DotDot,
+                            }
+                        }
+                        _ => Symbol::Dot,
+                    })
+                }
+                b',' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    Token::Symbol(Symbol::Comma)
+                }
+                b';' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.potential_markup = true;
+
+                    Token::Symbol(Symbol::Semicolon)
+                }
+                b':' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b':') => {
+                            return error!(
                             "Encountered Rust-style path separator '::'. Use '.' instead"
                         )
-                    }
-                    _ => Symbol::Colon,
-                })
-            }
-            Some(b'!') => {
-                unsafe { self.cursor.advance_unchecked() };
-
-                match self.cursor.peek() {
-                    Some(b'=') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        self.potential_markup = true;
-
-                        Token::Symbol(Symbol::ExclamationMarkEquals)
-                    }
-                    _ => Token::Symbol(Symbol::ExclamationMark),
+                        }
+                        _ => Symbol::Colon,
+                    })
                 }
-            }
-            Some(b'?') => {
-                unsafe { self.cursor.advance_unchecked() };
+                b'!' => {
+                    unsafe { self.cursor.advance_unchecked() };
 
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'.') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::QuestionMarkDot
+                    match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            self.potential_markup = true;
+
+                            Token::Symbol(Symbol::ExclamationMarkEquals)
+                        }
+                        _ => Token::Symbol(Symbol::ExclamationMark),
                     }
-                    _ => Symbol::QuestionMark,
-                })
-            }
-            Some(b'\'') => {
-                unsafe { self.cursor.advance_unchecked() };
+                }
+                b'?' => {
+                    unsafe { self.cursor.advance_unchecked() };
 
-                let char = match self.cursor.next_lfn() {
-                    None => return error!("Expected character"),
-                    Some(b'\\') => unescape_char(&mut self.cursor)?,
-                    Some(b'\n') => {
-                        return error!(
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'.') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::QuestionMarkDot
+                        }
+                        _ => Symbol::QuestionMark,
+                    })
+                }
+                b'\'' => {
+                    unsafe { self.cursor.advance_unchecked() };
+
+                    let char = match self.cursor.next_lfn() {
+                        None => return error!("Expected character"),
+                        Some(b'\\') => unescape_char(&mut self.cursor)?,
+                        Some(b'\n') => {
+                            return error!(
                             "Character literals cannot span multiple lines.\
                         If you meant to write a string, use a string literal \"\".\
                         If you meant to write the newline character, use '\\n' instead"
                         )
+                        }
+                        Some(char) => char.into(),
+                    };
+
+                    match self.cursor.next_lfn() {
+                        Some(b'\'') => {}
+                        _ => return error!("Unterminated character literal"),
                     }
-                    Some(char) => char.into(),
-                };
 
-                match self.cursor.next_lfn() {
-                    Some(b'\'') => {}
-                    _ => return error!("Unterminated character literal"),
+                    Token::Char(char)
                 }
+                b'@' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'!') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::AtExclamationMark
+                        }
+                        _ => Symbol::At,
+                    })
+                }
+                b'"' => {
+                    unsafe { self.cursor.advance_unchecked() };
+                    self.parse_string()?
+                }
+                b'A'..=b'Z' | b'_' | b'a'..=b'z' => {
+                    let str = self.parse_id()?;
 
-                Token::Char(char)
-            }
-            Some(b'@') => {
-                unsafe { self.cursor.advance_unchecked() };
-                Token::Symbol(match self.cursor.peek() {
-                    Some(b'!') => {
-                        unsafe { self.cursor.advance_unchecked() };
-                        Symbol::AtExclamationMark
+                    if let Some(kw) = KEYWORDS.get(str) {
+                        Token::Keyword(*kw)
+                    } else {
+                        Token::Identifier(str)
                     }
-                    _ => Symbol::At,
-                })
-            }
-            Some(b'"') => {
-                unsafe { self.cursor.advance_unchecked() };
-                Token::String(self.parse_string()?)
-            }
-            Some(b'A'..=b'Z' | b'_' | b'a'..=b'z') => {
-                let str = self.parse_id()?;
-
-                if let Some(kw) = KEYWORDS.get(str) {
-                    Token::Keyword(*kw)
-                } else {
-                    Token::Identifier(str)
                 }
-            }
-            Some(_) => return error!("Encountered unexpected character"),
-        };
-
-        Ok(Span {
-            value: token,
-            source: start..self.cursor.index(),
-        })
+                _ => return error!("Encountered unexpected character"),
+            };
+            
+            Ok(Some(Span {
+                value: token,
+                source: start..self.cursor.bytes_consumed() as Index,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// ```text
@@ -828,7 +834,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
     ///
     /// Assumes that the next byte is the id.
     pub fn parse_start_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
-        let start = self.cursor.index();
+        let start = self.cursor.bytes_consumed();
 
         self.skip_whitespace();
 
@@ -842,12 +848,12 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
         Ok(Span {
             value: Token::MarkupStartTag(identifier),
-            source: start..self.cursor.index(),
+            source: start as Index..self.cursor.bytes_consumed() as Index,
         })
     }
 
     pub fn parse_end_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
-        let start = self.cursor.index();
+        let start = self.cursor.bytes_consumed();
 
         self.skip_whitespace();
 
@@ -861,15 +867,18 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         match self.cursor.next_lfn() {
             Some(b'>') => Ok(Span {
                 value: Token::MarkupEndTag(tag_name),
-                source: start..self.cursor.index(),
+                source: start as Index..self.cursor.bytes_consumed() as Index,
             }),
             _ => error!("Unterminated end tag"),
         }
     }
 }
 
-impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
-    fn next_token(&mut self) -> Result<Span<Token<'source>>, Error> {
+impl<'source> FallibleIterator for Lexer<'source> {
+    type Item = Token<'source>;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         match self.layers.pop() {
             None => {
                 if let Some(line_break) = self.skip_whitespace_line() {
@@ -892,7 +901,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
             Some(Layer::KeyOrStartTagEndOrSelfClose) => {
                 self.skip_whitespace();
 
-                let start = self.cursor.index();
+                let start = self.cursor.bytes_consumed();
 
                 let token = match self.cursor.peek() {
                     Some(b'>') => {
@@ -922,7 +931,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 Ok(Span {
                     value: token,
-                    source: start..self.cursor.index(),
+                    source: start..self.cursor.bytes_consumed(),
                 })
             }
             Some(Layer::Value) => {
@@ -937,7 +946,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-                let start = self.cursor.index();
+                let start = self.cursor.bytes_consumed();
 
                 let token = match self.cursor.next_lfn() {
                     Some(b'"') => Token::String(self.parse_string()?),
@@ -955,7 +964,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                 Ok(Span {
                     value: token,
-                    source: start..self.cursor.index(),
+                    source: start..self.cursor.bytes_consumed(),
                 })
             }
             Some(Layer::Insert) => {
@@ -990,7 +999,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
             Some(Layer::TextOrInsert) => {
                 self.skip_whitespace();
 
-                let source = self.cursor.index();
+                let source = self.cursor.bytes_consumed();
                 let first = self.cursor.position();
 
                 loop {
@@ -1005,11 +1014,11 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                     }
                 }
 
-                let source = source..self.cursor.index();
+                let source = source..self.cursor.bytes_consumed();
 
                 let text = unsafe {
                     // SAFETY: UTF-8 validated in the loop.
-                    from_utf8_unchecked(self.cursor.slice_from(first))
+                    from_utf8_unchecked(self.cursor.position().slice_to(first))
                 };
 
                 if text.len() == 0 {
@@ -1043,7 +1052,7 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            let end = self.cursor.index();
+                            let end = self.cursor.bytes_consumed();
 
                             Ok(Span {
                                 value: Token::Symbol(Symbol::LeftBrace),
@@ -1059,7 +1068,9 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                     match self.cursor.peek() {
                         Some(b'<') => {
-                            unsafe { self.cursor.advance_unchecked(); }
+                            unsafe {
+                                self.cursor.advance_unchecked();
+                            }
 
                             self.skip_whitespace();
 
@@ -1068,7 +1079,9 @@ impl<'source, A: Allocator> TokenIterator<'source> for Lexer<'source, A> {
 
                                 // End tag
                                 Some(b'/') => {
-                                    unsafe { self.cursor.advance_unchecked(); }
+                                    unsafe {
+                                        self.cursor.advance_unchecked();
+                                    }
                                     self.layers.push(Layer::EndTag)
                                 }
 

@@ -9,7 +9,8 @@ huge_files = ["span/huge_files"]
 [dependencies]
 span = { path = "../span" }
 phf = { version = "0.11.2", features = ["macros"] }
-byte_reader = { git = "https://github.com/Trombecher/byte-reader" }
-bumpalo = { version = "3.16.0", features = ["allocator_api"] }
+byte_reader = { git = "https://github.com/Trombecher/byte-reader", version = "0.1.3" }
 errors = { path = "../errors" }
-derive-where = "1.2.7"
+labuf = { git = "https://github.com/Trombecher/labuf", version = "0.1.0" }
+fallible-iterator = "0.3.0"
+ecow = "0.2.4"

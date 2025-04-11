@@ -1,72 +1,6 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::alloc::Allocator;
-use byte_reader::Cursor;
-use span::Span;
-use core::fmt::{Debug, Formatter};
-use core::mem::transmute;
-use derive_where::derive_where;
+use core::fmt::Debug;
+use ecow::EcoString;
 use phf::phf_map;
-
-use crate::lex::{unescape_char, Error};
-
-/// This type solely exists because [Clone] is not implemented for `Box<str, A>` (which is ridiculous).
-#[derive_where(PartialEq, Clone)]
-pub struct BoxStr<A: Allocator + Clone>(Box<[u8], A>);
-
-impl<A: Allocator + Clone> BoxStr<A> {
-    #[inline]
-    pub fn unbox(self) -> Box<str, A> {
-        let (raw, alloc) = Box::into_raw_with_allocator(self.0);
-        unsafe { Box::from_raw_in(raw as *mut str, alloc) }
-    }
-}
-
-impl<A: Allocator + Clone> From<Box<str, A>> for BoxStr<A> {
-    #[inline]
-    fn from(value: Box<str, A>) -> Self {
-        Self(value.into())
-    }
-}
-
-impl<A: Allocator + Clone> Debug for BoxStr<A> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        // Steal the Debug impl from Box<str, A>
-        unsafe { transmute::<_, &Box<str, A>>(self) }.fmt(f)
-    }
-}
-
-/// Boxes an `&str` which has some characteristics it must obey.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct UnprocessedString<'source>(&'source str);
-
-impl<'source> UnprocessedString<'source> {
-    pub const unsafe fn from_raw(raw: &'source str) -> Self {
-        Self(raw)
-    }
-
-    pub fn process<A: Allocator>(&self, alloc: A) -> Result<Box<str, A>, Error> {
-        let mut string = Vec::with_capacity_in(self.0.len(), alloc);
-        let mut cursor = Cursor::new(self.0.as_bytes());
-
-        loop {
-            match cursor.next() {
-                None => break,
-                Some(b'\\') => string.extend_from_slice(
-                    unescape_char(&mut cursor)?
-                        .encode_utf8(&mut [0; 4])
-                        .as_bytes(),
-                ),
-                Some(byte) => string.push(byte),
-            }
-        }
-
-        let (raw, alloc) = Box::into_raw_with_allocator(string.into_boxed_slice());
-        
-        // SAFETY: this is a string
-        Ok(unsafe { Box::from_raw_in(raw as *mut str, alloc) })
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
@@ -93,13 +27,10 @@ pub enum Token<'a> {
     ///
     /// - Validate escape sequences
     /// - Normalize line breaks
-    String(UnprocessedString<'a>),
+    String(EcoString),
 
     /// A special token that indicates a string escape (`"{}"`).
-    StringEscape,
-    
-    /// A special token that indicates that the string continues after an escape.
-    StringReturn(UnprocessedString<'a>),
+    FragmentString,
 
     /// `<tag`
     MarkupStartTag(&'a str),
@@ -124,9 +55,6 @@ pub enum Token<'a> {
     
     /// A line break (yes, line breaks have semantic meaning).
     LineBreak,
-
-    /// This token means that the lexer has finished lexing.
-    EndOfInput,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -244,8 +172,4 @@ pub enum Symbol {
     RightBrace,
     At,
     AtExclamationMark,
-}
-
-pub trait TokenIterator<'a> {
-    fn next_token(&mut self) -> Result<Span<Token<'a>>, Error>;
 }
