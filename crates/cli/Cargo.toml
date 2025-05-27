@@ -6,4 +6,3 @@ edition = "2021"
 [dependencies]
 owo-colors = "4.0.0"
 frontend = { path = "../frontend" }
-bytes = { path = "../bytes" }

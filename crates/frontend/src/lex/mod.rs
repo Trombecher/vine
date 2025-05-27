@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 use byte_reader::Cursor;
 use core::str::from_utf8_unchecked;
 use ecow::EcoString;
-use fallible_iterator::FallibleIterator;
 use errors::*;
+use fallible_iterator::FallibleIterator;
 use span::{Index, Span};
 
 mod tests;
@@ -511,9 +511,9 @@ impl<'source> Lexer<'source> {
                             Token::Symbol(Symbol::LeftAngleEquals)
                         }
                         Some(b'<') => Token::Symbol(opt_eq!(
-                        Symbol::LeftAngleLeftAngle,
-                        Symbol::LeftAngleLeftAngleEquals
-                    )),
+                            Symbol::LeftAngleLeftAngle,
+                            Symbol::LeftAngleLeftAngleEquals
+                        )),
                         _ => Token::Symbol(Symbol::LeftAngle),
                     }
                 }
@@ -528,9 +528,9 @@ impl<'source> Lexer<'source> {
                             Symbol::RightAngleEquals
                         }
                         Some(b'>') => opt_eq!(
-                        Symbol::RightAngleRightAngle,
-                        Symbol::RightAngleRightAngleEquals
-                    ),
+                            Symbol::RightAngleRightAngle,
+                            Symbol::RightAngleRightAngleEquals
+                        ),
                         _ => Symbol::RightAngle,
                     })
                 }
@@ -739,8 +739,8 @@ impl<'source> Lexer<'source> {
                     Token::Symbol(match self.cursor.peek() {
                         Some(b':') => {
                             return error!(
-                            "Encountered Rust-style path separator '::'. Use '.' instead"
-                        )
+                                "Encountered Rust-style path separator '::'. Use '.' instead"
+                            )
                         }
                         _ => Symbol::Colon,
                     })
@@ -777,10 +777,10 @@ impl<'source> Lexer<'source> {
                         Some(b'\\') => unescape_char(&mut self.cursor)?,
                         Some(b'\n') => {
                             return error!(
-                            "Character literals cannot span multiple lines.\
+                                "Character literals cannot span multiple lines.\
                         If you meant to write a string, use a string literal \"\".\
                         If you meant to write the newline character, use '\\n' instead"
-                        )
+                            )
                         }
                         Some(char) => char.into(),
                     };
@@ -817,7 +817,7 @@ impl<'source> Lexer<'source> {
                 }
                 _ => return error!("Encountered unexpected character"),
             };
-            
+
             Ok(Some(Span {
                 value: token,
                 source: start..self.cursor.bytes_consumed() as Index,
@@ -875,14 +875,14 @@ impl<'source> Lexer<'source> {
 }
 
 impl<'source> FallibleIterator for Lexer<'source> {
-    type Item = Token<'source>;
+    type Item = Span<Token<'source>>;
     type Error = Error;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         match self.layers.pop() {
             None => {
                 if let Some(line_break) = self.skip_whitespace_line() {
-                    return Ok(line_break);
+                    return Ok(Some(line_break));
                 }
 
                 if self.potential_markup {
@@ -890,7 +890,7 @@ impl<'source> FallibleIterator for Lexer<'source> {
 
                     if self.cursor.peek() == Some(b'<') {
                         unsafe { self.cursor.advance_unchecked() }
-                        self.parse_start_tag()
+                        self.parse_start_tag().map(Some)
                     } else {
                         self.next_token_default()
                     }
@@ -901,7 +901,7 @@ impl<'source> FallibleIterator for Lexer<'source> {
             Some(Layer::KeyOrStartTagEndOrSelfClose) => {
                 self.skip_whitespace();
 
-                let start = self.cursor.bytes_consumed();
+                let start = self.cursor.bytes_consumed() as Index;
 
                 let token = match self.cursor.peek() {
                     Some(b'>') => {
@@ -929,10 +929,10 @@ impl<'source> FallibleIterator for Lexer<'source> {
                     _ => return error!("Expected '>' or '/' or a char"),
                 };
 
-                Ok(Span {
+                Ok(Some(Span {
                     value: token,
-                    source: start..self.cursor.bytes_consumed(),
-                })
+                    source: start..self.cursor.bytes_consumed() as Index,
+                }))
             }
             Some(Layer::Value) => {
                 self.skip_whitespace();
@@ -946,10 +946,10 @@ impl<'source> FallibleIterator for Lexer<'source> {
 
                 self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
-                let start = self.cursor.bytes_consumed();
+                let start = self.cursor.bytes_consumed() as Index;
 
                 let token = match self.cursor.next_lfn() {
-                    Some(b'"') => Token::String(self.parse_string()?),
+                    Some(b'"') => self.parse_string()?,
                     Some(b'{') => {
                         self.layers.push(Layer::Insert);
                         self.potential_markup = true;
@@ -962,14 +962,14 @@ impl<'source> FallibleIterator for Lexer<'source> {
                     }
                 };
 
-                Ok(Span {
+                Ok(Some(Span {
                     value: token,
-                    source: start..self.cursor.bytes_consumed(),
-                })
+                    source: start..self.cursor.bytes_consumed() as Index,
+                }))
             }
             Some(Layer::Insert) => {
                 if let Some(line_break) = self.skip_whitespace_line() {
-                    return Ok(line_break);
+                    return Ok(Some(line_break));
                 }
 
                 let token = if self.potential_markup {
@@ -977,7 +977,7 @@ impl<'source> FallibleIterator for Lexer<'source> {
 
                     if self.cursor.peek() == Some(b'<') {
                         unsafe { self.cursor.advance_unchecked() }
-                        self.parse_start_tag()?
+                        Some(self.parse_start_tag()?)
                     } else {
                         self.next_token_default()?
                     }
@@ -985,12 +985,18 @@ impl<'source> FallibleIterator for Lexer<'source> {
                     self.next_token_default()?
                 };
 
-                match &token.value {
-                    Token::Symbol(Symbol::LeftBrace) => {
+                match token.as_ref() {
+                    Span {
+                        value: Token::Symbol(Symbol::LeftBrace),
+                        ..
+                    } => {
                         self.layers.push(Layer::Insert);
                         self.layers.push(Layer::Insert);
                     }
-                    Token::Symbol(Symbol::RightBrace) => {}
+                    Span {
+                        value: Token::Symbol(Symbol::RightBrace),
+                        ..
+                    } => {}
                     _ => self.layers.push(Layer::Insert),
                 }
 
@@ -999,7 +1005,7 @@ impl<'source> FallibleIterator for Lexer<'source> {
             Some(Layer::TextOrInsert) => {
                 self.skip_whitespace();
 
-                let source = self.cursor.bytes_consumed();
+                let source = self.cursor.bytes_consumed() as Index;
                 let first = self.cursor.position();
 
                 loop {
@@ -1014,7 +1020,7 @@ impl<'source> FallibleIterator for Lexer<'source> {
                     }
                 }
 
-                let source = source..self.cursor.bytes_consumed();
+                let source = source..self.cursor.bytes_consumed() as Index;
 
                 let text = unsafe {
                     // SAFETY: UTF-8 validated in the loop.
@@ -1035,13 +1041,13 @@ impl<'source> FallibleIterator for Lexer<'source> {
                                 // End tag
                                 Some(b'/') => {
                                     unsafe { self.cursor.advance_unchecked() }
-                                    self.parse_end_tag()
+                                    self.parse_end_tag().map(Some)
                                 }
 
                                 // Nested element
                                 Some(_) => {
                                     self.layers.push(Layer::TextOrInsert);
-                                    self.parse_start_tag()
+                                    self.parse_start_tag().map(Some)
                                 }
                             }
                         }
@@ -1052,12 +1058,12 @@ impl<'source> FallibleIterator for Lexer<'source> {
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            let end = self.cursor.bytes_consumed();
+                            let end = self.cursor.bytes_consumed() as Index;
 
-                            Ok(Span {
+                            Ok(Some(Span {
                                 value: Token::Symbol(Symbol::LeftBrace),
                                 source: end - 1..end,
-                            })
+                            }))
                         }
 
                         // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
@@ -1099,14 +1105,14 @@ impl<'source> FallibleIterator for Lexer<'source> {
                         _ => unreachable!(),
                     }
 
-                    Ok(Span {
+                    Ok(Some(Span {
                         value: Token::MarkupText(text),
                         source,
-                    })
+                    }))
                 }
             }
-            Some(Layer::EndTag) => self.parse_end_tag(),
-            Some(Layer::StartTag) => self.parse_start_tag(),
+            Some(Layer::EndTag) => self.parse_end_tag().map(Some),
+            Some(Layer::StartTag) => self.parse_start_tag().map(Some),
         }
     }
 }
