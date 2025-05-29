@@ -6,6 +6,7 @@
 
 use alloc::vec::Vec;
 use byte_reader::Cursor;
+use core::alloc::Allocator;
 use core::str::from_utf8_unchecked;
 use ecow::EcoString;
 use errors::*;
@@ -29,7 +30,7 @@ pub enum Layer {
     StartTag,
 }
 
-pub struct Lexer<'source> {
+pub struct Lexer<'source, A: Allocator> {
     /// The underlying iterator over the bytes.
     cursor: Cursor<'source>,
 
@@ -38,7 +39,7 @@ pub struct Lexer<'source> {
     potential_markup: bool,
 
     /// A stack of layers to manage
-    layers: Vec<Layer>,
+    layers: Vec<Layer, A>,
 }
 
 #[inline]
@@ -96,12 +97,12 @@ const fn try_to_hex(byte: u8) -> Option<u8> {
     }
 }
 
-impl<'source> Lexer<'source> {
+impl<'source, A: Allocator> Lexer<'source, A> {
     /// Constructs a new [Lexer].
-    pub const fn new(slice: &'source [u8]) -> Self {
+    pub const fn new(slice: &'source [u8], alloc: A) -> Self {
         Self {
             potential_markup: false,
-            layers: Vec::new(),
+            layers: Vec::new_in(alloc),
             cursor: Cursor::new(slice),
         }
     }
@@ -227,7 +228,7 @@ impl<'source> Lexer<'source> {
                 None => break error!("Unterminated string"),
                 Some(b'"') => {
                     let string_bytes =
-                        unsafe { from_utf8_unchecked(self.cursor.position().slice_to(start)) };
+                        unsafe { from_utf8_unchecked(start.slice_to(self.cursor.position())) };
 
                     unsafe { self.cursor.advance_unchecked() }
 
@@ -261,7 +262,7 @@ impl<'source> Lexer<'source> {
 
         Ok(unsafe {
             // SAFETY: slice contains UTF-8 because of the loop.
-            from_utf8_unchecked(self.cursor.position().slice_to(start_position))
+            from_utf8_unchecked(start_position.slice_to(self.cursor.position()))
         })
     }
 
@@ -288,7 +289,7 @@ impl<'source> Lexer<'source> {
 
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: start..self.cursor.bytes_consumed(),
+                        source: start as Index..self.cursor.bytes_consumed() as Index,
                     });
                 } else {
                     unsafe { self.cursor.advance_unchecked() }
@@ -308,7 +309,7 @@ impl<'source> Lexer<'source> {
 
                     lb = Some(Span {
                         value: Token::LineBreak,
-                        source: start..self.cursor.bytes_consumed(),
+                        source: start as Index..self.cursor.bytes_consumed() as Index,
                     });
                 } else {
                     unsafe { self.cursor.advance_unchecked() }
@@ -436,7 +437,7 @@ impl<'source> Lexer<'source> {
                             self.cursor.advance_unchecked();
                         }
 
-                        // Skip additional whitespace & line breaks.
+                        // Skip additional whitespace and line breaks.
                         self.skip_whitespace();
 
                         break Ok(Some(Span {
@@ -456,7 +457,7 @@ impl<'source> Lexer<'source> {
                                 self.cursor.advance_unchecked();
                             }
 
-                            // Skip additional whitespace & line breaks.
+                            // Skip additional whitespace and line breaks.
                             self.skip_whitespace();
 
                             Span {
@@ -464,7 +465,7 @@ impl<'source> Lexer<'source> {
                                 source: start..start + 2,
                             }
                         } else {
-                            // Skip additional whitespace & line breaks.
+                            // Skip additional whitespace and line breaks.
                             self.skip_whitespace();
 
                             Span {
@@ -583,7 +584,7 @@ impl<'source> Lexer<'source> {
                         Some(b'/') => {
                             // SAFETY: We can skip two bytes here, since the "//?" case
                             // is already covered while skipping single line comments.
-                            // Therefore, instead of any byte except of '/', the byte must be '/',
+                            // Therefore, instead of any byte except for '/', the byte must be '/',
                             // which means there is a byte, which justifies skipping two bytes here
                             // instead of just one.
                             unsafe { self.cursor.advance_n_unchecked(2) };
@@ -761,13 +762,7 @@ impl<'source> Lexer<'source> {
                 b'?' => {
                     unsafe { self.cursor.advance_unchecked() };
 
-                    Token::Symbol(match self.cursor.peek() {
-                        Some(b'.') => {
-                            unsafe { self.cursor.advance_unchecked() };
-                            Symbol::QuestionMarkDot
-                        }
-                        _ => Symbol::QuestionMark,
-                    })
+                    Token::Symbol(Symbol::QuestionMark)
                 }
                 b'\'' => {
                     unsafe { self.cursor.advance_unchecked() };
@@ -874,7 +869,7 @@ impl<'source> Lexer<'source> {
     }
 }
 
-impl<'source> FallibleIterator for Lexer<'source> {
+impl<'source, A: Allocator> FallibleIterator for Lexer<'source, A> {
     type Item = Span<Token<'source>>;
     type Error = Error;
 
@@ -986,17 +981,17 @@ impl<'source> FallibleIterator for Lexer<'source> {
                 };
 
                 match token.as_ref() {
-                    Span {
+                    Some(Span {
                         value: Token::Symbol(Symbol::LeftBrace),
                         ..
-                    } => {
+                    }) => {
                         self.layers.push(Layer::Insert);
                         self.layers.push(Layer::Insert);
                     }
-                    Span {
+                    Some(Span {
                         value: Token::Symbol(Symbol::RightBrace),
                         ..
-                    } => {}
+                    }) => {}
                     _ => self.layers.push(Layer::Insert),
                 }
 

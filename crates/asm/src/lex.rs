@@ -1,7 +1,7 @@
 use std::str::from_raw_parts;
-use bytes::{Cursor, Index, Span};
 use crate::Error;
 use crate::token::{Token, TokenIterator, INSTRUCTION_MAP, KEYWORD_MAP};
+use byte_reader::Cursor;
 
 pub struct Lexer<'a> {
     cursor: Cursor<'a>,

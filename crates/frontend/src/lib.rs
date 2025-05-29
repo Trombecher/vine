@@ -1,4 +1,6 @@
 #![no_std]
+#![feature(allocator_api)]
+#![feature(let_chains)]
 
 extern crate alloc;
 

@@ -34,13 +34,13 @@ pub enum Token<'a> {
 
     /// `<tag`
     MarkupStartTag(&'a str),
-    
+
     /// `key`
     MarkupKey(&'a str),
-    
+
     /// `>`
     MarkupStartTagEnd,
-    
+
     /// `/>`
     MarkupClose,
 
@@ -52,7 +52,7 @@ pub enum Token<'a> {
 
     /// `</tag>`
     MarkupEndTag(&'a str),
-    
+
     /// A line break (yes, line breaks have semantic meaning).
     LineBreak,
 }
@@ -95,21 +95,22 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "else" => Keyword::Else,
     "enum" => Keyword::Enum,
     "extern" => Keyword::Extern,
-    "false" => Keyword::False,
     "fn" => Keyword::Fn,
     "for" => Keyword::For,
     "if" => Keyword::If,
+    "is" => Keyword::Is,
     "in" => Keyword::In,
     "let" => Keyword::Let,
     "mod" => Keyword::Mod,
     "mut" => Keyword::Mut,
     "match" => Keyword::Match,
+    "package" => Keyword::Package,
     "pub" => Keyword::Pub,
     "return" => Keyword::Return,
     "struct" => Keyword::Struct,
     "this" => Keyword::This,
+    "This" => Keyword::CapitalThis,
     "trait" => Keyword::Trait,
-    "true" => Keyword::True,
     "type" => Keyword::Type,
     "while" => Keyword::While,
     "_" => Keyword::Underscore,
@@ -159,7 +160,6 @@ pub enum Symbol {
     DotDotDot,
     DotDotEquals,
     QuestionMark,
-    QuestionMarkDot,
     Comma,
     Colon,
     Semicolon,

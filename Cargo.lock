@@ -122,6 +122,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-where"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e73f2692d4bd3cac41dca28934a39894200c9fabf49586d77d0e5954af1d7902"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "ecow"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -160,6 +171,7 @@ name = "frontend"
 version = "0.1.0"
 dependencies = [
  "byte_reader",
+ "derive-where",
  "ecow",
  "errors",
  "fallible-iterator",
@@ -216,8 +228,8 @@ dependencies = [
 
 [[package]]
 name = "labuf"
-version = "0.1.0"
-source = "git+https://github.com/Trombecher/labuf#b708c0fc0b1e4204ef06d44eb12a282bb80ee90f"
+version = "0.1.1"
+source = "git+https://github.com/Trombecher/labuf#94b86baacd4c6340d5427448910f7906a86d20ce"
 dependencies = [
  "fallible-iterator",
 ]

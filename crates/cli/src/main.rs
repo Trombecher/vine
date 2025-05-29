@@ -1,12 +1,7 @@
 #![feature(allocator_api)]
 
-use std::alloc::Global;
-use std::env::args;
-use std::fs::File;
-use std::io::read_to_string;
 use owo_colors::OwoColorize;
-use bytes::{Index, Span};
-use frontend::lex::{Lexer, Token, TokenIterator};
+use std::env::args;
 
 fn main() {
     let mut args = args();
@@ -23,6 +18,8 @@ fn main() {
                 "[...flags]".cyan(),
             );
         }
+        _ => {}
+        /*
         Some(file) => {
             let content = read_to_string(File::open(file).unwrap()).unwrap();
             let mut lexer = Lexer::new(content.as_bytes(), Global);
@@ -59,5 +56,6 @@ fn main() {
                 }
             }
         }
+         */
     }
 }
