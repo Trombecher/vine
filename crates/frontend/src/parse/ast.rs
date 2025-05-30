@@ -1,11 +1,12 @@
 use core::alloc::Allocator;
 use core::fmt::Debug;
 use core::ops::Range;
+use derive_where::derive_where;
 use ecow::EcoString;
 use span::{Index, Span};
 
-type Box<T, A: Allocator> = alloc::boxed::Box<T, A>;
-type Vec<T, A: Allocator> = alloc::vec::Vec<T, A>;
+type Box<T, A> = alloc::boxed::Box<T, A>;
+type Vec<T, A> = alloc::vec::Vec<T, A>;
 
 /// A binary operation.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -44,7 +45,8 @@ pub enum ComparativeOperation {
     GreaterThanOrEqual,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
 pub enum Expression<'source, A: Allocator> {
     /// `left operation right`
     Operation {
@@ -161,38 +163,43 @@ pub enum Expression<'source, A: Allocator> {
     },
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum ConstParametersCallTarget<'source, A: Allocator> {
     Identifier(&'source str),
     Access(Access<'source, A>),
     OptionalAccess(Access<'source, A>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
 pub enum ConstArgument<'source, A: Allocator> {
     Type(Type<'source, A>),
     Expression(Expression<'source, A>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct ObjectField<'source, A: Allocator> {
     pub field: &'source str,
     pub value: Span<Expression<'source, A>>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum CallArguments<'source, A: Allocator> {
     Single(Box<Span<Expression<'source, A>>, A>),
     Named(Vec<(Span<&'source str>, Span<Expression<'source, A>>), A>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct If<'source, A: Allocator> {
     pub condition: Box<Span<Expression<'source, A>>, A>,
     pub body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
 }
 
-pub type ConstParameters<'source, A: Allocator> = Vec<Span<ConstParameter<'source, A>>, A>;
+pub type ConstParameters<'source, A> = Vec<Span<ConstParameter<'source, A>>, A>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ThisParameter {
@@ -200,7 +207,8 @@ pub enum ThisParameter {
     ThisMut,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum StatementKind<'source, A: Allocator> {
     Type {
         const_parameters: ConstParameters<'source, A>,
@@ -226,7 +234,7 @@ pub enum StatementKind<'source, A: Allocator> {
     Function {
         const_parameters: ConstParameters<'source, A>,
         id: &'source str,
-        pattern: (), // TODO
+        pattern: Span<Pattern<'source, A>>,
         this_parameter: Option<ThisParameter>,
         input_type: Span<Type<'source, A>>,
         output_type: Span<Type<'source, A>>,
@@ -242,11 +250,12 @@ pub enum StatementKind<'source, A: Allocator> {
     Continue,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum ConstParameter<'source, A: Allocator> {
     Type {
         id: &'source str,
-        trait_bounds: Vec<&'source A, A>,
+        trait_bounds: Vec<&'source str, A>,
     },
     Let {
         id: &'source str,
@@ -254,47 +263,66 @@ pub enum ConstParameter<'source, A: Allocator> {
     },
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct Annotation<'source, A: Allocator> {
     pub path: Span<ItemPath<'source, A>>,
     pub arguments: Vec<Span<Expression<'source, A>>, A>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct Statement<'source, A: Allocator> {
     pub annotations: Vec<Annotation<'source, A>, A>,
     pub statement_kind: StatementKind<'source, A>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum StatementOrExpression<'source, A: Allocator> {
     Statement(Statement<'source, A>),
     Expression(Expression<'source, A>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct ModuleContent<'source, A: Allocator>(pub Vec<TopLevelItem<'source, A>, A>);
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct TopLevelItem<'source, A: Allocator> {
     pub is_public: bool,
     pub statement: Span<Statement<'source, A>>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct Use<'source, A: Allocator> {
-    pub id: &'source str,
+    pub id: Span<&'source str>,
     pub child: Option<Span<UseChild<'source, A>>>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+impl<'source, A: Allocator> Use<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        if let Some(child) = &self.child {
+            self.id.source.start..child.source.end
+        } else {
+            self.id.source.clone()
+        }
+    }
+}
+
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum UseChild<'source, A: Allocator> {
     Single(Box<Use<'source, A>, A>),
-    Multiple(Vec<Span<Use<'source, A>>, A>),
+    Multiple(Vec<Use<'source, A>, A>),
     All,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
 pub enum AssignmentTarget<'source, A: Allocator> {
     Identifier(&'source str),
     Access(Access<'source, A>),
@@ -312,34 +340,39 @@ impl<'source, A: Allocator> TryFrom<Expression<'source, A>> for AssignmentTarget
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct Access<'source, A: Allocator> {
     pub target: Box<Span<Expression<'source, A>>, A>,
     pub property: &'source str,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct MarkupElement<'source, A: Allocator> {
     pub identifier: &'source str,
     pub attributes: Vec<(&'source str, Expression<'source, A>), A>,
     pub children: Vec<MarkupChild<'source, A>, A>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum MarkupChild<'source, A: Allocator> {
     Element(MarkupElement<'source, A>),
     Text(&'source str),
     Insert(Expression<'source, A>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct Parameter<'source, A: Allocator> {
     pub id: &'source str,
     pub is_mutable: bool,
     pub ty: Span<Type<'source, A>>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub enum Type<'source, A: Allocator> {
     /// A type describing a value that will never exist.
     Never,
@@ -366,7 +399,8 @@ pub enum Type<'source, A: Allocator> {
     },
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct ObjectTypeField<'source, A: Allocator> {
     pub is_public: bool,
     pub is_mutable: bool,
@@ -374,7 +408,8 @@ pub struct ObjectTypeField<'source, A: Allocator> {
     pub ty: Span<Type<'source, A>>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct ItemRef<'source, A: Allocator> {
     pub path: Span<ItemPath<'source, A>>,
     pub const_parameters: Span<Vec<Span<Type<'source, A>>, A>>,
@@ -389,17 +424,57 @@ impl<'source, A: Allocator> ItemRef<'source, A> {
 
 /// A struct containing information about type parameters,
 /// parameters and the return-type of a function.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct FunctionSignature<'source, A: Allocator> {
     pub const_parameters: ConstParameters<'source, A>,
     pub parameters: Span<Type<'source, A>>,
     pub return_type: Option<Span<Type<'source, A>>>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)] 
 pub struct ItemPath<'source, A: Allocator> {
     pub parents: Vec<&'source str, A>,
     pub id: &'source str,
 }
 
-// TODO: patterns
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
+pub struct ObjectPatternField<'source, A: Allocator> {
+    id: &'source str,
+    ty: Span<Type<'source, A>>,
+    remap: Pattern<'source, A>
+}
+
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
+pub enum PatternUnit<'source, A: Allocator> {
+    Any,
+    Identifier {
+        id: EcoString,
+        is_mutable: bool
+    },
+    Object(Vec<ObjectTypeField<'source, A>, A>),
+    Array(Vec<Pattern<'source, A>, A>)
+}
+
+/// A pattern with a type: `<pattern_unit> <ty>`
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
+pub struct PatternUnitWithType<'source, A: Allocator> {
+    unit: Span<PatternUnit<'source, A>>,
+    ty: Span<Type<'source, A>>
+}
+
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
+pub enum Pattern<'source, A: Allocator> {
+    WithType(PatternUnitWithType<'source, A>),
+
+    /// Infamous `x @ <pattern>` syntax.
+    Attach {
+        id: &'source str,
+        pattern: Box<Pattern<'source, A>, A>,
+    }
+}

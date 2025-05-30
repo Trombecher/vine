@@ -1,4 +1,4 @@
-mod tests;
+mod unit_tests;
 mod warnings;
 
 pub mod ast;
@@ -344,6 +344,7 @@ impl<
         todo!()
     }
 
+    /// Expects the next token to be '.' or lb before the '.'. Ends on the past-the-end token.
     fn parse_use_child(&mut self) -> Result<Span<ast::UseChild<'source, A>>, Error> {
         self.iter.skip_lb()?;
         self.iter.advance()?;
@@ -370,16 +371,22 @@ impl<
                 let mut source = source.clone();
                 let mut vec = Vec::new_in(self.alloc.clone());
 
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+                
                 loop {
-                    self.iter.advance()?;
-                    self.iter.skip_lb()?;
-
                     let value = match self.iter.peek()? {
                         Some(Span {
                             value: Token::Identifier(id),
-                            ..
+                            source,
                         }) => {
-                            let id = *id;
+                            let id = Span {
+                                value: *id,
+                                source: source.clone(),
+                            };
+
+                            self.iter.advance()?;
+                            
                             self.parse_use(id)?
                         }
                         Some(Span {
@@ -410,8 +417,9 @@ impl<
                             }),
                             _,
                         ) => {
-                            self.iter.skip_lb()?;
-                            self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
+                            if self.iter.skip_lb()? {
+                                self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
+                            }
                         }
                         (
                             Some(Span {
@@ -425,11 +433,14 @@ impl<
                             self.iter.skip_lb()?;
                             source.end = new_source.end;
                             self.iter.advance()?;
+
                             break;
                         }
-                        (_, true) => self.iter.advance()?,
+                        (_, true) => {},
                         _ => return error!("Expected ',', ')' or a line break"),
                     }
+
+                    self.iter.advance()?
                 }
 
                 Span {
@@ -439,45 +450,41 @@ impl<
             }
             Some(Span {
                 value: Token::Identifier(id),
-                ..
+                source,
             }) => {
-                let id = *id;
+                let id = Span {
+                    value: *id,
+                    source: source.clone(),
+                };
 
-                self.parse_use(id)?
-                    .map(|u| ast::UseChild::Single(Box::new_in(u, self.alloc.clone())))
+                self.iter.advance()?;
+                
+                let u = self.parse_use(id)?;
+
+                Span {
+                    source: u.source(),
+                    value: ast::UseChild::Single(Box::new_in(u, self.alloc.clone())),
+                }
             }
             _ => return error!("Expected an identifier, '*' or '('"),
         })
     }
 
-    /// Expects the '.' to not be consumed. Ends on the token after the use-statement
-    fn parse_use(&mut self, id: &'source str) -> Result<Span<ast::Use<'source, A>>, Error> {
-        let source = self.iter.peek()?.unwrap().source.clone();
-
-        self.iter.advance()?;
-
-        Ok(match self.iter.peek_n_non_lb(0)? {
-            (
-                Some(Span {
-                    value: Token::Symbol(Symbol::Dot),
-                    ..
-                }),
-                _,
-            ) => {
+    /// Expects the next token to be after the id. Ends on the token after the use-statement.
+    fn parse_use(&mut self, id: Span<&'source str>) -> Result<ast::Use<'source, A>, Error> {
+        Ok(match self.iter.peek_n_non_lb(0)?.0 {
+            Some(Span {
+                value: Token::Symbol(Symbol::Dot),
+                ..
+            }) => {
                 let child = self.parse_use_child()?;
 
-                Span {
-                    source: source.start..child.source.end,
-                    value: ast::Use {
-                        id,
-                        child: Some(child),
-                    },
+                ast::Use {
+                    id,
+                    child: Some(child),
                 }
             }
-            _ => Span {
-                value: ast::Use { id, child: None },
-                source,
-            },
+            _ => ast::Use { id, child: None },
         })
     }
 
@@ -1237,14 +1244,20 @@ impl<
                 let root_id = match self.iter.peek()? {
                     Some(Span {
                         value: Token::Identifier(id),
-                        ..
-                    }) => *id,
+                        source,
+                    }) => Span {
+                        value: *id,
+                        source: source.clone(),
+                    },
                     _ => return error!("Expected an identifier"),
                 };
 
-                let Span { source: src, value } = self.parse_use(root_id)?;
-                source = src;
-                Some(ast::StatementKind::Use(value))
+                self.iter.advance()?;
+                
+                let u = self.parse_use(root_id)?;
+                source = u.source();
+                
+                Some(ast::StatementKind::Use(u))
             }
             Some(Span {
                 value: Token::Keyword(Keyword::Break),
