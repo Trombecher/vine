@@ -1,7 +1,7 @@
+use crate::{Error, Value};
 use std::intrinsics::transmute;
 use std::mem::MaybeUninit;
 use std::slice::from_raw_parts;
-use crate::{Error, Value};
 
 pub struct Stack<'heap, const MAX_SIZE: usize> {
     size: usize,
@@ -13,7 +13,7 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
     pub fn new() -> Self {
         Self {
             size: 0,
-            buffer: unsafe { MaybeUninit::<[MaybeUninit<Value<'heap>>; MAX_SIZE]>::uninit().assume_init() }
+            buffer: unsafe { MaybeUninit::<[MaybeUninit<Value<'heap>>; MAX_SIZE]>::uninit().assume_init() },
         }
     }
 
@@ -21,13 +21,13 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
     pub fn as_slice(&self) -> &[Value<'heap>] {
         unsafe { from_raw_parts(transmute(&self.buffer), self.size) }
     }
-    
+
     #[inline]
     pub fn push(&mut self, value: Value<'heap>) -> Result<(), Error> {
         self.preallocate(1)?[0].write(value);
         Ok(())
     }
-    
+
     /// Allocates a slot on the stack.
     #[inline]
     pub fn preallocate(&mut self, n: usize) -> Result<&mut [MaybeUninit<Value<'heap>>], Error> {
@@ -61,7 +61,7 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
             })
         }
     }
-    
+
     #[inline]
     pub fn top_offset_ptr(&mut self, n: usize) -> Option<*const Value<'heap>> {
         if self.size > n {
@@ -83,20 +83,20 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
             None
         }
     }
-    
+
     #[inline]
     pub fn pop(&mut self) {
         self.size = self.size.saturating_sub(1);
     }
-    
+
     #[inline]
     pub fn pop_get(&mut self) -> Option<Value<'heap>> {
         if self.size == 0 {
-            return None
+            return None;
         }
-        
+
         self.size -= 1;
-        
+
         Some(unsafe {
             self.buffer[self.size].assume_init_ref().clone()
         })

@@ -1,6 +1,6 @@
+use crate::Error;
 use bytes::Span;
 use vm::instruction::Instruction;
-use crate::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
@@ -14,7 +14,7 @@ pub enum Token<'a> {
     // String(&'a str),
     LineBreak,
     LeftBrace,
-    RightBrace
+    RightBrace,
 }
 
 impl<'a> Token<'a> {
@@ -27,7 +27,7 @@ impl<'a> Token<'a> {
             Token::Integer(i) => target.extend_from_slice(&i.to_le_bytes()),
             Token::SmallFloat(f) => target.extend_from_slice(&f.to_le_bytes()),
             Token::BigFloat(f) => target.extend_from_slice(&f.to_le_bytes()),
-            Token::LineBreak => {},
+            Token::LineBreak => {}
             Token::LeftBrace => todo!("We cannot encode {{ rn"),
             Token::RightBrace => todo!("We cannot encode }} rn")
         }

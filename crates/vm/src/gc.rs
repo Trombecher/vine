@@ -1,11 +1,11 @@
+use crate::{Object, Value};
 use std::cell::{Cell, UnsafeCell};
 use std::collections::HashSet;
 use std::intrinsics::transmute;
 use std::mem::MaybeUninit;
 use std::num::NonZeroU8;
-use std::ops::{Deref};
+use std::ops::Deref;
 use std::ptr::slice_from_raw_parts_mut;
-use crate::{Object, Value};
 
 /// This is the first (and last) reference the object will ever have.
 ///
@@ -34,7 +34,7 @@ impl Drop for SourceRef {
         let _ = unsafe {
             Box::<[Value]>::from_raw(slice_from_raw_parts_mut(
                 self.inner as usize as *mut Value,
-                len
+                len,
             ))
         };
 
@@ -55,13 +55,13 @@ impl<'types> GC<'types> {
             allocated_objects: UnsafeCell::new(HashSet::new()),
         }
     }
-    
+
     /// Returns the number of objects currently allocated.
     #[inline]
     pub fn count(&self) -> usize {
         unsafe { (&*self.allocated_objects.get()).len() }
     }
-    
+
     #[inline]
     pub fn upgrade(&self, weak_ref: *const Object) -> Option<&Object> {
         unsafe {
@@ -107,13 +107,13 @@ impl<'types> GC<'types> {
             &*(object.as_ptr() as usize as *const Object)
         }
     }
-    
+
     /// Deallocates all unused objects.
     ///
     /// # Safety
     ///
     /// Assumes all `is_used` fields of [Object] are `false`.
-    pub fn mark_and_sweep<'heap>(&self, roots: impl Iterator<Item = Value<'heap>>) {
+    pub fn mark_and_sweep<'heap>(&self, roots: impl Iterator<Item=Value<'heap>>) {
         // Mark
         mark(roots);
 
@@ -129,8 +129,8 @@ impl<'types> GC<'types> {
     }
 }
 
-fn mark<'heap>(roots: impl Iterator<Item = Value<'heap>>) {
-    for root in roots.filter_map(Value::get_object)  {
+fn mark<'heap>(roots: impl Iterator<Item=Value<'heap>>) {
+    for root in roots.filter_map(Value::get_object) {
         let lock = if let Some(lock) = root.try_lock() {
             lock
         } else {

@@ -1,11 +1,11 @@
-use std::cell::Cell;
-use oxc_allocator::{Allocator, Vec, Box};
+use oxc_allocator::{Allocator, Box, Vec};
 use oxc_ast::ast::*;
 use oxc_codegen::{CodeGenerator, CodegenOptions};
+use std::cell::Cell;
 
 fn main() {
     let arena = Allocator::default();
-    
+
     let program = Program {
         span: Default::default(),
         source_type: Default::default(),
@@ -13,13 +13,13 @@ fn main() {
         directives: Vec::new_in(&arena),
         body: {
             let mut vec = Vec::new_in(&arena);
-            
+
             vec.push(Statement::VariableDeclaration(Box::new_in(VariableDeclaration {
                 span: Default::default(),
                 kind: VariableDeclarationKind::Let,
                 declarations: {
                     let mut vec = Vec::new_in(&arena);
-                    
+
                     vec.push(VariableDeclarator {
                         span: Default::default(),
                         kind: VariableDeclarationKind::Let,
@@ -40,17 +40,17 @@ fn main() {
                         }, &arena))),
                         definite: false,
                     });
-                    
+
                     vec
                 },
                 declare: false,
             }, &arena)));
-            
+
             vec
         },
         scope_id: Cell::new(None),
     };
-    
+
     let text = CodeGenerator::new()
         .with_options(CodegenOptions {
             single_quote: false,
@@ -58,6 +58,6 @@ fn main() {
         })
         .build(&program)
         .source_text;
-    
+
     println!("{text}");
 }

@@ -6,7 +6,7 @@ use core::cell::RefCell;
 pub mod ast;
 
 pub fn index_module<'sf: 'resolve_arena + 'parse_arena, 'resolve_arena, 'parse_arena>(
-    items: impl Iterator<Item = &'parse_arena parse_ast::TopLevelItem<'sf, 'parse_arena>>,
+    items: impl Iterator<Item=&'parse_arena parse_ast::TopLevelItem<'sf, 'parse_arena>>,
     resolve_arena: &'resolve_arena Bump,
     source_file_arena: &'sf Bump,
 ) -> SymbolTable<'sf, 'resolve_arena> {

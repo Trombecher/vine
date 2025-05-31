@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use crate::lex::{Symbol, Token};
+use crate::parse::ast::Expression;
 use crate::parse::{ast, ParseContext};
 use alloc::alloc::Global;
 use alloc::boxed::Box;
@@ -9,11 +10,10 @@ use errors::Error;
 use fallible_iterator::{FallibleIterator, IteratorExt};
 use labuf::LookaheadBuffer;
 use span::{Index, Span};
-use crate::parse::ast::Expression;
 
 fn context_from_tokens<const N: usize>(
     tokens: [Token; N],
-) -> ParseContext<impl FallibleIterator<Item = Span<Token>, Error = Error>, Global> {
+) -> ParseContext<impl FallibleIterator<Item=Span<Token>, Error=Error>, Global> {
     let mut index: Index = 0;
 
     ParseContext::new(
@@ -139,7 +139,7 @@ fn parse_object_literal() {
         Token::Identifier("value"),
         Token::Symbol(Symbol::RightParenthesis),
     ]);
-    
+
     parser.iter.advance().unwrap();
 
     assert_eq!(parser.parse_object_literal(), Ok((vec![

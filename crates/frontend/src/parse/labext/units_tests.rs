@@ -16,14 +16,14 @@ fn skip_lb() {
             Token::LineBreak,
             Token::Number(0.),
         ]
-        .into_iter()
-        .map::<Result<Span<Token<'static>>, Error>, _>(|x| {
-            Ok(Span {
-                value: x,
-                source: 0..0,
+            .into_iter()
+            .map::<Result<Span<Token<'static>>, Error>, _>(|x| {
+                Ok(Span {
+                    value: x,
+                    source: 0..0,
+                })
             })
-        })
-        .transpose_into_fallible(),
+            .transpose_into_fallible(),
         Global,
     );
 
@@ -75,7 +75,7 @@ fn peek_n_non_lb() {
             .transpose_into_fallible(),
         Global,
     );
-    
+
     assert_eq!(
         buf.peek_n_non_lb(0),
         Ok((

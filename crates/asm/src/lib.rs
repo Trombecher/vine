@@ -2,7 +2,7 @@
 #![feature(ptr_sub_ptr)]
 
 //! # Vine Assembly
-//! 
+//!
 //! This crate contains functionality for compiling vine assembly (.vna) code
 //! into the binary representation of vine byte code from the vm crate.
 

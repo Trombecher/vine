@@ -86,6 +86,7 @@ impl<'a> Token<'a> {
 #[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
 pub enum Keyword {
+    Alias,
     As,
     Break,
     Continue,
@@ -104,7 +105,6 @@ pub enum Keyword {
     Package,
     Pub,
     Return,
-    Struct,
     This,
     CapitalThis,
     Trait,
@@ -135,7 +135,7 @@ impl Keyword {
             Self::Package => "package",
             Self::Pub => "pub",
             Self::Return => "return",
-            Self::Struct => "struct",
+            Self::Alias => "alias",
             Self::This => "this",
             Self::CapitalThis => "This",
             Self::Trait => "trait",
@@ -166,7 +166,7 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "package" => Keyword::Package,
     "pub" => Keyword::Pub,
     "return" => Keyword::Return,
-    "struct" => Keyword::Struct,
+    "alias" => Keyword::Alias,
     "this" => Keyword::This,
     "This" => Keyword::CapitalThis,
     "trait" => Keyword::Trait,

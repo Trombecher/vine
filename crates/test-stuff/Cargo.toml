@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 frontend = { path = "../frontend" }
 errors = { path = "../errors" }
+bumpalo = { version = "3.17.0", features = ["allocator_api"] }
+byte_reader = { git = "https://github.com/Trombecher/byte-reader", version = "0.1.3" }

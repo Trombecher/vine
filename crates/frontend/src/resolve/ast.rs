@@ -6,7 +6,7 @@ use hashbrown::{DefaultHashBuilder, HashMap};
 
 /// Maps identifiers (symbols) to items.
 pub type SymbolTable<'sf, 'ast> =
-    HashMap<&'sf str, &'ast RefCell<SymbolTableEntry<'sf, 'ast>>, DefaultHashBuilder, &'ast Bump>;
+HashMap<&'sf str, &'ast RefCell<SymbolTableEntry<'sf, 'ast>>, DefaultHashBuilder, &'ast Bump>;
 
 #[derive(Clone, Debug)]
 pub struct SymbolTableEntry<'sf, 'ast> {

@@ -145,14 +145,13 @@ pub enum Expression<'source, A: Allocator> {
 
     /// `target(args...)`
     Call {
-        target: Box<Span<Expression<'source, A>>, A>,
-        arguments: CallArguments<'source, A>, // TODO
+        callee: Box<Span<Expression<'source, A>>, A>,
+        argument: Box<Span<Expression<'source, A>>, A>,
     },
 
     /// `target.<const_args...>(args...)`
-    CallWithConstParameters {
-        target: Box<Span<ConstParametersCallTarget<'source, A>>, A>,
-        arguments: CallArguments<'source, A>,
+    Refine {
+        target: Box<Span<Expression<'source, A>>, A>,
         const_arguments: Vec<Span<ConstArgument<'source, A>>, A>,
     },
 
@@ -194,13 +193,6 @@ impl<'source, A: Allocator> ObjectField<'source, A> {
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
-pub enum CallArguments<'source, A: Allocator> {
-    Single(Box<Span<Expression<'source, A>>, A>),
-    Named(Vec<(Span<&'source str>, Span<Expression<'source, A>>), A>),
-}
-
-#[derive(Clone)]
-#[derive_where(Debug, PartialEq)]
 pub struct If<'source, A: Allocator> {
     pub condition: Box<Span<Expression<'source, A>>, A>,
     pub body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
@@ -214,12 +206,30 @@ pub enum ThisParameter {
     ThisMut,
 }
 
+/// In which scope an item is visible.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Visible {
+    /// The item is visible to external code.
+    Public,
+
+    /// The item is visible only within the current package.
+    Package,
+
+    /// The item is visible only within the current module.
+    Module,
+}
+
+/// Visibility of an item, `None` if the item is only visible to the binding type.
+pub type Visibility = Option<Span<Visible>>;
+
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub enum StatementKind<'source, A: Allocator> {
     Type {
         const_parameters: ConstParameters<'source, A>,
-        id: &'source str,
+        id: Span<&'source str>,
+        ty_visibility: Visibility,
+        ty_is_mutable: bool,
         ty: Span<Type<'source, A>>,
     },
     Enum {
@@ -298,7 +308,7 @@ pub struct ModuleContent<'source, A: Allocator>(pub Vec<TopLevelItem<'source, A>
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct TopLevelItem<'source, A: Allocator> {
-    pub is_public: bool,
+    pub visibility: Visibility,
     pub statement: Span<Statement<'source, A>>,
 }
 
@@ -409,10 +419,21 @@ pub enum Type<'source, A: Allocator> {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct ObjectTypeField<'source, A: Allocator> {
-    pub is_public: bool,
-    pub is_mutable: bool,
-    pub id: &'source str,
+    pub is_public: Option<Span<()>>,
+    pub is_mutable: Option<Span<()>>,
+    pub id: Span<&'source str>,
     pub ty: Span<Type<'source, A>>,
+}
+
+impl<'source, A: Allocator> ObjectTypeField<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        self.is_public
+            .as_ref()
+            .map(|x| x.source.start)
+            .or_else(|| self.is_mutable.as_ref().map(|x| x.source.start))
+            .unwrap_or_else(|| self.ty.source.start)..self.ty.source.end
+    }
 }
 
 #[derive(Clone)]

@@ -9,7 +9,7 @@ use span::Span;
 
 fn assert_iter(
     mut lexer: Lexer<Global>,
-    mut expected: impl FallibleIterator<Item = Span<Token<'static>>, Error = Error>,
+    mut expected: impl FallibleIterator<Item=Span<Token<'static>>, Error=Error>,
 ) {
     loop {
         let a = lexer.next();
@@ -136,9 +136,9 @@ fn lex_keywords() {
                 source: 124..127,
             },
         ]
-        .into_iter()
-        .map(|x| Ok(x.map(|kw| Token::Keyword(kw))))
-        .transpose_into_fallible(),
+            .into_iter()
+            .map(|x| Ok(x.map(|kw| Token::Keyword(kw))))
+            .transpose_into_fallible(),
     );
 }
 

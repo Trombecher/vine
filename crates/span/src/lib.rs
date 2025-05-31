@@ -24,7 +24,7 @@ impl<T: Debug> Debug for Span<T> {
     }
 }
 
-impl<T: Clone> Clone for Span<T>  {
+impl<T: Clone> Clone for Span<T> {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),

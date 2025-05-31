@@ -28,7 +28,7 @@ fn old_main() {
         0,
         &[],
         &[],
-        &gc
+        &gc,
     );
 
     vm.execute().unwrap();

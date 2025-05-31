@@ -24,9 +24,9 @@ mod value;
 mod object;
 mod gc;
 
-pub use value::*;
-pub use object::*;
 pub use gc::*;
+pub use object::*;
+pub use value::*;
 
 use crate::instruction::Instruction;
 use crate::stack::Stack;
@@ -56,7 +56,7 @@ pub struct VM<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> {
 
     /// A stack for maintaining values.
     stack: Stack<'heap, MAX_STACK_SIZE>,
-    
+
     /// The garbage collector.
     gc: &'heap GC<'input>,
 }
@@ -135,7 +135,7 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
             offset_table,
             static_table,
             stack: Stack::new(),
-            gc
+            gc,
         }
     }
 
@@ -397,12 +397,12 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
             }
 
             // Objects
-            
+
             Instruction::CreateObject1 => {
                 let type_index = self.get_u8()?;
                 self.a = Value::from_strong(self.gc.allocate(type_index as u32));
             }
-            
+
             /*
             Instruction::CreateObjectOffset => {
                 let ty = &self.type_table[self.offset_table[self.get_u8()? as usize] as usize] as *const u8;
@@ -412,7 +412,7 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
                 self.a = unsafe { self.alloc(ty) };
             }
              */
-            
+
             Instruction::ReadProperty0 => {
                 if let Some(object_ref) = self.b.get_object() {
                     unsafe {
@@ -455,7 +455,7 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
 
             i => todo!("Instruction {i:?} not implemented")
         }
-        
+
         Ok(false)
     }
 }

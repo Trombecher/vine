@@ -18,7 +18,7 @@ pub enum Instruction {
     JumpU64,
     JumpStatic,
     JumpU8IfUncheckedZero,
-    
+
     /// Invokes a native function. The id is specified via the next byte.
     InvokeNative,
     Invoke0,
@@ -26,11 +26,11 @@ pub enum Instruction {
     Invoke2,
     Invoke3,
     Invoke4,
-    
+
     /// Pushes [Value::ReturnIndex] to the stack, duplicates n values from
     /// below the [Value::ReturnIndex] and finally jumps to the address at the offset entry.
     InvokeNStatic,
-    
+
     /// Replaces the nth value from the top of the stack with a [Value::ReturnIndex].
     InvokePopN,
 
@@ -38,11 +38,11 @@ pub enum Instruction {
     Return,
 
     // --- Registers ---
-    
+
     // A
-    
+
     LoadA,
-    
+
     /// Loads 0 (int) into A.
     LoadA0Int,
 
@@ -84,7 +84,7 @@ pub enum Instruction {
     SpreadBR,
 
     // Operations
-    
+
     // Stack
 
     PushA,
@@ -93,7 +93,7 @@ pub enum Instruction {
 
     /// Removes the top item from the stack if there is one.
     Pop,
-    
+
     /// Clears the stack until it is empty or a return address has been reached.
     Clear,
 
@@ -102,19 +102,19 @@ pub enum Instruction {
 
     /// Shortcut for [Instruction::LoadTopIntoB] following [Instruction::Pop].
     PopIntoB,
-    
+
     /// Shortcut for [Instruction::LoadTopIntoR] following [Instruction::Pop].
     PopIntoR,
 
     /// Swaps the top item and the item below if the stack is at least two items tall.
     SwapTopBelow,
-    
+
     /// Swaps the top value and A.
     SwapTopA,
-    
+
     /// Swap the top value and B.
     SwapTopB,
-    
+
     /// Swap the top value and R.
     SwapTopR,
 
@@ -126,16 +126,16 @@ pub enum Instruction {
 
     /// Loads the top item of the stack into R. If the stack is empty `Nil` is loaded.
     LoadTopIntoR,
-    
+
     // --- Objects ---
-    
+
     /// Uses the next u8 to index into the `offset_table`.
     /// This offset is used to create an object via [Instruction::CreateObject].
     CreateObjectOffset,
-    
+
     /// Allocates a new object. The next `u64` is used to index into the `type_table`.
     /// The resulting pointer to this type is used as the type.
-    /// 
+    ///
     /// The object is placed in A.
     CreateObject1,
     CreateObject2,
@@ -151,23 +151,23 @@ pub enum Instruction {
     WriteProperty2,
     WriteProperty3,
     WritePropertyN,
-    
+
     EqualType,
     InstanceOf,
     // Implements,
-    
+
     /// Casts the object in A to a same-sized type.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// - if the value in A is not an object.
     /// - if the types do not have the same size.
     CastEquivalent,
-    
+
     // Built-In Objects
-    
+
     // --- Unary Operations ---
-    
+
     // Angles
     Sine,
     Cosine,
@@ -182,24 +182,24 @@ pub enum Instruction {
     HyperbolicArcusCosine,
     HyperbolicArcusTangent,
     Angle,
-    
+
     /// `A = sqrt(A * A + B * B)`
     Hypotenuse,
-    
+
     // Exponents
     Exp,
-    
+
     /// `A = A ** B`
     Power,
     LogE,
     Log2,
     Log10,
     LogN,
-    
+
     // Numbers
-    
+
     Random,
-    
+
     /// `A = sqrt(A)`. Only works on floats and ints.
     SquareRoot,
     CubeRoot,
@@ -212,16 +212,16 @@ pub enum Instruction {
     Min,
     Sign,
     Truncate,
-    
+
     // Bitwise
     Invert,
     LeadingZeroes,
-    
+
     // --- Binary Operations ---
-    
+
     AddU63,
     AddF63,
-    
+
     /// A = A - B
     Subtract,
 
@@ -233,10 +233,10 @@ pub enum Instruction {
     Remainder,
 
     // IO
-    
+
     /// Returns an array of strings.
     Args,
-    
+
     /// Writes A to stdout coercing the value to bytes.
     WriteStdout,
     WriteStdoutLF,
@@ -244,7 +244,7 @@ pub enum Instruction {
     WriteStderrLF,
     ReadStdin,
     ReadStdinLine,
-    
+
     CreateDirectory,
     CreateFile,
     // Exists
@@ -257,13 +257,13 @@ pub enum Instruction {
     MoveFileOrDirectory,
     CopyFileOrDirectory,
     GetCreatedOfFileOrDirectory,
-    
+
     MarkFileOrDirectoryAsTemporary,
     MarkFileOrDirectoryAsPermanent,
-    
+
     DebugTriggerGC,
     DebugPrintAllocatedObjects,
-    LastInstruction
+    LastInstruction,
 }
 
 impl TryFrom<u8> for Instruction {

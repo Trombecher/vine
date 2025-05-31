@@ -1,8 +1,8 @@
 use crate::object::Object;
+use crate::GC;
 use std::fmt::{Binary, Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem::transmute;
-use crate::GC;
 
 pub enum PointerValue<'heap> {
     StrongRef(&'heap Object),
@@ -36,7 +36,7 @@ impl<'heap> Debug for Value<'heap> {
 
 pub struct ValueDisplay<'input: 'heap, 'heap> {
     value: Value<'heap>,
-    gc: &'heap GC<'input>
+    gc: &'heap GC<'input>,
 }
 
 impl<'input: 'heap, 'heap> Debug for ValueDisplay<'input, 'heap> {
@@ -69,7 +69,7 @@ impl<'heap> Value<'heap> {
             gc,
         }
     }
-    
+
     #[inline]
     pub const unsafe fn from_u64_unchecked(value: u64) -> Self {
         Self(value, PhantomData)
@@ -106,7 +106,7 @@ impl<'heap> Value<'heap> {
             PointerOrRaw::Raw(self.0)
         }
     }
-    
+
     #[inline]
     pub fn get_object(self) -> Option<&'heap Object> {
         if let PointerOrRaw::Pointer(PointerValue::StrongRef(obj)) = self.destructure() {

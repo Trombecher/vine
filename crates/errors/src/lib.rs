@@ -1,7 +1,6 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::boxed::Box;
 use alloc::string::String;
 
 #[macro_export]
@@ -45,7 +44,7 @@ pub struct ErrorData {
     pub file_path: &'static str,
     pub source_line: u32,
     pub source_column: u32,
-    pub file_name: &'static str
+    pub file_name: &'static str,
 }
 
 impl PartialEq for Error {
