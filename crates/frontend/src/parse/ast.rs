@@ -146,7 +146,7 @@ pub enum Expression<'source, A: Allocator> {
     /// `target(args...)`
     Call {
         target: Box<Span<Expression<'source, A>>, A>,
-        arguments: CallArguments<'source, A>,
+        arguments: CallArguments<'source, A>, // TODO
     },
 
     /// `target.<const_args...>(args...)`
@@ -164,7 +164,7 @@ pub enum Expression<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum ConstParametersCallTarget<'source, A: Allocator> {
     Identifier(&'source str),
     Access(Access<'source, A>),
@@ -179,21 +179,28 @@ pub enum ConstArgument<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct ObjectField<'source, A: Allocator> {
-    pub field: &'source str,
+    pub id: Span<&'source str>,
     pub value: Span<Expression<'source, A>>,
 }
 
+impl<'source, A: Allocator> ObjectField<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        self.id.source.start..self.value.source.end
+    }
+}
+
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum CallArguments<'source, A: Allocator> {
     Single(Box<Span<Expression<'source, A>>, A>),
     Named(Vec<(Span<&'source str>, Span<Expression<'source, A>>), A>),
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct If<'source, A: Allocator> {
     pub condition: Box<Span<Expression<'source, A>>, A>,
     pub body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
@@ -208,7 +215,7 @@ pub enum ThisParameter {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum StatementKind<'source, A: Allocator> {
     Type {
         const_parameters: ConstParameters<'source, A>,
@@ -234,7 +241,7 @@ pub enum StatementKind<'source, A: Allocator> {
     Function {
         const_parameters: ConstParameters<'source, A>,
         id: &'source str,
-        pattern: Span<Pattern<'source, A>>,
+        pattern: Pattern<'source, A>,
         this_parameter: Option<ThisParameter>,
         input_type: Span<Type<'source, A>>,
         output_type: Span<Type<'source, A>>,
@@ -251,7 +258,7 @@ pub enum StatementKind<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum ConstParameter<'source, A: Allocator> {
     Type {
         id: &'source str,
@@ -264,39 +271,39 @@ pub enum ConstParameter<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct Annotation<'source, A: Allocator> {
     pub path: Span<ItemPath<'source, A>>,
     pub arguments: Vec<Span<Expression<'source, A>>, A>,
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct Statement<'source, A: Allocator> {
     pub annotations: Vec<Annotation<'source, A>, A>,
     pub statement_kind: StatementKind<'source, A>,
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum StatementOrExpression<'source, A: Allocator> {
     Statement(Statement<'source, A>),
     Expression(Expression<'source, A>),
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct ModuleContent<'source, A: Allocator>(pub Vec<TopLevelItem<'source, A>, A>);
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct TopLevelItem<'source, A: Allocator> {
     pub is_public: bool,
     pub statement: Span<Statement<'source, A>>,
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct Use<'source, A: Allocator> {
     pub id: Span<&'source str>,
     pub child: Option<Span<UseChild<'source, A>>>,
@@ -314,7 +321,7 @@ impl<'source, A: Allocator> Use<'source, A> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum UseChild<'source, A: Allocator> {
     Single(Box<Use<'source, A>, A>),
     Multiple(Vec<Use<'source, A>, A>),
@@ -341,14 +348,14 @@ impl<'source, A: Allocator> TryFrom<Expression<'source, A>> for AssignmentTarget
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct Access<'source, A: Allocator> {
     pub target: Box<Span<Expression<'source, A>>, A>,
     pub property: &'source str,
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct MarkupElement<'source, A: Allocator> {
     pub identifier: &'source str,
     pub attributes: Vec<(&'source str, Expression<'source, A>), A>,
@@ -356,7 +363,7 @@ pub struct MarkupElement<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum MarkupChild<'source, A: Allocator> {
     Element(MarkupElement<'source, A>),
     Text(&'source str),
@@ -364,7 +371,7 @@ pub enum MarkupChild<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct Parameter<'source, A: Allocator> {
     pub id: &'source str,
     pub is_mutable: bool,
@@ -372,7 +379,7 @@ pub struct Parameter<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub enum Type<'source, A: Allocator> {
     /// A type describing a value that will never exist.
     Never,
@@ -400,7 +407,7 @@ pub enum Type<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct ObjectTypeField<'source, A: Allocator> {
     pub is_public: bool,
     pub is_mutable: bool,
@@ -409,7 +416,7 @@ pub struct ObjectTypeField<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct ItemRef<'source, A: Allocator> {
     pub path: Span<ItemPath<'source, A>>,
     pub const_parameters: Span<Vec<Span<Type<'source, A>>, A>>,
@@ -425,7 +432,7 @@ impl<'source, A: Allocator> ItemRef<'source, A> {
 /// A struct containing information about type parameters,
 /// parameters and the return-type of a function.
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct FunctionSignature<'source, A: Allocator> {
     pub const_parameters: ConstParameters<'source, A>,
     pub parameters: Span<Type<'source, A>>,
@@ -433,7 +440,7 @@ pub struct FunctionSignature<'source, A: Allocator> {
 }
 
 #[derive(Clone)]
-#[derive_where(Debug, PartialEq)] 
+#[derive_where(Debug, PartialEq)]
 pub struct ItemPath<'source, A: Allocator> {
     pub parents: Vec<&'source str, A>,
     pub id: &'source str,
@@ -444,27 +451,24 @@ pub struct ItemPath<'source, A: Allocator> {
 pub struct ObjectPatternField<'source, A: Allocator> {
     id: &'source str,
     ty: Span<Type<'source, A>>,
-    remap: Pattern<'source, A>
+    remap: Pattern<'source, A>,
 }
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub enum PatternUnit<'source, A: Allocator> {
     Any,
-    Identifier {
-        id: EcoString,
-        is_mutable: bool
-    },
+    Identifier { id: EcoString, is_mutable: bool },
     Object(Vec<ObjectTypeField<'source, A>, A>),
-    Array(Vec<Pattern<'source, A>, A>)
+    Array(Vec<Pattern<'source, A>, A>),
 }
 
 /// A pattern with a type: `<pattern_unit> <ty>`
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct PatternUnitWithType<'source, A: Allocator> {
-    unit: Span<PatternUnit<'source, A>>,
-    ty: Span<Type<'source, A>>
+    pub unit: Span<PatternUnit<'source, A>>,
+    pub ty: Span<Type<'source, A>>,
 }
 
 #[derive(Clone)]
@@ -474,7 +478,17 @@ pub enum Pattern<'source, A: Allocator> {
 
     /// Infamous `x @ <pattern>` syntax.
     Attach {
-        id: &'source str,
+        id: Span<&'source str>,
         pattern: Box<Pattern<'source, A>, A>,
+    },
+}
+
+impl<'source, A: Allocator> Pattern<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        match self {
+            Pattern::WithType(pt) => pt.unit.source.start..pt.ty.source.end,
+            Pattern::Attach { id, pattern } => id.source.start..pattern.source().end,
+        }
     }
 }

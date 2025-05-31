@@ -622,10 +622,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                                 }
                             }
 
-                            Token::DocComment(unsafe {
-                                // SAFETY: validated during loop.
-                                from_utf8_unchecked(start.slice_to(end))
-                            })
+                            Token::Annotation(()) // TODO
                         }
                         _ => Token::Symbol(Symbol::Slash),
                     }
@@ -789,13 +786,8 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 }
                 b'@' => {
                     unsafe { self.cursor.advance_unchecked() };
-                    Token::Symbol(match self.cursor.peek() {
-                        Some(b'!') => {
-                            unsafe { self.cursor.advance_unchecked() };
-                            Symbol::AtExclamationMark
-                        }
-                        _ => Symbol::At,
-                    })
+
+                    Token::Symbol(Symbol::At)
                 }
                 b'"' => {
                     unsafe { self.cursor.advance_unchecked() };

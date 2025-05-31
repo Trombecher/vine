@@ -1,35 +1,55 @@
 #![no_std]
 extern crate alloc;
 
+use alloc::boxed::Box;
+use alloc::string::String;
+
 #[macro_export]
 macro_rules! error {
     ($msg:literal) => {{
-        static OBJ: $crate::ErrorData = $crate::ErrorData {
+        static ERROR_DATA: $crate::ErrorData = $crate::ErrorData {
             file_path: module_path!(),
-            source_line: line!(),
+            source_line: line!(), 
             source_column: column!(),
-            file_name: file!(),
-            message: $msg
+            file_name: file!()
         };
-
-        Err(Error(&OBJ))
+        
+        Err($crate::Error {
+            data: &ERROR_DATA,
+            message: $msg.into()
+        })
+    }};
+    ($msg:literal, $($arg:tt)*) => {{
+        static ERROR_DATA: $crate::ErrorData = $crate::ErrorData {
+            file_path: module_path!(),
+            source_line: line!(), 
+            source_column: column!(),
+            file_name: file!()
+        };
+        
+        Err($crate::Error {
+            data: &ERROR_DATA,
+            message: ::alloc::format!($msg, $($arg)*)
+        })
     }}
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct Error(pub &'static ErrorData);
+#[derive(Clone, Debug)]
+pub struct Error {
+    pub data: &'static ErrorData,
+    pub message: String,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ErrorData {
     pub file_path: &'static str,
     pub source_line: u32,
     pub source_column: u32,
-    pub message: &'static str,
     pub file_name: &'static str
 }
 
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
-        self.0 as *const ErrorData == other.0 as *const ErrorData
+        self.data == other.data
     }
 }

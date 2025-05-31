@@ -8,33 +8,50 @@ use alloc::vec;
 use errors::Error;
 use fallible_iterator::{FallibleIterator, IteratorExt};
 use labuf::LookaheadBuffer;
-use span::Span;
+use span::{Index, Span};
+use crate::parse::ast::Expression;
 
 fn context_from_tokens<const N: usize>(
-    tokens: [Span<Token>; N],
+    tokens: [Token; N],
 ) -> ParseContext<impl FallibleIterator<Item = Span<Token>, Error = Error>, Global> {
+    let mut index: Index = 0;
+
     ParseContext::new(
-        LookaheadBuffer::new_in(tokens.into_iter().map(Ok).transpose_into_fallible(), Global),
+        LookaheadBuffer::new_in(
+            tokens
+                .into_iter()
+                .map(move |token| {
+                    let len = token.estimated_length();
+                    let source = index..index + len;
+                    index += len;
+
+                    Ok(Span {
+                        value: token,
+                        source,
+                    })
+                })
+                .transpose_into_fallible(),
+            Global,
+        ),
         Global,
     )
 }
 
 #[test]
 fn parse_use_no_child() {
-    let mut parser = context_from_tokens([Span {
-        value: Token::LineBreak,
-        source: 8..9,
-    }]);
+    let mut parser = context_from_tokens([Token::Identifier("import"), Token::LineBreak]);
+
+    let import_range = parser.iter.next().unwrap().unwrap().source;
 
     assert_eq!(
         parser.parse_use(Span {
             value: "import",
-            source: 2..8,
+            source: import_range.clone(),
         }),
         Ok(ast::Use {
             id: Span {
                 value: "import",
-                source: 2..8,
+                source: import_range,
             },
             child: None,
         })
@@ -44,33 +61,24 @@ fn parse_use_no_child() {
 #[test]
 fn parse_use_with_child() {
     let mut parser = context_from_tokens([
-        Span {
-            value: Token::LineBreak,
-            source: 6..7,
-        },
-        Span {
-            value: Token::Symbol(Symbol::Dot),
-            source: 7..8,
-        },
-        Span {
-            value: Token::LineBreak,
-            source: 8..9,
-        },
-        Span {
-            value: Token::Identifier("yo"),
-            source: 9..11,
-        },
+        Token::Identifier("import"),
+        Token::LineBreak,
+        Token::Symbol(Symbol::Dot),
+        Token::LineBreak,
+        Token::Identifier("yo"),
     ]);
+
+    let import_range = parser.iter.next().unwrap().unwrap().source;
 
     assert_eq!(
         parser.parse_use(Span {
             value: "import",
-            source: 0..6,
+            source: import_range.clone(),
         }),
         Ok(ast::Use {
             id: Span {
                 value: "import",
-                source: 0..6,
+                source: import_range,
             },
             child: Some(Span {
                 value: ast::UseChild::Single(Box::new(ast::Use {
@@ -89,34 +97,13 @@ fn parse_use_with_child() {
 #[test]
 fn parse_use_child_multiple() {
     let mut parser = context_from_tokens([
-        Span {
-            value: Token::Symbol(Symbol::Dot),
-            source: 0..1,
-        },
-        Span {
-            value: Token::Symbol(Symbol::LeftParenthesis),
-            source: 1..2,
-        },
-        Span {
-            value: Token::Identifier("a"),
-            source: 2..3,
-        },
-        Span {
-            value: Token::LineBreak,
-            source: 3..4,
-        },
-        Span {
-            value: Token::Identifier("b"),
-            source: 4..5,
-        },
-        Span {
-            value: Token::Symbol(Symbol::RightParenthesis),
-            source: 5..6,
-        },
-        Span {
-            value: Token::LineBreak,
-            source: 6..7,
-        },
+        Token::Symbol(Symbol::Dot),
+        Token::Symbol(Symbol::LeftParenthesis),
+        Token::Identifier("a"),
+        Token::LineBreak,
+        Token::Identifier("b"),
+        Token::Symbol(Symbol::RightParenthesis),
+        Token::LineBreak,
     ]);
 
     assert_eq!(
@@ -141,4 +128,30 @@ fn parse_use_child_multiple() {
             source: 1..6,
         })
     );
+}
+
+#[test]
+fn parse_object_literal() {
+    let mut parser = context_from_tokens([
+        Token::Symbol(Symbol::LeftParenthesis),
+        Token::Identifier("key"),
+        Token::Symbol(Symbol::Equals),
+        Token::Identifier("value"),
+        Token::Symbol(Symbol::RightParenthesis),
+    ]);
+    
+    parser.iter.advance().unwrap();
+
+    assert_eq!(parser.parse_object_literal(), Ok((vec![
+        ast::ObjectField {
+            id: Span {
+                value: "key",
+                source: 1..4,
+            },
+            value: Span {
+                value: Expression::Identifier("value"),
+                source: 5..10,
+            },
+        }
+    ], 11)));
 }
