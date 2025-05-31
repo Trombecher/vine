@@ -133,7 +133,8 @@ pub enum Expression<'source, A: Allocator> {
 
     /// `this`
     This,
-    
+
+    /// `This`
     CapitalThis,
 
     /// `<element args...> children... </element>`
@@ -286,7 +287,7 @@ pub enum ConstParameter<'source, A: Allocator> {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct Annotation<'source, A: Allocator> {
-    pub path: Span<ItemPath<'source, A>>,
+    pub path: ItemPath<'source, A>,
     pub arguments: Vec<Span<Expression<'source, A>>, A>,
 }
 
@@ -385,21 +386,13 @@ pub enum MarkupChild<'source, A: Allocator> {
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
-pub struct Parameter<'source, A: Allocator> {
-    pub id: &'source str,
-    pub is_mutable: bool,
-    pub ty: Span<Type<'source, A>>,
-}
-
-#[derive(Clone)]
-#[derive_where(Debug, PartialEq)]
 pub enum Type<'source, A: Allocator> {
     /// A type describing a value that will never exist.
     Never,
 
     /// Indicates that the type will be inferred.
     Inferred,
-    
+
     /// The `This` type, the associated type.
     This,
 
@@ -445,14 +438,14 @@ impl<'source, A: Allocator> ObjectTypeField<'source, A> {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct ItemRef<'source, A: Allocator> {
-    pub path: Span<ItemPath<'source, A>>,
+    pub path: ItemPath<'source, A>,
     pub const_parameters: Span<Vec<Span<Type<'source, A>>, A>>,
 }
 
 impl<'source, A: Allocator> ItemRef<'source, A> {
     #[inline]
-    pub const fn source(&self) -> Range<Index> {
-        self.path.source.start..self.const_parameters.source.end
+    pub fn source(&self) -> Range<Index> {
+        self.path.source().start..self.const_parameters.source.end
     }
 }
 
@@ -469,8 +462,18 @@ pub struct FunctionSignature<'source, A: Allocator> {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct ItemPath<'source, A: Allocator> {
-    pub parents: Vec<&'source str, A>,
-    pub id: &'source str,
+    /// The parents of id, last in Vec is first in the path.
+    pub parents: Vec<Span<&'source str>, A>,
+    pub id: Span<&'source str>,
+}
+
+impl<'source, A: Allocator> ItemPath<'source, A> {
+    pub fn source(&self) -> Range<Index> {
+        self.parents
+            .last()
+            .map(|parent| parent.source.start)
+            .unwrap_or(self.id.source.start)..self.id.source.end
+    }
 }
 
 #[derive(Clone)]

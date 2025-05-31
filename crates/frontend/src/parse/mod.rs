@@ -390,6 +390,19 @@ impl<
                         source: start..end,
                         value: ast::Type::Object(fields),
                     }
+                } else if let Some(Span {
+                    value: Token::Symbol(Symbol::RightParenthesis),
+                    source,
+                }) = self.iter.peek()?
+                {
+                    let end = source.end;
+
+                    self.iter.advance()?;
+
+                    Span {
+                        value: ast::Type::Object(Vec::new_in(self.alloc.clone())),
+                        source: start..end,
+                    }
                 } else {
                     // Grouping
 
@@ -415,7 +428,11 @@ impl<
                 source,
             }) => {
                 let source = source.clone();
-                let id = *id;
+
+                let id = Span {
+                    value: *id,
+                    source: source.clone(),
+                };
 
                 let path = self.parse_item_path(id)?;
 
@@ -490,7 +507,12 @@ impl<
                     }),
                 }
             }
-            _ => return error!("Expected an identifier or '!' (the never type)"),
+            token => {
+                return error!(
+                    "Expected an identifier or '!' (the never type), found: {:?}",
+                    token
+                )
+            }
         })
     }
 
@@ -700,8 +722,8 @@ impl<
     /// Ends on the token after the last path segment (greedy).
     fn parse_item_path(
         &mut self,
-        mut first_id: &'source str,
-    ) -> Result<Span<ast::ItemPath<'source, A>>, Error> {
+        mut first_id: Span<&'source str>,
+    ) -> Result<ast::ItemPath<'source, A>, Error> {
         let mut source = self.iter.peek()?.unwrap().source.clone();
 
         self.iter.advance()?;
@@ -725,7 +747,10 @@ impl<
                         source: new_source,
                     }) => {
                         source.end = new_source.end;
-                        *id
+                        Span {
+                            value: *id,
+                            source: new_source.clone(),
+                        }
                     }
                     _ => return error!("Expected an identifier"),
                 };
@@ -746,12 +771,9 @@ impl<
             Vec::new_in(self.alloc.clone())
         };
 
-        Ok(Span {
-            value: ast::ItemPath {
-                parents,
-                id: first_id,
-            },
-            source,
+        Ok(ast::ItemPath {
+            parents,
+            id: first_id,
         })
     }
 
@@ -828,75 +850,6 @@ impl<
         Ok((fields, end))
     }
 
-    /// Parses the parameters of a function expression.
-    ///
-    /// Expects `peek()` to be the non-lb token after `(`. Ends on `)`.
-    fn parse_fn_parameters(
-        &mut self,
-        parameters: &mut Vec<ast::Parameter<'source, A>, A>,
-    ) -> Result<(), Error> {
-        loop {
-            let is_mutable = match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Symbol(Symbol::RightParenthesis),
-                    ..
-                }) => break,
-                Some(Span {
-                    value: Token::Keyword(Keyword::Mut),
-                    ..
-                }) => {
-                    self.iter.advance()?;
-                    self.iter.skip_lb()?;
-                    true
-                }
-                _ => false,
-            };
-
-            let id = match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Identifier(id),
-                    ..
-                }) => *id,
-                _ => return error!("Expected an identifier"),
-            };
-
-            self.iter.advance()?;
-            self.iter.skip_lb()?;
-
-            match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Symbol(Symbol::Colon),
-                    ..
-                }) => {}
-                _ => return error!("Expected ':'"),
-            }
-
-            self.iter.advance()?;
-            self.iter.skip_lb()?;
-
-            let ty = self.parse_type(type_bp::MIN)?;
-
-            parameters.push(ast::Parameter { id, is_mutable, ty });
-
-            let lb = self.iter.skip_lb()?;
-
-            match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Symbol(Symbol::RightParenthesis),
-                    ..
-                }) => break,
-                Some(Span {
-                    value: Token::Symbol(Symbol::Comma),
-                    ..
-                }) => self.iter.advance()?,
-                _ if lb => {}
-                _ => return error!("Expected ',', ')' or a line break"),
-            }
-        }
-
-        Ok(())
-    }
-
     fn parse_fn_statement_kind(
         &mut self,
     ) -> Result<(ast::StatementKind<'source, A>, Index), Error> {
@@ -923,7 +876,7 @@ impl<
             Some(Span {
                 value: Token::Symbol(Symbol::Dot),
                 ..
-            }) => return todo!("associated fns"),
+            }) => todo!("associated fns"),
             Some(Span {
                 value: Token::Symbol(Symbol::LeftAngle),
                 ..
@@ -1292,8 +1245,11 @@ impl<
             let id = match self.iter.peek()? {
                 Some(Span {
                     value: Token::Identifier(id),
-                    ..
-                }) => *id,
+                    source,
+                }) => Span {
+                    value: *id,
+                    source: source.clone(),
+                },
                 _ => return error!("Expected an identifier"),
             };
 
@@ -1466,9 +1422,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::This),
-                     source,
-                 }) => {
+                value: Token::Keyword(Keyword::This),
+                source,
+            }) => {
                 let source = source.clone();
 
                 self.iter.advance()?;
@@ -1628,51 +1584,7 @@ impl<
                 value: Token::Keyword(Keyword::Fn),
                 source,
             }) => {
-                let start = source.start;
-
-                self.iter.advance()?;
-                self.iter.skip_lb()?;
-
-                let const_parameters = self.parse_opt_const_parameters()?;
-
-                let mut parameters = Vec::new_in(self.alloc.clone());
-
-                match self.iter.peek()? {
-                    Some(Span {
-                        value: Token::Symbol(Symbol::LeftParenthesis),
-                        ..
-                    }) => {}
-                    _ => return error!("Expected '('."),
-                };
-
-                self.iter.advance()?;
-                self.iter.skip_lb()?;
-
-                self.parse_fn_parameters(&mut parameters)?;
-
-                self.iter.advance()?;
-                self.iter.skip_lb()?;
-
-                let (return_type, body) = match self.iter.peek()? {
-                    Some(Span {
-                        value: Token::Symbol(Symbol::MinusRightAngle),
-                        ..
-                    }) => return error!("Closures cannot have return type annotations."),
-                    _ => ((), self.parse_expression(0, calls_across_line_breaks)?),
-                };
-
-                Some(Span {
-                    source: start..body.source.end,
-                    value: ast::Expression::Function {
-                        // TODO
-                        // signature: ast::FunctionSignature {
-                        //     const_parameters,
-                        //     return_type,
-                        //     parameters,
-                        // },
-                        body: Box::new_in(body, self.alloc.clone()),
-                    },
-                })
+                todo!()
             }
             Some(Span {
                 value: Token::Keyword(Keyword::If),
@@ -2094,7 +2006,7 @@ impl<
                     if bp::ACCESS_AND_OPTIONAL_ACCESS < min_bp {
                         break;
                     }
-                    
+
                     self.iter.skip_lb()?;
                     self.iter.advance()?;
                     self.iter.skip_lb()?;
@@ -2102,81 +2014,80 @@ impl<
                     if let Some(Span {
                         value: Token::Symbol(Symbol::LeftAngle),
                         ..
-                    }) = self.iter.peek_n_non_lb(0)?.0
+                    }) = self.iter.peek()?
                     {
-                        let target = match first_term {
-                            Span {
-                                value: ast::Expression::Access(a),
-                                source,
-                            } => Span {
-                                value: ast::ConstParametersCallTarget::Access(a),
-                                source,
-                            },
-                            Span {
-                                value: ast::Expression::OptionalAccess(a),
-                                source,
-                            } => Span {
-                                value: ast::ConstParametersCallTarget::OptionalAccess(a),
-                                source,
-                            },
-                            Span {
-                                value: ast::Expression::Identifier(i),
-                                source,
-                            } => Span {
-                                value: ast::ConstParametersCallTarget::Identifier(i),
-                                source,
-                            },
-                            _ => return error!("Cannot call an expression with const parameters."),
-                        };
+                        // Refine
+                        // TODO: expressions in const parameters
 
-                        self.iter.skip_lb()?;
-                        self.iter.advance()?; // Skip '.'
-                        self.iter.skip_lb()?;
                         self.iter.advance()?; // Skip '<'
                         self.iter.skip_lb()?;
 
-                        // let const_arguments = Vec::new_in(self.alloc.clone());
+                        let mut const_arguments = Vec::new_in(self.alloc.clone());
 
-                        // TODO: implement this
+                        loop {
+                            match self.iter.peek()? {
+                                Some(Span {
+                                    value: Token::Symbol(Symbol::RightAngle),
+                                    ..
+                                }) => {
+                                    break;
+                                }
+                                _ => {}
+                            };
 
-                        match self.iter.peek()? {
-                            Some(Span {
-                                value: Token::Symbol(Symbol::RightAngle),
-                                ..
-                            }) => {}
-                            _ => todo!(),
+                            let ty = self.parse_type(type_bp::MIN)?;
+
+                            const_arguments.push(ty.map(ast::ConstArgument::Type));
+
+                            match self.iter.peek_n_non_lb(0)? {
+                                (_, true) => {
+                                    self.iter.skip_lb()?;
+                                }
+                                (
+                                    Some(Span {
+                                        value: Token::Symbol(Symbol::Comma),
+                                        ..
+                                    }),
+                                    _,
+                                ) => {
+                                    self.opt_omit_unnecessary_delimiter_warning(
+                                        Warning::UnnecessaryComma,
+                                    )?;
+                                }
+                                (
+                                    Some(Span {
+                                        value: Token::Symbol(Symbol::RightAngle),
+                                        ..
+                                    }),
+                                    _,
+                                ) => break,
+                                _ => return error!("Expected ')', ',' or line break."),
+                            }
+
+                            self.iter.advance()?;
                         }
 
                         self.iter.advance()?;
                         self.iter.skip_lb()?;
 
-                        match self.iter.peek()? {
+                        let end = match self.iter.peek()? {
                             Some(Span {
                                 value: Token::Symbol(Symbol::LeftParenthesis),
-                                ..
-                            }) => {}
+                                source,
+                            }) => source.end,
                             _ => return error!("Expected '(' (call arguments)"),
-                        }
-
-                        // TODO
-                        // let arguments = self.parse_call_arguments()?;
-                        let end = self.iter.peek()?.unwrap().source.end;
+                        };
 
                         (
                             end,
-                            ast::Expression::Break,
-                            /*
-                            CallWithConstParameters {
-                                target: Box::new_in(target, self.alloc.clone()),
-                                // TODO
-                                arguments: ast::CallArguments::Named(Vec::new_in(
-                                    self.alloc.clone(),
-                                )),
+                            ast::Expression::Refine {
+                                target: Box::new_in(first_term, self.alloc.clone()),
                                 const_arguments,
                             },
-                            */
                         )
                     } else {
+                        // Access
+
                         let (property, end) = match self.iter.peek()? {
                             Some(Span {
                                 value: Token::Identifier(id),
