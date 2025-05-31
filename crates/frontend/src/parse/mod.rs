@@ -221,7 +221,7 @@ impl<
                     value: Token::Symbol(Symbol::RightBrace),
                     source,
                 }) => break source.end,
-                _ => return error!("Expected ';', '}' or a line break"),
+                token => return error!("Expected ';', '}}' or a line break, found: {:?}", token),
             }
         };
 
@@ -255,6 +255,19 @@ impl<
                 }
             }
             Some(Span {
+                value: Token::Keyword(Keyword::CapitalThis),
+                source,
+            }) => {
+                let source = source.clone();
+
+                self.iter.advance()?;
+
+                Span {
+                    value: ast::Type::This,
+                    source,
+                }
+            }
+            Some(Span {
                 value: Token::Symbol(Symbol::LeftParenthesis),
                 source,
             }) => {
@@ -283,7 +296,7 @@ impl<
                     let mut fields = Vec::new_in(self.alloc.clone());
 
                     let end = loop {
-                        let is_public = match self.iter.peek()? {
+                        let visibility = match self.iter.peek()? {
                             Some(Span {
                                 value: Token::Symbol(Symbol::RightParenthesis),
                                 source,
@@ -294,19 +307,10 @@ impl<
 
                                 break end;
                             }
-                            Some(Span {
-                                value: Token::Keyword(Keyword::Pub),
-                                source,
-                            }) => {
-                                let source = source.clone();
-
-                                self.iter.advance()?;
-                                self.iter.skip_lb()?;
-
-                                Some(Span { value: (), source })
-                            }
-                            _ => None,
+                            _ => self.parse_visibility()?,
                         };
+
+                        self.iter.skip_lb()?;
 
                         let is_mutable = match self.iter.peek()? {
                             Some(Span {
@@ -340,7 +344,7 @@ impl<
                         let ty = self.parse_type(type_bp::MIN)?;
 
                         fields.push(ast::ObjectTypeField {
-                            is_public,
+                            visibility,
                             is_mutable,
                             id,
                             ty,
@@ -904,8 +908,11 @@ impl<
         let id = match self.iter.peek()? {
             Some(Span {
                 value: Token::Identifier(id),
-                ..
-            }) => *id,
+                source,
+            }) => Span {
+                source: source.clone(),
+                value: *id,
+            },
             _ => return error!("Expected an identifier"),
         };
 
@@ -914,9 +921,9 @@ impl<
 
         match self.iter.peek()? {
             Some(Span {
-                value: Token::Symbol(Symbol::LeftParenthesis),
+                value: Token::Symbol(Symbol::Dot),
                 ..
-            }) => {}
+            }) => return todo!("associated fns"),
             Some(Span {
                 value: Token::Symbol(Symbol::LeftAngle),
                 ..
@@ -925,151 +932,12 @@ impl<
                     "Type parameter are declared after 'fn', not after the function name."
                 )
             }
-            _ => return error!("Expected '('"),
+            _ => {}
         }
 
-        self.iter.advance()?;
+        let ty = self.parse_type(type_bp::MIN)?;
+
         self.iter.skip_lb()?;
-
-        let mut parameters = Vec::new_in(self.alloc.clone());
-
-        let this_parameter = match self.iter.peek()? {
-            Some(Span {
-                value: Token::Keyword(Keyword::This),
-                ..
-            }) => {
-                self.iter.advance()?;
-                let lb = self.iter.skip_lb()?;
-
-                match self.iter.peek()? {
-                    _ if lb => {}
-                    Some(Span {
-                        value: Token::Symbol(Symbol::Comma),
-                        ..
-                    }) => {
-                        self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
-                    }
-                    _ => return error!("Expected ',' or a line break"),
-                }
-
-                Some(ast::ThisParameter::This)
-            }
-            Some(Span {
-                value: Token::Keyword(Keyword::Mut),
-                ..
-            }) => {
-                self.iter.advance()?;
-                self.iter.skip_lb()?;
-
-                match self.iter.peek()? {
-                    // Case: `mut this`
-                    Some(Span {
-                        value: Token::Keyword(Keyword::This),
-                        ..
-                    }) => {
-                        self.iter.advance()?;
-                        let lb = self.iter.skip_lb()?;
-
-                        match self.iter.peek()? {
-                            _ if lb => {}
-                            Some(Span {
-                                value: Token::Symbol(Symbol::RightParenthesis),
-                                ..
-                            }) => {}
-                            Some(Span {
-                                value: Token::Symbol(Symbol::Comma),
-                                ..
-                            }) => {
-                                self.opt_omit_unnecessary_delimiter_warning(
-                                    Warning::UnnecessaryComma,
-                                )?;
-                            }
-                            _ => return error!("Expected ',', ')' or a line break"),
-                        }
-
-                        Some(ast::ThisParameter::ThisMut)
-                    }
-
-                    // In this case we parse the first parameter ourselves.
-                    Some(Span {
-                        value: Token::Identifier(id),
-                        ..
-                    }) => {
-                        let id = *id;
-
-                        self.iter.advance()?;
-                        self.iter.skip_lb()?;
-
-                        match self.iter.peek()? {
-                            Some(Span {
-                                value: Token::Symbol(Symbol::Colon),
-                                ..
-                            }) => {}
-                            _ => return error!("Expected ':'"),
-                        }
-
-                        self.iter.advance()?;
-                        self.iter.skip_lb()?;
-
-                        let ty = self.parse_type(type_bp::MIN)?;
-
-                        parameters.push(ast::Parameter {
-                            id,
-                            is_mutable: true,
-                            ty,
-                        });
-
-                        let lb = self.iter.skip_lb()?;
-
-                        match self.iter.peek()? {
-                            _ if lb => {}
-                            Some(Span {
-                                value: Token::Symbol(Symbol::RightParenthesis),
-                                ..
-                            }) => {}
-                            Some(Span {
-                                value: Token::Symbol(Symbol::Comma),
-                                ..
-                            }) => {
-                                self.opt_omit_unnecessary_delimiter_warning(
-                                    Warning::UnnecessaryComma,
-                                )?;
-                            }
-                            _ => return error!("Expected ',', ')' or a line break"),
-                        }
-
-                        None
-                    }
-                    _ => return error!("Expected an identifier or 'this'"),
-                }
-            }
-            _ => None,
-        };
-
-        self.parse_fn_parameters(&mut parameters)?;
-
-        self.iter.advance()?;
-        self.iter.skip_lb()?;
-
-        let return_type = match self.iter.peek()? {
-            Some(Span {
-                value: Token::Symbol(Symbol::MinusRightAngle),
-                ..
-            }) => {
-                self.iter.advance()?;
-                self.iter.skip_lb()?;
-
-                let ty = self.parse_type(type_bp::MIN)?;
-                self.iter.skip_lb()?;
-
-                ty
-            }
-            Some(Span { source, .. }) => Span {
-                value: ast::Type::Inferred,
-                source: source.start..source.start,
-            },
-            _ => return error!("Expected something"), // TODO
-        };
 
         // Validate that the block starts with `{`
         match self.iter.peek()? {
@@ -1085,28 +953,32 @@ impl<
 
         self.iter.advance()?;
 
+        let (input_type, output_type) = match ty {
+            Span {
+                value: ast::Type::Function { input, output },
+                ..
+            } => (*input, *output),
+            input => {
+                let input_source_end = input.source.end;
+
+                (
+                    input,
+                    Span {
+                        value: ast::Type::Inferred,
+                        source: input_source_end..input_source_end,
+                    },
+                )
+            }
+        };
+
         Ok((
             ast::StatementKind::Function {
-                const_parameters: Vec::new_in(self.alloc.clone()),
-                input_type: Span {
-                    // TODO
-                    value: ast::Type::Inferred,
-                    source: Default::default(),
-                },
-                output_type: return_type,
+                const_parameters,
+                input_type,
+                output_type,
                 id,
-                // TODO
-                pattern: ast::Pattern::WithType(ast::PatternUnitWithType {
-                    unit: Span {
-                        value: ast::PatternUnit::Any,
-                        source: 0..0,
-                    },
-                    ty: Span {
-                        value: ast::Type::Inferred,
-                        source: 0..0,
-                    },
-                }),
-                this_parameter,
+                pattern: None,
+                this_parameter: None,
                 body: Box::new_in(body.map(ast::Expression::Block), self.alloc.clone()),
             },
             end,
@@ -1577,6 +1449,32 @@ impl<
 
                 Some(Span {
                     value: ast::Expression::String(s),
+                    source,
+                })
+            }
+            Some(Span {
+                value: Token::Keyword(Keyword::CapitalThis),
+                source,
+            }) => {
+                let source = source.clone();
+
+                self.iter.advance()?;
+
+                Some(Span {
+                    value: ast::Expression::CapitalThis,
+                    source,
+                })
+            }
+            Some(Span {
+                     value: Token::Keyword(Keyword::This),
+                     source,
+                 }) => {
+                let source = source.clone();
+
+                self.iter.advance()?;
+
+                Some(Span {
+                    value: ast::Expression::This,
                     source,
                 })
             }
@@ -2193,6 +2091,11 @@ impl<
                     bp::EQUALITY
                 ),
                 Some(Token::Symbol(Symbol::Dot)) => {
+                    if bp::ACCESS_AND_OPTIONAL_ACCESS < min_bp {
+                        break;
+                    }
+                    
+                    self.iter.skip_lb()?;
                     self.iter.advance()?;
                     self.iter.skip_lb()?;
 
@@ -2274,14 +2177,6 @@ impl<
                             */
                         )
                     } else {
-                        if bp::ACCESS_AND_OPTIONAL_ACCESS < min_bp {
-                            break;
-                        }
-
-                        self.iter.skip_lb()?;
-                        self.iter.advance()?;
-                        self.iter.skip_lb()?;
-
                         let (property, end) = match self.iter.peek()? {
                             Some(Span {
                                 value: Token::Identifier(id),

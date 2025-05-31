@@ -3,13 +3,20 @@ use byte_reader::get_lines_and_columns;
 use errors::Error;
 use frontend::parse::parse_module;
 use std::mem::forget;
+use std::time::Instant;
 
 fn main() {
     let source = include_str!("../program.vn");
 
     let alloc = Bump::new();
 
-    match parse_module(source.as_bytes(), &alloc) {
+    let now = Instant::now();
+    
+    let module = parse_module(source.as_bytes(), &alloc);
+    
+    println!("dt: {:?}", now.elapsed());
+    
+    match module {
         Ok(module) => {
             println!("{:#?}", module);
         }
@@ -35,6 +42,4 @@ fn main() {
             );
         }
     }
-
-    forget(alloc);
 }

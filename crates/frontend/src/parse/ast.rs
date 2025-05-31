@@ -133,6 +133,8 @@ pub enum Expression<'source, A: Allocator> {
 
     /// `this`
     This,
+    
+    CapitalThis,
 
     /// `<element args...> children... </element>`
     Markup(MarkupElement<'source, A>),
@@ -250,9 +252,10 @@ pub enum StatementKind<'source, A: Allocator> {
     },
     Function {
         const_parameters: ConstParameters<'source, A>,
-        id: &'source str,
-        pattern: Pattern<'source, A>,
-        this_parameter: Option<ThisParameter>,
+        id: Span<&'source str>,
+        pattern: Option<Pattern<'source, A>>,
+        // TODO: on type
+        this_parameter: Option<ThisParameter>, // TODO
         input_type: Span<Type<'source, A>>,
         output_type: Span<Type<'source, A>>,
         body: Box<Span<Expression<'source, A>>, A>,
@@ -396,6 +399,9 @@ pub enum Type<'source, A: Allocator> {
 
     /// Indicates that the type will be inferred.
     Inferred,
+    
+    /// The `This` type, the associated type.
+    This,
 
     /// An item (path).
     Item(ItemRef<'source, A>),
@@ -419,7 +425,7 @@ pub enum Type<'source, A: Allocator> {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct ObjectTypeField<'source, A: Allocator> {
-    pub is_public: Option<Span<()>>,
+    pub visibility: Visibility,
     pub is_mutable: Option<Span<()>>,
     pub id: Span<&'source str>,
     pub ty: Span<Type<'source, A>>,
@@ -428,7 +434,7 @@ pub struct ObjectTypeField<'source, A: Allocator> {
 impl<'source, A: Allocator> ObjectTypeField<'source, A> {
     #[inline]
     pub fn source(&self) -> Range<Index> {
-        self.is_public
+        self.visibility
             .as_ref()
             .map(|x| x.source.start)
             .or_else(|| self.is_mutable.as_ref().map(|x| x.source.start))

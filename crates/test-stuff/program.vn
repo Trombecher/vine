@@ -1,1 +1,3 @@
-pub type Bitset pub mut U64
+fn add (a U8, b U8) -> This {
+    This(this.value)
+}

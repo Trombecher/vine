@@ -14,5 +14,5 @@ pub const ADDITIVE: (u8, u8) = (20, 21);
 pub const MULTIPLICATIVE: (u8, u8) = (22, 23);
 pub const EXPONENTIAL: (u8, u8) = (25, 24);
 pub const NEGATE_AND_NOT: u8 = 26;
-pub const CALL: u8 = 27;
-pub const ACCESS_AND_OPTIONAL_ACCESS: u8 = 28;
+pub const ACCESS_AND_OPTIONAL_ACCESS: u8 = 27;
+pub const CALL: u8 = 28;
