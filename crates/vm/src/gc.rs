@@ -29,7 +29,11 @@ impl Deref for SourceRef {
 
 impl Drop for SourceRef {
     fn drop(&mut self) {
-        let len = unsafe { self.inner.as_ref_unchecked() }.cached_size.get().get() as usize + 1;
+        let len = unsafe { self.inner.as_ref_unchecked() }
+            .cached_size
+            .get()
+            .get() as usize
+            + 1;
 
         let _ = unsafe {
             Box::<[Value]>::from_raw(slice_from_raw_parts_mut(
@@ -103,9 +107,7 @@ impl<'types> GC<'types> {
             });
         }
 
-        unsafe {
-            &*(object.as_ptr() as usize as *const Object)
-        }
+        unsafe { &*(object.as_ptr() as usize as *const Object) }
     }
 
     /// Deallocates all unused objects.
@@ -113,7 +115,7 @@ impl<'types> GC<'types> {
     /// # Safety
     ///
     /// Assumes all `is_used` fields of [Object] are `false`.
-    pub fn mark_and_sweep<'heap>(&self, roots: impl Iterator<Item=Value<'heap>>) {
+    pub fn mark_and_sweep<'heap>(&self, roots: impl Iterator<Item = Value<'heap>>) {
         // Mark
         mark(roots);
 
@@ -129,12 +131,12 @@ impl<'types> GC<'types> {
     }
 }
 
-fn mark<'heap>(roots: impl Iterator<Item=Value<'heap>>) {
+fn mark<'heap>(roots: impl Iterator<Item = Value<'heap>>) {
     for root in roots.filter_map(Value::get_object) {
         let lock = if let Some(lock) = root.try_lock() {
             lock
         } else {
-            continue
+            continue;
         };
 
         root.has_strong_refs.set(true);

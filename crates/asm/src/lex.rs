@@ -40,13 +40,11 @@ impl<'a> TokenIterator<'a> for Lexer<'a> {
                     match self.cursor.peek() {
                         None | Some(b'{') => break,
                         Some(x) if x.is_ascii_whitespace() => break,
-                        _ => unsafe { self.cursor.advance_unchecked() }
+                        _ => unsafe { self.cursor.advance_unchecked() },
                     }
                 }
 
-                let capture = unsafe {
-                    from_raw_parts(start, self.cursor.cursor().sub_ptr(start))
-                };
+                let capture = unsafe { from_raw_parts(start, self.cursor.cursor().sub_ptr(start)) };
 
                 if let Some(instr) = INSTRUCTION_MAP.get(capture) {
                     Token::Instruction(*instr)

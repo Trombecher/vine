@@ -13,10 +13,7 @@ fn main() {
         Ok(module) => {
             println!("{:#?}", module);
         }
-        Err((Error {
-            data,
-            message
-        }, index)) => {
+        Err((Error { data, message }, index)) => {
             let (lines, cols) = get_lines_and_columns(source, index.start as usize);
 
             let mut path = data.file_path.split("::");

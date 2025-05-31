@@ -13,7 +13,9 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
     pub fn new() -> Self {
         Self {
             size: 0,
-            buffer: unsafe { MaybeUninit::<[MaybeUninit<Value<'heap>>; MAX_SIZE]>::uninit().assume_init() },
+            buffer: unsafe {
+                MaybeUninit::<[MaybeUninit<Value<'heap>>; MAX_SIZE]>::uninit().assume_init()
+            },
         }
     }
 
@@ -45,9 +47,7 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
         if self.size == 0 {
             None
         } else {
-            Some(unsafe {
-                self.buffer[self.size - 1].assume_init_ref()
-            })
+            Some(unsafe { self.buffer[self.size - 1].assume_init_ref() })
         }
     }
 
@@ -56,18 +56,14 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
         if self.size == 0 {
             None
         } else {
-            Some(unsafe {
-                self.buffer[self.size - 1].assume_init_mut()
-            })
+            Some(unsafe { self.buffer[self.size - 1].assume_init_mut() })
         }
     }
 
     #[inline]
     pub fn top_offset_ptr(&mut self, n: usize) -> Option<*const Value<'heap>> {
         if self.size > n {
-            Some(unsafe {
-                self.buffer[self.size - n - 1].assume_init_ref()
-            } as *const Value<'heap>)
+            Some(unsafe { self.buffer[self.size - n - 1].assume_init_ref() } as *const Value<'heap>)
         } else {
             None
         }
@@ -76,9 +72,7 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
     #[inline]
     pub fn top_offset_ptr_mut(&mut self, n: usize) -> Option<*mut Value<'heap>> {
         if self.size > n {
-            Some(unsafe {
-                self.buffer[self.size - n - 1].assume_init_mut()
-            } as *mut Value<'heap>)
+            Some(unsafe { self.buffer[self.size - n - 1].assume_init_mut() } as *mut Value<'heap>)
         } else {
             None
         }
@@ -97,9 +91,7 @@ impl<'heap, const MAX_SIZE: usize> Stack<'heap, MAX_SIZE> {
 
         self.size -= 1;
 
-        Some(unsafe {
-            self.buffer[self.size].assume_init_ref().clone()
-        })
+        Some(unsafe { self.buffer[self.size].assume_init_ref().clone() })
     }
 
     #[inline]

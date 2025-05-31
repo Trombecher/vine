@@ -8,11 +8,11 @@ macro_rules! error {
     ($msg:literal) => {{
         static ERROR_DATA: $crate::ErrorData = $crate::ErrorData {
             file_path: module_path!(),
-            source_line: line!(), 
+            source_line: line!(),
             source_column: column!(),
             file_name: file!()
         };
-        
+
         Err($crate::Error {
             data: &ERROR_DATA,
             message: $msg.into()
@@ -21,11 +21,11 @@ macro_rules! error {
     ($msg:literal, $($arg:tt)*) => {{
         static ERROR_DATA: $crate::ErrorData = $crate::ErrorData {
             file_path: module_path!(),
-            source_line: line!(), 
+            source_line: line!(),
             source_column: column!(),
             file_name: file!()
         };
-        
+
         Err($crate::Error {
             data: &ERROR_DATA,
             message: ::alloc::format!($msg, $($arg)*)

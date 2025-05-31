@@ -1,5 +1,4 @@
 /// Extension trait for [LookaheadBuffer].
-
 mod units_tests;
 
 use crate::lex::Token;
@@ -14,8 +13,8 @@ pub trait LabExt<'source> {
     fn peek_n_non_lb(&mut self, n: usize) -> Result<(Option<&Span<Token<'source>>>, bool), Error>;
 }
 
-impl<'source, I: FallibleIterator<Item=Span<Token<'source>>, Error=Error>, A: Allocator>
-LabExt<'source> for LookaheadBuffer<I, A>
+impl<'source, I: FallibleIterator<Item = Span<Token<'source>>, Error = Error>, A: Allocator>
+    LabExt<'source> for LookaheadBuffer<I, A>
 {
     /// Advances the iterator if the next token is a line break.
     /// Returns `true` if a line break was skipped.
@@ -47,9 +46,9 @@ LabExt<'source> for LookaheadBuffer<I, A>
 
             match self.queue().get(real_index) {
                 Some(Span {
-                         value: Token::LineBreak,
-                         ..
-                     }) => {}
+                    value: Token::LineBreak,
+                    ..
+                }) => {}
                 _ if n > 0 => n -= 1,
                 // Why do I have to borrow again???
                 _ => return Ok((self.queue().get(real_index), real_index != n)),

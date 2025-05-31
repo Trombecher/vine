@@ -13,7 +13,7 @@ use span::{Index, Span};
 
 fn context_from_tokens<const N: usize>(
     tokens: [Token; N],
-) -> ParseContext<impl FallibleIterator<Item=Span<Token>, Error=Error>, Global> {
+) -> ParseContext<impl FallibleIterator<Item = Span<Token>, Error = Error>, Global> {
     let mut index: Index = 0;
 
     ParseContext::new(
@@ -142,16 +142,20 @@ fn parse_object_literal() {
 
     parser.iter.advance().unwrap();
 
-    assert_eq!(parser.parse_object_literal(), Ok((vec![
-        ast::ObjectField {
-            id: Span {
-                value: "key",
-                source: 1..4,
-            },
-            value: Span {
-                value: Expression::Identifier("value"),
-                source: 5..10,
-            },
-        }
-    ], 11)));
+    assert_eq!(
+        parser.parse_object_literal(),
+        Ok((
+            vec![ast::ObjectField {
+                id: Span {
+                    value: "key",
+                    source: 1..4,
+                },
+                value: Span {
+                    value: Expression::Identifier("value"),
+                    source: 5..10,
+                },
+            }],
+            11
+        ))
+    );
 }

@@ -14,37 +14,46 @@ fn main() {
         body: {
             let mut vec = Vec::new_in(&arena);
 
-            vec.push(Statement::VariableDeclaration(Box::new_in(VariableDeclaration {
-                span: Default::default(),
-                kind: VariableDeclarationKind::Let,
-                declarations: {
-                    let mut vec = Vec::new_in(&arena);
+            vec.push(Statement::VariableDeclaration(Box::new_in(
+                VariableDeclaration {
+                    span: Default::default(),
+                    kind: VariableDeclarationKind::Let,
+                    declarations: {
+                        let mut vec = Vec::new_in(&arena);
 
-                    vec.push(VariableDeclarator {
-                        span: Default::default(),
-                        kind: VariableDeclarationKind::Let,
-                        id: BindingPattern {
-                            kind: BindingPatternKind::BindingIdentifier(Box::new_in(BindingIdentifier {
-                                span: Default::default(),
-                                name: Atom::from("test_yo"),
-                                symbol_id: Cell::new(None),
-                            }, &arena)),
-                            type_annotation: None,
-                            optional: false,
-                        },
-                        init: Some(Expression::NumericLiteral(Box::new_in(NumericLiteral {
+                        vec.push(VariableDeclarator {
                             span: Default::default(),
-                            value: 42.0,
-                            raw: "42",
-                            base: NumberBase::Decimal,
-                        }, &arena))),
-                        definite: false,
-                    });
+                            kind: VariableDeclarationKind::Let,
+                            id: BindingPattern {
+                                kind: BindingPatternKind::BindingIdentifier(Box::new_in(
+                                    BindingIdentifier {
+                                        span: Default::default(),
+                                        name: Atom::from("test_yo"),
+                                        symbol_id: Cell::new(None),
+                                    },
+                                    &arena,
+                                )),
+                                type_annotation: None,
+                                optional: false,
+                            },
+                            init: Some(Expression::NumericLiteral(Box::new_in(
+                                NumericLiteral {
+                                    span: Default::default(),
+                                    value: 42.0,
+                                    raw: "42",
+                                    base: NumberBase::Decimal,
+                                },
+                                &arena,
+                            ))),
+                            definite: false,
+                        });
 
-                    vec
+                        vec
+                    },
+                    declare: false,
                 },
-                declare: false,
-            }, &arena)));
+                &arena,
+            )));
 
             vec
         },

@@ -64,10 +64,7 @@ impl<'input: 'heap, 'heap> Debug for ValueDisplay<'input, 'heap> {
 
 impl<'heap> Value<'heap> {
     pub fn display<'input: 'heap>(self, gc: &'heap GC<'input>) -> ValueDisplay<'input, 'heap> {
-        ValueDisplay {
-            value: self,
-            gc,
-        }
+        ValueDisplay { value: self, gc }
     }
 
     #[inline]
@@ -98,9 +95,7 @@ impl<'heap> Value<'heap> {
             PointerOrRaw::Pointer(if self.0 & 1 == 1 {
                 PointerValue::TypeOffset((self.0 << 1) >> 2)
             } else {
-                unsafe {
-                    PointerValue::StrongRef(&*((self.0 << 1) as usize as *const Object))
-                }
+                unsafe { PointerValue::StrongRef(&*((self.0 << 1) as usize as *const Object)) }
             })
         } else {
             PointerOrRaw::Raw(self.0)
@@ -118,7 +113,10 @@ impl<'heap> Value<'heap> {
 
     #[inline]
     pub fn from_strong(strong_ref: &'heap Object) -> Self {
-        Self((strong_ref as *const Object as usize as u64 >> 1) | (1_u64 << 63), PhantomData)
+        Self(
+            (strong_ref as *const Object as usize as u64 >> 1) | (1_u64 << 63),
+            PhantomData,
+        )
     }
 }
 
@@ -136,10 +134,10 @@ macro_rules! impl_safe_u {
                 Self(value as u64, PhantomData)
             }
         }
-        
+
         impl<'heap> TryInto<$t> for Value<'heap> {
             type Error = ();
-            
+
             #[inline]
             fn try_into(self) -> Result<$t, Self::Error> {
                 if self.is_pointer() {
@@ -162,7 +160,7 @@ macro_rules! impl_safe_s {
                 Self(unsafe { transmute::<_, u64>(value as i64) } & !(1 << 63))
             }
         }
-        
+
         impl TryInto<$t> for Value {
             #[inline]
             fn try_into(self) -> Result<$t, Self::Error> {
@@ -203,17 +201,13 @@ impl<'heap> TryInto<f32> for Value<'heap> {
 impl<'heap> From<f64> for Value<'heap> {
     #[inline]
     fn from(value: f64) -> Self {
-        unsafe {
-            Self::from_u64_unchecked(transmute::<_, u64>(value) >> 1)
-        }
+        unsafe { Self::from_u64_unchecked(transmute::<_, u64>(value) >> 1) }
     }
 }
 
 impl<'heap> From<u64> for Value<'heap> {
     fn from(value: u64) -> Self {
-        unsafe {
-            Self::from_u64_unchecked(value & !(1 << 63))
-        }
+        unsafe { Self::from_u64_unchecked(value & !(1 << 63)) }
     }
 }
 

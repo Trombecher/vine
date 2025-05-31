@@ -327,28 +327,28 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 Some(b'\n') => handle_lf!(),
                 Some(x) if x.is_ascii_whitespace() => unsafe { self.cursor.advance_unchecked() },
                 Some(b'/')
-                if Some(b'/') == self.cursor.peek_n(1)
-                    && Some(b'/') != self.cursor.peek_n(2) =>
-                    {
-                        // Skip comment
+                    if Some(b'/') == self.cursor.peek_n(1)
+                        && Some(b'/') != self.cursor.peek_n(2) =>
+                {
+                    // Skip comment
 
-                        unsafe { self.cursor.advance_n_unchecked(2) }
+                    unsafe { self.cursor.advance_n_unchecked(2) }
 
-                        loop {
-                            match self.cursor.peek() {
-                                Some(b'\n') => {
-                                    handle_lf!();
-                                    break;
-                                }
-                                Some(b'\r') => {
-                                    handle_crlf!();
-                                    break;
-                                }
-                                None => break,
-                                _ => unsafe { self.cursor.advance_unchecked() },
+                    loop {
+                        match self.cursor.peek() {
+                            Some(b'\n') => {
+                                handle_lf!();
+                                break;
                             }
+                            Some(b'\r') => {
+                                handle_crlf!();
+                                break;
+                            }
+                            None => break,
+                            _ => unsafe { self.cursor.advance_unchecked() },
                         }
                     }
+                }
                 _ => break,
             }
         }
@@ -974,16 +974,16 @@ impl<'source, A: Allocator> FallibleIterator for Lexer<'source, A> {
 
                 match token.as_ref() {
                     Some(Span {
-                             value: Token::Symbol(Symbol::LeftBrace),
-                             ..
-                         }) => {
+                        value: Token::Symbol(Symbol::LeftBrace),
+                        ..
+                    }) => {
                         self.layers.push(Layer::Insert);
                         self.layers.push(Layer::Insert);
                     }
                     Some(Span {
-                             value: Token::Symbol(Symbol::RightBrace),
-                             ..
-                         }) => {}
+                        value: Token::Symbol(Symbol::RightBrace),
+                        ..
+                    }) => {}
                     _ => self.layers.push(Layer::Insert),
                 }
 

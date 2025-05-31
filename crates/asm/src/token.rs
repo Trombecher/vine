@@ -29,7 +29,7 @@ impl<'a> Token<'a> {
             Token::BigFloat(f) => target.extend_from_slice(&f.to_le_bytes()),
             Token::LineBreak => {}
             Token::LeftBrace => todo!("We cannot encode {{ rn"),
-            Token::RightBrace => todo!("We cannot encode }} rn")
+            Token::RightBrace => todo!("We cannot encode }} rn"),
         }
     }
 }
@@ -53,11 +53,11 @@ pub static INSTRUCTION_MAP: phf::Map<&'static str, Instruction> = phf::phf_map!(
     "push_b" => Instruction::PushB,
     "push_r" => Instruction::PushR,
     "write_stdout_lf" => Instruction::WriteStdoutLF,
-    
+
     // Alternative symbols
     "..." => Instruction::Unimplemented,
     "_" => Instruction::NoOperation,
-    
+
     "a=0" => Instruction::LoadA0Int,
     "a=1" => Instruction::LoadA1Int,
     "a=0f" => Instruction::LoadA0F32,
@@ -68,17 +68,17 @@ pub static INSTRUCTION_MAP: phf::Map<&'static str, Instruction> = phf::phf_map!(
     "a=..2" => Instruction::LoadAImmediate2,
     "a=..4" => Instruction::LoadAImmediate4,
     "a=..8" => Instruction::LoadAImmediate8,
-    
+
     "a<->b" => Instruction::SwapAB,
     "a<->r" => Instruction::SwapAR,
     "b<->r" => Instruction::SwapBR,
-    
+
     "a+=b,u" => Instruction::AddU63,
     "a-=b" => Instruction::Subtract,
     "a*=b" => Instruction::Multiply,
     "a/=b" => Instruction::Divide,
     "a%=b" => Instruction::Remainder,
-    
+
     "a=(..1)" => Instruction::CreateObject1,
     "a=(..2)" => Instruction::CreateObject2,
     "a=(..3)" => Instruction::CreateObject3,

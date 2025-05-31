@@ -40,7 +40,6 @@ pub enum Instruction {
     // --- Registers ---
 
     // A
-
     LoadA,
 
     /// Loads 0 (int) into A.
@@ -86,7 +85,6 @@ pub enum Instruction {
     // Operations
 
     // Stack
-
     PushA,
     PushB,
     PushR,
@@ -128,7 +126,6 @@ pub enum Instruction {
     LoadTopIntoR,
 
     // --- Objects ---
-
     /// Uses the next u8 to index into the `offset_table`.
     /// This offset is used to create an object via [Instruction::CreateObject].
     CreateObjectOffset,
@@ -155,7 +152,6 @@ pub enum Instruction {
     EqualType,
     InstanceOf,
     // Implements,
-
     /// Casts the object in A to a same-sized type.
     ///
     /// # Errors
@@ -197,7 +193,6 @@ pub enum Instruction {
     LogN,
 
     // Numbers
-
     Random,
 
     /// `A = sqrt(A)`. Only works on floats and ints.
@@ -218,7 +213,6 @@ pub enum Instruction {
     LeadingZeroes,
 
     // --- Binary Operations ---
-
     AddU63,
     AddF63,
 
@@ -233,7 +227,6 @@ pub enum Instruction {
     Remainder,
 
     // IO
-
     /// Returns an array of strings.
     Args,
 

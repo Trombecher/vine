@@ -18,13 +18,7 @@ fn main() -> Result<(), Error> {
     }
 
     let gc = GC::new(&[1, 2, 3]);
-    let mut vm = VM::<1024>::new(
-        code.as_slice(),
-        0,
-        &[],
-        &[],
-        &gc,
-    );
+    let mut vm = VM::<1024>::new(code.as_slice(), 0, &[], &[], &gc);
     vm.execute().unwrap();
 
     Ok(())

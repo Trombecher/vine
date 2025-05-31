@@ -20,7 +20,7 @@ pub use warnings::*;
 
 pub struct ParseContext<
     'source,
-    I: FallibleIterator<Item=Span<Token<'source>>, Error=Error>,
+    I: FallibleIterator<Item = Span<Token<'source>>, Error = Error>,
     A: Allocator + Clone,
 > {
     pub iter: LookaheadBuffer<I, A>,
@@ -29,10 +29,10 @@ pub struct ParseContext<
 }
 
 impl<
-    'source,
-    I: FallibleIterator<Item=Span<Token<'source>>, Error=Error>,
-    A: Allocator + Clone,
-> ParseContext<'source, I, A>
+        'source,
+        I: FallibleIterator<Item = Span<Token<'source>>, Error = Error>,
+        A: Allocator + Clone,
+    > ParseContext<'source, I, A>
 {
     #[inline]
     pub fn new(iter: LookaheadBuffer<I, A>, alloc: A) -> Self {
@@ -97,9 +97,9 @@ impl<
     fn parse_opt_const_parameters(&mut self) -> Result<ast::ConstParameters<'source, A>, Error> {
         Ok(match self.iter.peek()? {
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftAngle),
-                     ..
-                 }) => {
+                value: Token::Symbol(Symbol::LeftAngle),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
                 self.parse_const_parameters()?
@@ -122,9 +122,9 @@ impl<
         loop {
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Identifier(id),
-                         source,
-                     }) => {
+                    value: Token::Identifier(id),
+                    source,
+                }) => {
                     params.push(Span {
                         value: ast::ConstParameter::Type {
                             id,
@@ -134,9 +134,9 @@ impl<
                     }); // TODO: Add traits
                 }
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightAngle),
-                         ..
-                     }) => break,
+                    value: Token::Symbol(Symbol::RightAngle),
+                    ..
+                }) => break,
                 _ => return error!("Expected type parameter"),
             }
 
@@ -146,13 +146,13 @@ impl<
             // TODO: Add lf for tp separation
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightAngle),
-                         ..
-                     }) => break,
+                    value: Token::Symbol(Symbol::RightAngle),
+                    ..
+                }) => break,
                 Some(Span {
-                         value: Token::Symbol(Symbol::Comma),
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::Comma),
+                    ..
+                }) => {
                     self.iter.advance()?;
                     self.iter.skip_lb()?;
                 }
@@ -182,13 +182,13 @@ impl<
         let end = loop {
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightBrace),
-                         source,
-                     }) => break source.end,
+                    value: Token::Symbol(Symbol::RightBrace),
+                    source,
+                }) => break source.end,
                 Some(Span {
-                         value: Token::Symbol(Symbol::Semicolon),
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::Semicolon),
+                    ..
+                }) => {
                     self.omit_single_token_warning(Warning::UnnecessarySemicolon)?;
                     self.iter.advance()?;
                     self.iter.skip_lb()?;
@@ -208,19 +208,19 @@ impl<
 
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::Semicolon),
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::Semicolon),
+                    ..
+                }) => {
                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
                 }
                 Some(Span {
-                         value: Token::LineBreak,
-                         ..
-                     }) => self.iter.advance()?,
+                    value: Token::LineBreak,
+                    ..
+                }) => self.iter.advance()?,
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightBrace),
-                         source,
-                     }) => break source.end,
+                    value: Token::Symbol(Symbol::RightBrace),
+                    source,
+                }) => break source.end,
                 _ => return error!("Expected ';', '}' or a line break"),
             }
         };
@@ -242,9 +242,9 @@ impl<
     fn parse_type_first_term(&mut self) -> Result<Span<ast::Type<'source, A>>, Error> {
         Ok(match self.iter.peek()? {
             Some(Span {
-                     value: Token::Symbol(Symbol::ExclamationMark),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::ExclamationMark),
+                source,
+            }) => {
                 let source = source.clone();
 
                 self.iter.advance()?;
@@ -255,9 +255,9 @@ impl<
                 }
             }
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftParenthesis),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::LeftParenthesis),
+                source,
+            }) => {
                 let start = source.start;
 
                 self.iter.advance()?;
@@ -265,13 +265,13 @@ impl<
 
                 if match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Keyword(Keyword::Pub | Keyword::Mut),
-                             ..
-                         }) => true,
+                        value: Token::Keyword(Keyword::Pub | Keyword::Mut),
+                        ..
+                    }) => true,
                     Some(Span {
-                             value: Token::Identifier(_),
-                             ..
-                         }) => matches!(
+                        value: Token::Identifier(_),
+                        ..
+                    }) => matches!(
                         self.iter.peek_n_non_lb(1)?.0,
                         Some(Span {
                             value: Token::Identifier(_) | Token::Symbol(Symbol::ExclamationMark),
@@ -285,9 +285,9 @@ impl<
                     let end = loop {
                         let is_public = match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightParenthesis),
-                                     source,
-                                 }) => {
+                                value: Token::Symbol(Symbol::RightParenthesis),
+                                source,
+                            }) => {
                                 let end = source.end;
 
                                 self.iter.advance()?;
@@ -295,9 +295,9 @@ impl<
                                 break end;
                             }
                             Some(Span {
-                                     value: Token::Keyword(Keyword::Pub),
-                                     source,
-                                 }) => {
+                                value: Token::Keyword(Keyword::Pub),
+                                source,
+                            }) => {
                                 let source = source.clone();
 
                                 self.iter.advance()?;
@@ -310,9 +310,9 @@ impl<
 
                         let is_mutable = match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Keyword(Keyword::Mut),
-                                     source,
-                                 }) => {
+                                value: Token::Keyword(Keyword::Mut),
+                                source,
+                            }) => {
                                 let source = source.clone();
 
                                 self.iter.advance()?;
@@ -325,9 +325,9 @@ impl<
 
                         let id = match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Identifier(id),
-                                     source,
-                                 }) => Span {
+                                value: Token::Identifier(id),
+                                source,
+                            }) => Span {
                                 value: *id,
                                 source: source.clone(),
                             },
@@ -353,9 +353,9 @@ impl<
                             }
                             (
                                 Some(Span {
-                                         value: Token::Symbol(Symbol::Comma),
-                                         ..
-                                     }),
+                                    value: Token::Symbol(Symbol::Comma),
+                                    ..
+                                }),
                                 _,
                             ) => {
                                 self.opt_omit_unnecessary_delimiter_warning(
@@ -364,9 +364,9 @@ impl<
                             }
                             (
                                 Some(Span {
-                                         value: Token::Symbol(Symbol::RightParenthesis),
-                                         source,
-                                     }),
+                                    value: Token::Symbol(Symbol::RightParenthesis),
+                                    source,
+                                }),
                                 _,
                             ) => {
                                 let end = source.end;
@@ -395,9 +395,9 @@ impl<
 
                     match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::Symbol(Symbol::RightParenthesis),
-                                 ..
-                             }) => {}
+                            value: Token::Symbol(Symbol::RightParenthesis),
+                            ..
+                        }) => {}
                         _ => return error!("Expected ')'"),
                     }
 
@@ -407,18 +407,18 @@ impl<
                 }
             }
             Some(Span {
-                     value: Token::Identifier(id),
-                     source,
-                 }) => {
+                value: Token::Identifier(id),
+                source,
+            }) => {
                 let source = source.clone();
                 let id = *id;
 
                 let path = self.parse_item_path(id)?;
 
                 let const_parameters = if let Some(Span {
-                                                       value: Token::Symbol(Symbol::LeftAngle),
-                                                       ..
-                                                   }) = self.iter.peek_n_non_lb(0)?.0
+                    value: Token::Symbol(Symbol::LeftAngle),
+                    ..
+                }) = self.iter.peek_n_non_lb(0)?.0
                 {
                     self.iter.skip_lb()?;
 
@@ -433,13 +433,13 @@ impl<
                     loop {
                         match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightAngle),
-                                     ..
-                                 }) => break,
+                                value: Token::Symbol(Symbol::RightAngle),
+                                ..
+                            }) => break,
                             Some(Span {
-                                     value: Token::Symbol(Symbol::Comma),
-                                     ..
-                                 }) => {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }) => {
                                 self.omit_single_token_warning(Warning::UnnecessarySemicolon)?;
                             }
                             _ => {}
@@ -449,21 +449,21 @@ impl<
 
                         match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightAngle),
-                                     ..
-                                 }) => break,
+                                value: Token::Symbol(Symbol::RightAngle),
+                                ..
+                            }) => break,
                             Some(Span {
-                                     value: Token::Symbol(Symbol::Comma),
-                                     ..
-                                 }) => {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }) => {
                                 self.opt_omit_unnecessary_delimiter_warning(
                                     Warning::UnnecessaryComma,
                                 )?;
                             }
                             Some(Span {
-                                     value: Token::LineBreak,
-                                     ..
-                                 }) => self.iter.advance()?,
+                                value: Token::LineBreak,
+                                ..
+                            }) => self.iter.advance()?,
                             _ => return error!("Expected ',', '}' or a line break"),
                         }
                     }
@@ -498,9 +498,9 @@ impl<
         loop {
             match self.iter.peek_n_non_lb(0)?.0 {
                 Some(Span {
-                         value: Token::Symbol(Symbol::MinusRightAngle), // ->
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::MinusRightAngle), // ->
+                    ..
+                }) => {
                     if type_bp::FUNCTION.0 < min_bp {
                         return Ok(left_term);
                     }
@@ -519,9 +519,9 @@ impl<
                     };
                 }
                 Some(Span {
-                         value: Token::Symbol(Symbol::Pipe), // |
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::Pipe), // |
+                    ..
+                }) => {
                     if type_bp::UNION.0 < min_bp {
                         break;
                     }
@@ -554,9 +554,9 @@ impl<
 
         Ok(match self.iter.peek()? {
             Some(Span {
-                     value: Token::Symbol(Symbol::Star),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::Star),
+                source,
+            }) => {
                 let source = source.clone();
 
                 self.iter.advance()?;
@@ -567,9 +567,9 @@ impl<
                 }
             }
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftParenthesis),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::LeftParenthesis),
+                source,
+            }) => {
                 let mut source = source.clone();
                 let mut vec = Vec::new_in(self.alloc.clone());
 
@@ -579,9 +579,9 @@ impl<
                 loop {
                     let value = match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::Identifier(id),
-                                 source,
-                             }) => {
+                            value: Token::Identifier(id),
+                            source,
+                        }) => {
                             let id = Span {
                                 value: *id,
                                 source: source.clone(),
@@ -592,16 +592,16 @@ impl<
                             self.parse_use(id)?
                         }
                         Some(Span {
-                                 value: Token::Symbol(Symbol::Comma),
-                                 ..
-                             }) => {
+                            value: Token::Symbol(Symbol::Comma),
+                            ..
+                        }) => {
                             self.omit_single_token_warning(Warning::UnnecessaryComma)?;
                             continue;
                         }
                         Some(Span {
-                                 value: Token::Symbol(Symbol::RightParenthesis),
-                                 source: new_source,
-                             }) => {
+                            value: Token::Symbol(Symbol::RightParenthesis),
+                            source: new_source,
+                        }) => {
                             source.end = new_source.end;
                             self.iter.advance()?;
                             break;
@@ -614,9 +614,9 @@ impl<
                     match self.iter.peek_n_non_lb(0)? {
                         (
                             Some(Span {
-                                     value: Token::Symbol(Symbol::Comma),
-                                     ..
-                                 }),
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }),
                             _,
                         ) => {
                             if self.iter.skip_lb()? {
@@ -627,9 +627,9 @@ impl<
                         }
                         (
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightParenthesis),
-                                     source: new_source,
-                                 }),
+                                value: Token::Symbol(Symbol::RightParenthesis),
+                                source: new_source,
+                            }),
                             _,
                         ) => {
                             let new_source = new_source.clone();
@@ -653,9 +653,9 @@ impl<
                 }
             }
             Some(Span {
-                     value: Token::Identifier(id),
-                     source,
-                 }) => {
+                value: Token::Identifier(id),
+                source,
+            }) => {
                 let id = Span {
                     value: *id,
                     source: source.clone(),
@@ -678,9 +678,9 @@ impl<
     fn parse_use(&mut self, id: Span<&'source str>) -> Result<ast::Use<'source, A>, Error> {
         Ok(match self.iter.peek_n_non_lb(0)?.0 {
             Some(Span {
-                     value: Token::Symbol(Symbol::Dot),
-                     ..
-                 }) => {
+                value: Token::Symbol(Symbol::Dot),
+                ..
+            }) => {
                 let child = self.parse_use_child()?;
 
                 ast::Use {
@@ -703,9 +703,9 @@ impl<
         self.iter.advance()?;
 
         let parents = if let Some(Span {
-                                      value: Token::Symbol(Symbol::Dot),
-                                      ..
-                                  }) = self.iter.peek_n_non_lb(0)?.0
+            value: Token::Symbol(Symbol::Dot),
+            ..
+        }) = self.iter.peek_n_non_lb(0)?.0
         {
             let mut parents = Vec::new_in(self.alloc.clone());
 
@@ -717,9 +717,9 @@ impl<
 
                 first_id = match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Identifier(id),
-                             source: new_source,
-                         }) => {
+                        value: Token::Identifier(id),
+                        source: new_source,
+                    }) => {
                         source.end = new_source.end;
                         *id
                     }
@@ -730,9 +730,9 @@ impl<
 
                 match self.iter.peek_n_non_lb(0)?.0 {
                     Some(Span {
-                             value: Token::Symbol(Symbol::Dot),
-                             ..
-                         }) => {}
+                        value: Token::Symbol(Symbol::Dot),
+                        ..
+                    }) => {}
                     _ => break,
                 }
             }
@@ -760,16 +760,16 @@ impl<
         let end = loop {
             let id = match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Identifier(id),
-                         source,
-                     }) => Span {
+                    value: Token::Identifier(id),
+                    source,
+                }) => Span {
                     value: *id,
                     source: source.clone(),
                 },
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightParenthesis),
-                         source,
-                     }) => break source.end,
+                    value: Token::Symbol(Symbol::RightParenthesis),
+                    source,
+                }) => break source.end,
                 token => return error!("Expected an identifier or ')', {:?}", token),
             };
 
@@ -778,9 +778,9 @@ impl<
 
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::Equals),
-                         ..
-                     }) => {}
+                    value: Token::Symbol(Symbol::Equals),
+                    ..
+                }) => {}
                 _ => return error!("Expected '='"),
             }
 
@@ -794,9 +794,9 @@ impl<
             match self.iter.peek_n_non_lb(0)? {
                 (
                     Some(Span {
-                             value: Token::Symbol(Symbol::RightParenthesis),
-                             source,
-                         }),
+                        value: Token::Symbol(Symbol::RightParenthesis),
+                        source,
+                    }),
                     _,
                 ) => {
                     let end = source.end;
@@ -805,9 +805,9 @@ impl<
                 }
                 (
                     Some(Span {
-                             value: Token::Symbol(Symbol::Comma),
-                             ..
-                         }),
+                        value: Token::Symbol(Symbol::Comma),
+                        ..
+                    }),
                     _,
                 ) => {
                     self.iter.skip_lb()?;
@@ -834,13 +834,13 @@ impl<
         loop {
             let is_mutable = match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightParenthesis),
-                         ..
-                     }) => break,
+                    value: Token::Symbol(Symbol::RightParenthesis),
+                    ..
+                }) => break,
                 Some(Span {
-                         value: Token::Keyword(Keyword::Mut),
-                         ..
-                     }) => {
+                    value: Token::Keyword(Keyword::Mut),
+                    ..
+                }) => {
                     self.iter.advance()?;
                     self.iter.skip_lb()?;
                     true
@@ -850,9 +850,9 @@ impl<
 
             let id = match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Identifier(id),
-                         ..
-                     }) => *id,
+                    value: Token::Identifier(id),
+                    ..
+                }) => *id,
                 _ => return error!("Expected an identifier"),
             };
 
@@ -861,9 +861,9 @@ impl<
 
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::Colon),
-                         ..
-                     }) => {}
+                    value: Token::Symbol(Symbol::Colon),
+                    ..
+                }) => {}
                 _ => return error!("Expected ':'"),
             }
 
@@ -878,13 +878,13 @@ impl<
 
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightParenthesis),
-                         ..
-                     }) => break,
+                    value: Token::Symbol(Symbol::RightParenthesis),
+                    ..
+                }) => break,
                 Some(Span {
-                         value: Token::Symbol(Symbol::Comma),
-                         ..
-                     }) => self.iter.advance()?,
+                    value: Token::Symbol(Symbol::Comma),
+                    ..
+                }) => self.iter.advance()?,
                 _ if lb => {}
                 _ => return error!("Expected ',', ')' or a line break"),
             }
@@ -903,9 +903,9 @@ impl<
 
         let id = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Identifier(id),
-                     ..
-                 }) => *id,
+                value: Token::Identifier(id),
+                ..
+            }) => *id,
             _ => return error!("Expected an identifier"),
         };
 
@@ -914,13 +914,13 @@ impl<
 
         match self.iter.peek()? {
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftParenthesis),
-                     ..
-                 }) => {}
+                value: Token::Symbol(Symbol::LeftParenthesis),
+                ..
+            }) => {}
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftAngle),
-                     ..
-                 }) => {
+                value: Token::Symbol(Symbol::LeftAngle),
+                ..
+            }) => {
                 return error!(
                     "Type parameter are declared after 'fn', not after the function name."
                 )
@@ -935,18 +935,18 @@ impl<
 
         let this_parameter = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Keyword(Keyword::This),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::This),
+                ..
+            }) => {
                 self.iter.advance()?;
                 let lb = self.iter.skip_lb()?;
 
                 match self.iter.peek()? {
                     _ if lb => {}
                     Some(Span {
-                             value: Token::Symbol(Symbol::Comma),
-                             ..
-                         }) => {
+                        value: Token::Symbol(Symbol::Comma),
+                        ..
+                    }) => {
                         self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                     }
                     _ => return error!("Expected ',' or a line break"),
@@ -955,31 +955,31 @@ impl<
                 Some(ast::ThisParameter::This)
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::Mut),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Mut),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
                 match self.iter.peek()? {
                     // Case: `mut this`
                     Some(Span {
-                             value: Token::Keyword(Keyword::This),
-                             ..
-                         }) => {
+                        value: Token::Keyword(Keyword::This),
+                        ..
+                    }) => {
                         self.iter.advance()?;
                         let lb = self.iter.skip_lb()?;
 
                         match self.iter.peek()? {
                             _ if lb => {}
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightParenthesis),
-                                     ..
-                                 }) => {}
+                                value: Token::Symbol(Symbol::RightParenthesis),
+                                ..
+                            }) => {}
                             Some(Span {
-                                     value: Token::Symbol(Symbol::Comma),
-                                     ..
-                                 }) => {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }) => {
                                 self.opt_omit_unnecessary_delimiter_warning(
                                     Warning::UnnecessaryComma,
                                 )?;
@@ -992,9 +992,9 @@ impl<
 
                     // In this case we parse the first parameter ourselves.
                     Some(Span {
-                             value: Token::Identifier(id),
-                             ..
-                         }) => {
+                        value: Token::Identifier(id),
+                        ..
+                    }) => {
                         let id = *id;
 
                         self.iter.advance()?;
@@ -1002,9 +1002,9 @@ impl<
 
                         match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::Colon),
-                                     ..
-                                 }) => {}
+                                value: Token::Symbol(Symbol::Colon),
+                                ..
+                            }) => {}
                             _ => return error!("Expected ':'"),
                         }
 
@@ -1024,13 +1024,13 @@ impl<
                         match self.iter.peek()? {
                             _ if lb => {}
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightParenthesis),
-                                     ..
-                                 }) => {}
+                                value: Token::Symbol(Symbol::RightParenthesis),
+                                ..
+                            }) => {}
                             Some(Span {
-                                     value: Token::Symbol(Symbol::Comma),
-                                     ..
-                                 }) => {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }) => {
                                 self.opt_omit_unnecessary_delimiter_warning(
                                     Warning::UnnecessaryComma,
                                 )?;
@@ -1053,9 +1053,9 @@ impl<
 
         let return_type = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Symbol(Symbol::MinusRightAngle),
-                     ..
-                 }) => {
+                value: Token::Symbol(Symbol::MinusRightAngle),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
@@ -1074,9 +1074,9 @@ impl<
         // Validate that the block starts with `{`
         match self.iter.peek()? {
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftBrace),
-                     ..
-                 }) => {}
+                value: Token::Symbol(Symbol::LeftBrace),
+                ..
+            }) => {}
             _ => return error!("Expected '{'"),
         }
 
@@ -1120,31 +1120,31 @@ impl<
     fn parse_visibility(&mut self) -> Result<ast::Visibility, Error> {
         Ok(match self.iter.peek()? {
             Some(Span {
-                     value: Token::Keyword(Keyword::Pub),
-                     source,
-                 }) => {
+                value: Token::Keyword(Keyword::Pub),
+                source,
+            }) => {
                 let mut source = source.clone();
 
                 self.iter.advance()?;
 
                 let v = match self.iter.peek_n_non_lb(0)?.0 {
                     Some(Span {
-                             value: Token::Symbol(Symbol::LeftParenthesis),
-                             ..
-                         }) => {
+                        value: Token::Symbol(Symbol::LeftParenthesis),
+                        ..
+                    }) => {
                         self.iter.skip_lb()?;
                         self.iter.advance()?;
                         self.iter.skip_lb()?;
 
                         let v = match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Keyword(Keyword::Package),
-                                     ..
-                                 }) => ast::Visible::Package,
+                                value: Token::Keyword(Keyword::Package),
+                                ..
+                            }) => ast::Visible::Package,
                             Some(Span {
-                                     value: Token::Keyword(Keyword::Mod),
-                                     ..
-                                 }) => ast::Visible::Module,
+                                value: Token::Keyword(Keyword::Mod),
+                                ..
+                            }) => ast::Visible::Module,
                             _ => return error!("Expected 'package' or 'mod'."),
                         };
 
@@ -1153,9 +1153,9 @@ impl<
 
                         match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightParenthesis),
-                                     source: paren_source,
-                                 }) => {
+                                value: Token::Symbol(Symbol::RightParenthesis),
+                                source: paren_source,
+                            }) => {
                                 source.end = paren_source.end;
                                 self.iter.advance()?;
                                 v
@@ -1183,9 +1183,9 @@ impl<
 
         let id = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Identifier(id),
-                     source,
-                 }) => Span {
+                value: Token::Identifier(id),
+                source,
+            }) => Span {
                 value: *id,
                 source: source.clone(),
             },
@@ -1201,9 +1201,9 @@ impl<
 
         let ty_is_mutable = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Keyword(Keyword::Mut),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Mut),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
@@ -1241,9 +1241,9 @@ impl<
 
         let (id, mut end) = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Identifier(id),
-                     source,
-                 }) => (*id, source.end),
+                value: Token::Identifier(id),
+                source,
+            }) => (*id, source.end),
             _ => return error!("Expected an identifier"),
         };
 
@@ -1253,9 +1253,9 @@ impl<
             // Code: mod xyz { ... }
             (
                 Some(Span {
-                         value: Token::Symbol(Symbol::LeftBrace),
-                         ..
-                     }),
+                    value: Token::Symbol(Symbol::LeftBrace),
+                    ..
+                }),
                 _,
             ) => {
                 self.iter.skip_lb()?;
@@ -1266,9 +1266,9 @@ impl<
 
                 match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Symbol(Symbol::RightBrace),
-                             source,
-                         }) => {
+                        value: Token::Symbol(Symbol::RightBrace),
+                        source,
+                    }) => {
                         end = source.end;
                     }
                     _ => return error!("Expected '}'"),
@@ -1278,9 +1278,9 @@ impl<
             }
             (
                 Some(Span {
-                         value: Token::LineBreak | Token::Symbol(Symbol::RightBrace),
-                         ..
-                     }),
+                    value: Token::LineBreak | Token::Symbol(Symbol::RightBrace),
+                    ..
+                }),
                 _,
             ) => {
                 self.iter.skip_lb()?;
@@ -1288,9 +1288,9 @@ impl<
             }
             (
                 Some(Span {
-                         value: Token::Symbol(Symbol::Semicolon),
-                         ..
-                     }),
+                    value: Token::Symbol(Symbol::Semicolon),
+                    ..
+                }),
                 _,
             ) => None, // The caller handles this
             (_, true) => None,
@@ -1312,9 +1312,9 @@ impl<
 
         let is_mutable = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Keyword(Keyword::Mut),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Mut),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
                 true
@@ -1324,9 +1324,9 @@ impl<
 
         let (id, mut end) = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Identifier(id),
-                     source,
-                 }) => (*id, source.end),
+                value: Token::Identifier(id),
+                source,
+            }) => (*id, source.end),
             _ => return error!("Expected an identifier"),
         };
 
@@ -1335,9 +1335,9 @@ impl<
         let ty = match self.iter.peek_n_non_lb(0)? {
             (
                 Some(Span {
-                         value: Token::Symbol(Symbol::Colon),
-                         ..
-                     }),
+                    value: Token::Symbol(Symbol::Colon),
+                    ..
+                }),
                 _,
             ) => {
                 self.iter.skip_lb()?;
@@ -1405,9 +1405,9 @@ impl<
         loop {
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::At),
-                         ..
-                     }) => {}
+                    value: Token::Symbol(Symbol::At),
+                    ..
+                }) => {}
                 _ => {
                     self.iter.skip_lb()?;
                     break;
@@ -1419,9 +1419,9 @@ impl<
 
             let id = match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Identifier(id),
-                         ..
-                     }) => *id,
+                    value: Token::Identifier(id),
+                    ..
+                }) => *id,
                 _ => return error!("Expected an identifier"),
             };
 
@@ -1435,25 +1435,25 @@ impl<
 
         let statement_kind: Option<ast::StatementKind<'source, A>> = match self.iter.peek()? {
             Some(Span {
-                     value: Token::Keyword(Keyword::Fn),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Fn),
+                ..
+            }) => {
                 let (kind, end) = self.parse_fn_statement_kind()?;
                 source.end = end;
                 Some(kind)
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::Mod),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Mod),
+                ..
+            }) => {
                 let (kind, end) = self.parse_mod_statement_kind()?;
                 source.end = end;
                 Some(kind)
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::Type),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Type),
+                ..
+            }) => {
                 let (kind, end) = self.parse_type_statement_kind()?;
                 source.end = end;
                 Some(kind)
@@ -1463,9 +1463,9 @@ impl<
             //
             // let [mut] <variable_name>[: <type>] [= <expr>]
             Some(Span {
-                     value: Token::Keyword(Keyword::Let),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Let),
+                ..
+            }) => {
                 let (kind, end) = self.parse_let_statement_kind()?;
                 source.end = end;
                 Some(kind)
@@ -1476,17 +1476,17 @@ impl<
             // use d.*
             // use d.(x, y, z.*)
             Some(Span {
-                     value: Token::Keyword(Keyword::Use),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Use),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
                 let root_id = match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Identifier(id),
-                             source,
-                         }) => Span {
+                        value: Token::Identifier(id),
+                        source,
+                    }) => Span {
                         value: *id,
                         source: source.clone(),
                     },
@@ -1501,9 +1501,9 @@ impl<
                 Some(ast::StatementKind::Use(u))
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::Break),
-                     ..
-                 }) => {
+                value: Token::Keyword(Keyword::Break),
+                ..
+            }) => {
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
                 Some(ast::StatementKind::Break)
@@ -1567,9 +1567,9 @@ impl<
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
         Ok(match self.iter.peek()? {
             Some(Span {
-                     value: Token::String(s),
-                     source,
-                 }) => {
+                value: Token::String(s),
+                source,
+            }) => {
                 let source = source.clone();
                 let s = s.clone();
 
@@ -1581,9 +1581,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Number(n),
-                     source,
-                 }) => {
+                value: Token::Number(n),
+                source,
+            }) => {
                 let source = source.clone();
                 let n = *n;
 
@@ -1595,9 +1595,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Identifier(id),
-                     source,
-                 }) => {
+                value: Token::Identifier(id),
+                source,
+            }) => {
                 let id = *id;
                 let source = source.clone();
 
@@ -1609,9 +1609,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftParenthesis),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::LeftParenthesis),
+                source,
+            }) => {
                 let source = source.clone();
 
                 self.iter.advance()?;
@@ -1619,18 +1619,18 @@ impl<
 
                 if let (
                     Some(Span {
-                             value: Token::Identifier(_),
-                             ..
-                         }),
+                        value: Token::Identifier(_),
+                        ..
+                    }),
                     _,
                 ) = self.iter.peek_n_non_lb(0)?
                     && let (
-                    Some(Span {
-                             value: Token::Symbol(Symbol::Equals),
-                             ..
-                         }),
-                    _,
-                ) = self.iter.peek_n_non_lb(1)?
+                        Some(Span {
+                            value: Token::Symbol(Symbol::Equals),
+                            ..
+                        }),
+                        _,
+                    ) = self.iter.peek_n_non_lb(1)?
                 {
                     let (fields, end) = self.parse_object_literal()?;
 
@@ -1648,9 +1648,9 @@ impl<
 
                     match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::Symbol(Symbol::RightParenthesis),
-                                 ..
-                             }) => {}
+                            value: Token::Symbol(Symbol::RightParenthesis),
+                            ..
+                        }) => {}
                         _ => return error!("Expected ')'"),
                     }
 
@@ -1660,9 +1660,9 @@ impl<
                 }
             }
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftBracket),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::LeftBracket),
+                source,
+            }) => {
                 let start = source.start;
 
                 self.iter.advance()?;
@@ -1673,13 +1673,13 @@ impl<
                 let end = loop {
                     match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::Symbol(Symbol::RightBracket),
-                                 source,
-                             }) => break source.end,
+                            value: Token::Symbol(Symbol::RightBracket),
+                            source,
+                        }) => break source.end,
                         Some(Span {
-                                 value: Token::Symbol(Symbol::Comma),
-                                 ..
-                             }) => {
+                            value: Token::Symbol(Symbol::Comma),
+                            ..
+                        }) => {
                             self.omit_single_token_warning(Warning::UnnecessaryComma)?;
                             self.iter.advance()?;
                             self.iter.skip_lb()?;
@@ -1692,13 +1692,13 @@ impl<
 
                     match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::LineBreak,
-                                 ..
-                             }) => self.iter.advance()?,
+                            value: Token::LineBreak,
+                            ..
+                        }) => self.iter.advance()?,
                         Some(Span {
-                                 value: Token::Symbol(Symbol::Comma),
-                                 ..
-                             }) => {
+                            value: Token::Symbol(Symbol::Comma),
+                            ..
+                        }) => {
                             self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?;
                         }
                         _ => {}
@@ -1713,9 +1713,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Symbol(Symbol::LeftBrace),
-                     source,
-                 }) => {
+                value: Token::Symbol(Symbol::LeftBrace),
+                source,
+            }) => {
                 let start = source.start;
                 let block = self.parse_block()?;
 
@@ -1727,9 +1727,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::Fn),
-                     source,
-                 }) => {
+                value: Token::Keyword(Keyword::Fn),
+                source,
+            }) => {
                 let start = source.start;
 
                 self.iter.advance()?;
@@ -1741,9 +1741,9 @@ impl<
 
                 match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Symbol(Symbol::LeftParenthesis),
-                             ..
-                         }) => {}
+                        value: Token::Symbol(Symbol::LeftParenthesis),
+                        ..
+                    }) => {}
                     _ => return error!("Expected '('."),
                 };
 
@@ -1757,9 +1757,9 @@ impl<
 
                 let (return_type, body) = match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Symbol(Symbol::MinusRightAngle),
-                             ..
-                         }) => return error!("Closures cannot have return type annotations."),
+                        value: Token::Symbol(Symbol::MinusRightAngle),
+                        ..
+                    }) => return error!("Closures cannot have return type annotations."),
                     _ => ((), self.parse_expression(0, calls_across_line_breaks)?),
                 };
 
@@ -1777,9 +1777,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::If),
-                     source,
-                 }) => {
+                value: Token::Keyword(Keyword::If),
+                source,
+            }) => {
                 let start = source.start;
 
                 self.iter.advance()?;
@@ -1790,9 +1790,9 @@ impl<
 
                 match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Symbol(Symbol::LeftBrace),
-                             ..
-                         }) => {}
+                        value: Token::Symbol(Symbol::LeftBrace),
+                        ..
+                    }) => {}
                     _ => return error!("Expected '{'"),
                 }
 
@@ -1805,9 +1805,9 @@ impl<
 
                     match self.iter.peek_n_non_lb(0)?.0 {
                         Some(Span {
-                                 value: Token::Keyword(Keyword::Else),
-                                 ..
-                             }) => {}
+                            value: Token::Keyword(Keyword::Else),
+                            ..
+                        }) => {}
                         _ => break None,
                     }
 
@@ -1816,13 +1816,13 @@ impl<
 
                     match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::Keyword(Keyword::If),
-                                 ..
-                             }) => {}
+                            value: Token::Keyword(Keyword::If),
+                            ..
+                        }) => {}
                         Some(Span {
-                                 value: Token::Symbol(Symbol::LeftBrace),
-                                 ..
-                             }) => {
+                            value: Token::Symbol(Symbol::LeftBrace),
+                            ..
+                        }) => {
                             let block = self.parse_block()?;
                             self.iter.advance()?;
                             break Some(block);
@@ -1840,9 +1840,9 @@ impl<
 
                     match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::Symbol(Symbol::LeftBrace),
-                                 ..
-                             }) => {}
+                            value: Token::Symbol(Symbol::LeftBrace),
+                            ..
+                        }) => {}
                         _ => return error!("Expected '{' after 'else if' condition"),
                     }
 
@@ -1873,9 +1873,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::Keyword(Keyword::While),
-                     source,
-                 }) => {
+                value: Token::Keyword(Keyword::While),
+                source,
+            }) => {
                 let start = source.start;
 
                 self.iter.advance()?;
@@ -1886,9 +1886,9 @@ impl<
 
                 match self.iter.peek()? {
                     Some(Span {
-                             value: Token::Symbol(Symbol::LeftBrace),
-                             ..
-                         }) => {}
+                        value: Token::Symbol(Symbol::LeftBrace),
+                        ..
+                    }) => {}
                     _ => return error!("Expected '{'"),
                 }
 
@@ -1905,9 +1905,9 @@ impl<
                 })
             }
             Some(Span {
-                     value: Token::MarkupStartTag(tag_name),
-                     source,
-                 }) => {
+                value: Token::MarkupStartTag(tag_name),
+                source,
+            }) => {
                 let tag_name = *tag_name;
                 let source = source.clone();
 
@@ -1918,13 +1918,13 @@ impl<
 
                     let id = match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::MarkupClose,
-                                 source,
-                             }) => break source.end,
+                            value: Token::MarkupClose,
+                            source,
+                        }) => break source.end,
                         Some(Span {
-                                 value: Token::MarkupKey(key),
-                                 source,
-                             }) => Span {
+                            value: Token::MarkupKey(key),
+                            source,
+                        }) => Span {
                             value: *key,
                             source: source.clone(),
                         },
@@ -1935,16 +1935,16 @@ impl<
 
                     let value = match self.iter.peek()? {
                         Some(Span {
-                                 value: Token::String(str),
-                                 source,
-                             }) => Span {
+                            value: Token::String(str),
+                            source,
+                        }) => Span {
                             value: ast::Expression::String(str.clone()),
                             source: source.clone(),
                         },
                         Some(Span {
-                                 value: Token::Symbol(Symbol::LeftBrace),
-                                 ..
-                             }) => {
+                            value: Token::Symbol(Symbol::LeftBrace),
+                            ..
+                        }) => {
                             self.iter.advance()?;
                             self.iter.skip_lb()?;
                             self.parse_expression(0, true)?
@@ -2197,9 +2197,9 @@ impl<
                     self.iter.skip_lb()?;
 
                     if let Some(Span {
-                                    value: Token::Symbol(Symbol::LeftAngle),
-                                    ..
-                                }) = self.iter.peek_n_non_lb(0)?.0
+                        value: Token::Symbol(Symbol::LeftAngle),
+                        ..
+                    }) = self.iter.peek_n_non_lb(0)?.0
                     {
                         let target = match first_term {
                             Span {
@@ -2238,9 +2238,9 @@ impl<
 
                         match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::RightAngle),
-                                     ..
-                                 }) => {}
+                                value: Token::Symbol(Symbol::RightAngle),
+                                ..
+                            }) => {}
                             _ => todo!(),
                         }
 
@@ -2249,9 +2249,9 @@ impl<
 
                         match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Symbol(Symbol::LeftParenthesis),
-                                     ..
-                                 }) => {}
+                                value: Token::Symbol(Symbol::LeftParenthesis),
+                                ..
+                            }) => {}
                             _ => return error!("Expected '(' (call arguments)"),
                         }
 
@@ -2284,9 +2284,9 @@ impl<
 
                         let (property, end) = match self.iter.peek()? {
                             Some(Span {
-                                     value: Token::Identifier(id),
-                                     source,
-                                 }) => (*id, source.end),
+                                value: Token::Identifier(id),
+                                source,
+                            }) => (*id, source.end),
                             _ => return error!("Expected an identifier"),
                         };
 
@@ -2345,9 +2345,9 @@ impl<
             let visibility = match self.iter.peek()? {
                 // Ignore semicolons
                 Some(Span {
-                         value: Token::Symbol(Symbol::Semicolon),
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::Semicolon),
+                    ..
+                }) => {
                     self.omit_single_token_warning(Warning::UnnecessarySemicolon)?;
 
                     self.iter.advance()?;
@@ -2357,16 +2357,16 @@ impl<
                 }
                 None
                 | Some(Span {
-                           value: Token::Symbol(Symbol::RightBrace),
-                           ..
-                       }) => break,
+                    value: Token::Symbol(Symbol::RightBrace),
+                    ..
+                }) => break,
                 _ => self.parse_visibility()?,
             };
 
             if let Some(Span {
-                            value: ast::Visible::Module,
-                            source,
-                        }) = &visibility
+                value: ast::Visible::Module,
+                source,
+            }) = &visibility
             {
                 self.warnings.push(Span {
                     value: Warning::PubModInModule,
@@ -2387,19 +2387,19 @@ impl<
 
             match self.iter.peek()? {
                 Some(Span {
-                         value: Token::Symbol(Symbol::Semicolon),
-                         ..
-                     }) => {
+                    value: Token::Symbol(Symbol::Semicolon),
+                    ..
+                }) => {
                     self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessarySemicolon)?;
                 }
                 Some(Span {
-                         value: Token::LineBreak,
-                         ..
-                     }) => self.iter.advance()?,
+                    value: Token::LineBreak,
+                    ..
+                }) => self.iter.advance()?,
                 Some(Span {
-                         value: Token::Symbol(Symbol::RightBrace),
-                         ..
-                     })
+                    value: Token::Symbol(Symbol::RightBrace),
+                    ..
+                })
                 | None => break,
                 _ => return error!("Expected ';', '}' or a line break"),
             }

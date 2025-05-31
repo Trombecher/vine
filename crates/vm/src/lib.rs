@@ -17,12 +17,12 @@
 //!
 //! This means that developers can use JavaScript and TypeScript libraries while developing in Vine.
 
+mod gc;
 pub mod instruction;
+mod object;
 pub mod stack;
 mod tests;
 mod value;
-mod object;
-mod gc;
 
 pub use gc::*;
 pub use object::*;
@@ -79,7 +79,7 @@ pub enum FileFormatError {
 }
 
 impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_STACK_SIZE> {
-    /* 
+    /*
     pub fn from(mut iter: Copied<slice::Iter<'a, u8>>) -> Result<VM<'a, MAX_STACK_SIZE>, FileFormatError> {
         let magic_bytes = iter.next_chunk::<8>()
             .map_err(|_| FileFormatError::UnexpectedEndOfInput)?;
@@ -146,7 +146,8 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
 
     #[inline]
     fn get_u8(&mut self) -> Result<u8, Error> {
-        self.code.get(self.next_byte)
+        self.code
+            .get(self.next_byte)
             .map(|x| {
                 self.next_byte += 1;
                 *x
@@ -158,7 +159,9 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
     fn get_u16(&mut self) -> Result<u16, Error> {
         if self.next_byte + 1 < self.code.len() {
             let u16: u16 = unsafe {
-                transmute(*(self.code.get_unchecked(self.next_byte) as *const u8 as *const (u8, u8)))
+                transmute(
+                    *(self.code.get_unchecked(self.next_byte) as *const u8 as *const (u8, u8)),
+                )
             };
             self.next_byte += 2;
             Ok(u16)
@@ -170,9 +173,8 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
     #[inline]
     fn get_u32(&mut self) -> Result<u32, Error> {
         if self.next_byte + 3 < self.code.len() {
-            let u32: u32 = unsafe {
-                (self.code.as_ptr().add(self.next_byte) as *const u32).read_unaligned()
-            };
+            let u32: u32 =
+                unsafe { (self.code.as_ptr().add(self.next_byte) as *const u32).read_unaligned() };
             self.next_byte += 4;
             Ok(u32)
         } else {
@@ -183,9 +185,8 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
     #[inline]
     fn get_u64(&mut self) -> Result<u64, Error> {
         if self.next_byte + 7 < self.code.len() {
-            let num: u64 = unsafe {
-                transmute(*(self.code.as_ptr().add(self.next_byte) as *const [u8; 8]))
-            };
+            let num: u64 =
+                unsafe { transmute(*(self.code.as_ptr().add(self.next_byte) as *const [u8; 8])) };
             self.next_byte += 8;
             Ok(num)
         } else {
@@ -300,8 +301,16 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
             // Control flow
             Instruction::JumpU8 => self.next_byte = self.get_u8()? as usize,
             Instruction::JumpU16 => self.next_byte = self.get_u16()? as usize,
-            Instruction::JumpOffsetI8 => self.next_byte = self.next_byte.saturating_add_signed(self.get_u8()? as isize),
-            Instruction::JumpOffsetI16 => self.next_byte = self.next_byte.saturating_add_signed(self.get_u16()? as isize),
+            Instruction::JumpOffsetI8 => {
+                self.next_byte = self
+                    .next_byte
+                    .saturating_add_signed(self.get_u8()? as isize)
+            }
+            Instruction::JumpOffsetI16 => {
+                self.next_byte = self
+                    .next_byte
+                    .saturating_add_signed(self.get_u16()? as isize)
+            }
 
             /*
             Instruction::InvokeNStatic => {
@@ -326,7 +335,7 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
 
                 self.next_byte = jump_to;
             }
-            
+
             Instruction::Return => {
                 if let Some(return_index) = self.stack.clear_scope() {
                     self.next_byte = return_index;
@@ -354,14 +363,10 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
                 }
             }
              */
-
             Instruction::SwapTopA => {
                 let Self { stack, a, .. } = self;
                 if let Some(top) = stack.top_mut() {
-                    swap(
-                        top,
-                        a,
-                    )
+                    swap(top, a)
                 }
             }
 
@@ -377,27 +382,32 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
                 }
             }
             */
-
-            Instruction::PopIntoA => if let Some(value) = self.stack.pop_get() {
-                self.a = value;
+            Instruction::PopIntoA => {
+                if let Some(value) = self.stack.pop_get() {
+                    self.a = value;
+                }
             }
-            Instruction::PopIntoB => if let Some(value) = self.stack.pop_get() {
-                self.b = value;
+            Instruction::PopIntoB => {
+                if let Some(value) = self.stack.pop_get() {
+                    self.b = value;
+                }
             }
-            Instruction::PopIntoR => if let Some(value) = self.stack.pop_get() {
-                self.r = value;
+            Instruction::PopIntoR => {
+                if let Some(value) = self.stack.pop_get() {
+                    self.r = value;
+                }
             }
             Instruction::Pop => self.stack.pop(),
 
             Instruction::AddU63 => {
                 if let Ok(a) = <Value as TryInto<u64>>::try_into(self.a)
-                    && let Ok(b) = <Value as TryInto<u64>>::try_into(self.b) {
+                    && let Ok(b) = <Value as TryInto<u64>>::try_into(self.b)
+                {
                     self.a = (a + b).into();
                 }
             }
 
             // Objects
-
             Instruction::CreateObject1 => {
                 let type_index = self.get_u8()?;
                 self.a = Value::from_strong(self.gc.allocate(type_index as u32));
@@ -412,7 +422,6 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
                 self.a = unsafe { self.alloc(ty) };
             }
              */
-
             Instruction::ReadProperty0 => {
                 if let Some(object_ref) = self.b.get_object() {
                     unsafe {
@@ -435,7 +444,6 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
             }
 
             // STDIO
-
             Instruction::WriteStdoutLF => {
                 println!("{:?}", self.a.display(self.gc));
             }
@@ -444,16 +452,15 @@ impl<'input: 'heap, 'heap, const MAX_STACK_SIZE: usize> VM<'input, 'heap, MAX_ST
             }
             Instruction::DebugTriggerGC => {
                 self.gc.mark_and_sweep(
-                    self.stack.as_slice()
+                    self.stack
+                        .as_slice()
                         .iter()
                         .copied()
-                        .chain([self.a, self.b, self.r]
-                            .iter()
-                            .copied())
+                        .chain([self.a, self.b, self.r].iter().copied()),
                 );
             }
 
-            i => todo!("Instruction {i:?} not implemented")
+            i => todo!("Instruction {i:?} not implemented"),
         }
 
         Ok(false)

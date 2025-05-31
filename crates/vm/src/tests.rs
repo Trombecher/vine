@@ -11,10 +11,7 @@ fn gc() {
 
     assert_eq!(
         &value.lock() as &[Value],
-        &[
-            Value::from(1_u8),
-            Value::from(0_u8)
-        ]
+        &[Value::from(1_u8), Value::from(0_u8)]
     );
 
     assert_eq!(gc.count(), 1);

@@ -49,7 +49,10 @@ impl Object {
 
             Some(DataView {
                 slice: unsafe {
-                    transmute(from_raw_parts(transmute::<_, *const Value>(&self.data), self.size()))
+                    transmute(from_raw_parts(
+                        transmute::<_, *const Value>(&self.data),
+                        self.size(),
+                    ))
                 },
             })
         }
@@ -65,10 +68,7 @@ pub struct DataView<'heap> {
 
 impl<'heap> DataView<'heap> {
     pub fn display<'input: 'heap>(self, gc: &'heap GC<'input>) -> DataViewDisplay<'input, 'heap> {
-        DataViewDisplay {
-            view: self,
-            gc,
-        }
+        DataViewDisplay { view: self, gc }
     }
 }
 
@@ -89,9 +89,8 @@ impl<'heap> DerefMut for DataView<'heap> {
 impl<'heap> Drop for DataView<'heap> {
     fn drop(&mut self) {
         // Magic :) (unlocks lock)
-        unsafe {
-            &*((&*self.slice.get()).as_ptr().sub(1) as usize as *const Cell<bool>)
-        }.set(false);
+        unsafe { &*((&*self.slice.get()).as_ptr().sub(1) as usize as *const Cell<bool>) }
+            .set(false);
     }
 }
 
