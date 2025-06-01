@@ -1,4 +1,4 @@
-use core::fmt::Debug;
+use core::fmt::{Debug, Display, Formatter};
 use ecow::EcoString;
 use phf::phf_map;
 
@@ -57,6 +57,28 @@ pub enum Token<'a> {
     LineBreak,
 }
 
+impl<'a> Display for Token<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Token::Char(c) => write!(f, "'{}'", *c),
+            Token::Identifier(id) => write!(f, "{}", id),
+            Token::Number(n) => write!(f, "{}", *n),
+            Token::Annotation(_) => write!(f, "<todo>"),
+            Token::Symbol(s) => write!(f, "{}", *s),
+            Token::Keyword(k) => write!(f, "{}", k),
+            Token::String(s) => write!(f, "\"{}\"", s),
+            Token::FragmentString(_) => write!(f, "<todo>"),
+            Token::MarkupStartTag(_) => write!(f, "<todo>"),
+            Token::MarkupKey(_) => write!(f, "<todo>"),
+            Token::MarkupStartTagEnd => write!(f, "<todo>"),
+            Token::MarkupClose => write!(f, "<todo>"),
+            Token::MarkupText(_) => write!(f, "<todo>"),
+            Token::MarkupEndTag(_) => write!(f, "<todo>"),
+            Token::LineBreak => write!(f, "a line break"),
+        }
+    }
+}
+
 impl<'a> Token<'a> {
     /// To generate pseudo source offsets for testing purposes,
     /// we need to estimate the length of the token.
@@ -64,21 +86,21 @@ impl<'a> Token<'a> {
     pub fn estimated_length(&self) -> Index {
         // TODO: correct when needed
         match self {
-            Token::Char(x) => 2 + x.len_utf8() as Index,
-            Token::Identifier(id) => id.len() as Index,
-            Token::Number(n) => n.log10().ceil() as Index + 2,
-            Token::Symbol(symbol) => symbol.estimated_length(),
-            Token::Keyword(kw) => kw.str().len() as Index,
-            Token::String(s) => s.len() as Index + 2,
-            Token::FragmentString(f) => f.len() as Index,
-            Token::MarkupStartTag(s) => s.len() as Index + 1,
-            Token::MarkupKey(s) => s.len() as Index,
-            Token::MarkupStartTagEnd => 1,
-            Token::MarkupClose => 1,
-            Token::MarkupText(t) => t.len() as Index,
-            Token::MarkupEndTag(e) => e.len() as Index + 3,
-            Token::LineBreak => 1,
-            Token::Annotation(_) => 0,
+            Self::Char(x) => 2 + x.len_utf8() as Index,
+            Self::Identifier(id) => id.len() as Index,
+            Self::Number(n) => n.log10().ceil() as Index + 2,
+            Self::Symbol(symbol) => symbol.estimated_length(),
+            Self::Keyword(kw) => kw.str().len() as Index,
+            Self::String(s) => s.len() as Index + 2,
+            Self::FragmentString(f) => f.len() as Index,
+            Self::MarkupStartTag(s) => s.len() as Index + 1,
+            Self::MarkupKey(s) => s.len() as Index,
+            Self::MarkupStartTagEnd => 1,
+            Self::MarkupClose => 1,
+            Self::MarkupText(t) => t.len() as Index,
+            Self::MarkupEndTag(e) => e.len() as Index + 3,
+            Self::LineBreak => 1,
+            Self::Annotation(_) => 0,
         }
     }
 }
@@ -144,6 +166,12 @@ impl Keyword {
             Self::Underscore => "_",
             Self::Use => "use",
         }
+    }
+}
+
+impl Display for Keyword {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.str())
     }
 }
 
@@ -232,63 +260,71 @@ pub enum Symbol {
     At,
 }
 
+impl Display for Symbol {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.str())
+    }
+}
+
 impl Symbol {
+    pub fn str(self) -> &'static str {
+        match self {
+            Self::Equals => "=",
+            Self::EqualsEquals => "==",
+            Self::EqualsRightAngle => "=>",
+            Self::ExclamationMark => "!",
+            Self::ExclamationMarkEquals => "!=",
+            Self::LeftAngle => ">",
+            Self::LeftAngleEquals => ">=",
+            Self::LeftAngleLeftAngle => ">>",
+            Self::LeftAngleLeftAngleEquals => ">>=",
+            Self::RightAngle => "<",
+            Self::RightAngleEquals => "<=",
+            Self::RightAngleRightAngle => "<<",
+            Self::RightAngleRightAngleEquals => "<<=",
+            Self::Plus => "+",
+            Self::PlusEquals => "+=",
+            Self::Minus => "-",
+            Self::MinusEquals => "-=",
+            Self::MinusRightAngle => "->",
+            Self::Star => "*",
+            Self::StarEquals => "*=",
+            Self::Percent => "%",
+            Self::PercentEquals => "%=",
+            Self::Slash => "/",
+            Self::SlashEquals => "/=",
+            Self::StarStar => "**",
+            Self::StarStarEquals => "**=",
+            Self::Pipe => "|",
+            Self::PipeEquals => "|=",
+            Self::Ampersand => "&",
+            Self::AmpersandEquals => "&=",
+            Self::Caret => "^",
+            Self::CaretEquals => "^=",
+            Self::PipePipe => "||",
+            Self::PipePipeEquals => "||=",
+            Self::AmpersandAmpersand => "&&",
+            Self::AmpersandAmpersandEquals => "&&=",
+            Self::Dot => ".",
+            Self::DotDot => "..",
+            Self::DotDotDot => "...",
+            Self::DotDotEquals => "..=",
+            Self::QuestionMark => "?",
+            Self::Comma => ".",
+            Self::Colon => ":",
+            Self::Semicolon => ";",
+            Self::LeftParenthesis => "(",
+            Self::RightParenthesis => ")",
+            Self::LeftBracket => "[",
+            Self::RightBracket => "]",
+            Self::LeftBrace => "{",
+            Self::RightBrace => "}",
+            Self::At => "@",
+        }
+    }
+    
     #[cfg(test)]
     pub fn estimated_length(&self) -> Index {
-        match self {
-            Self::RightParenthesis
-            | Self::ExclamationMark
-            | Self::Equals
-            | Self::LeftAngle
-            | Self::Plus
-            | Self::Minus
-            | Self::Star
-            | Self::Percent
-            | Self::Slash
-            | Self::RightAngle
-            | Self::Pipe
-            | Self::Caret
-            | Self::Ampersand
-            | Self::Dot
-            | Self::QuestionMark
-            | Self::Colon
-            | Self::Comma
-            | Self::At
-            | Self::Semicolon
-            | Self::LeftParenthesis
-            | Self::LeftBracket
-            | Self::RightBracket
-            | Self::LeftBrace
-            | Self::RightBrace => 1,
-
-            Self::EqualsEquals
-            | Self::ExclamationMarkEquals
-            | Self::LeftAngleEquals
-            | Self::LeftAngleLeftAngle
-            | Self::RightAngleEquals
-            | Self::RightAngleRightAngle
-            | Self::PlusEquals
-            | Self::MinusEquals
-            | Self::MinusRightAngle
-            | Self::StarEquals
-            | Self::SlashEquals
-            | Self::StarStar
-            | Self::PercentEquals
-            | Self::EqualsRightAngle
-            | Self::PipeEquals
-            | Self::AmpersandEquals
-            | Self::CaretEquals
-            | Self::PipePipe
-            | Self::AmpersandAmpersand
-            | Self::DotDot => 2,
-
-            Self::LeftAngleLeftAngleEquals
-            | Self::RightAngleRightAngleEquals
-            | Self::StarStarEquals
-            | Self::PipePipeEquals
-            | Self::AmpersandAmpersandEquals
-            | Self::DotDotDot
-            | Self::DotDotEquals => 3,
-        }
+        self.str().len() as Index
     }
 }

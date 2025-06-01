@@ -1,3 +1,4 @@
-fn<T> double t T -> T {
-    for x in t => println(x)
+fn fib n U128 -> U128 {
+    if n < 2 => n
+    else fib(n - 1) + fib(n - 2)
 }

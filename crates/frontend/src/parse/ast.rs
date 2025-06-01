@@ -90,7 +90,7 @@ pub enum Expression<'source, A: Allocator> {
     /// `while condition { body... }`
     While {
         condition: Box<Span<Expression<'source, A>>, A>,
-        body: Span<Vec<StatementOrExpression<'source, A>, A>>,
+        body: Box<Span<Expression<'source, A>>, A>,
     },
 
     /// `for variable in iter { ... }`
@@ -262,9 +262,7 @@ pub enum StatementKind<'source, A: Allocator> {
         ty: Type<'source, A>,
     },
     Let {
-        is_mutable: bool,
-        ty: Span<Type<'source, A>>,
-        id: &'source str,
+        pattern: Pattern<'source, A>,
         value: Option<Box<Span<Expression<'source, A>>, A>>,
     },
     Function {
@@ -526,8 +524,22 @@ pub enum PatternUnit<'source, A: Allocator> {
         is_mutable: Option<Span<()>>,
         id: Span<&'source str>,
     },
-    Object(Span<Vec<ObjectTypeField<'source, A>, A>>),
+    Object(Span<Vec<ObjectPatternField<'source, A>, A>>),
     Array(Span<Vec<Pattern<'source, A>, A>>),
+}
+
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
+pub struct ObjectPatternField<'source, A: Allocator> {
+    pub id: Span<&'source str>,
+    pub remap: Pattern<'source, A>,
+}
+
+impl<'source, A: Allocator> ObjectPatternField<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        self.id.source.start..self.remap.source().end
+    }
 }
 
 impl<'source, A: Allocator> PatternUnit<'source, A> {
