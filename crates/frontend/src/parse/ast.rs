@@ -239,6 +239,11 @@ pub type Visibility = Option<Span<Visible>>;
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub enum StatementKind<'source, A: Allocator> {
+    For {
+        pattern: Pattern<'source, A>,
+        iter: Span<Expression<'source, A>>,
+        body: Span<Expression<'source, A>>
+    },
     Type {
         const_parameters: ConstParameters<'source, A>,
         id: Span<&'source str>,

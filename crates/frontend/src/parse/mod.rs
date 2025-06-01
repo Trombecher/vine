@@ -1382,6 +1382,53 @@ impl<
         ))
     }
 
+    fn parse_for_statement_kind(
+        &mut self,
+    ) -> Result<(ast::StatementKind<'source, A>, Index), Error> {
+        self.iter.advance()?;
+        self.iter.skip_lb()?;
+
+        let pattern = self.parse_pattern()?;
+        self.iter.skip_lb()?;
+
+        match self.iter.peek()? {
+            Some(Span {
+                value: Token::Keyword(Keyword::In),
+                ..
+            }) => {}
+            _ => return error!("Expected 'in'."),
+        }
+
+        self.iter.advance()?;
+        self.iter.skip_lb()?;
+
+        let iter = self.parse_expression(0, true)?;
+        self.iter.skip_lb()?;
+
+        match self.iter.peek()? {
+            Some(Span {
+                value: Token::Symbol(Symbol::EqualsRightAngle),
+                ..
+            }) => {}
+            _ => return error!("Expected '=>'."),
+        }
+
+        self.iter.advance()?;
+        self.iter.skip_lb()?;
+
+        let body = self.parse_expression(0, false)?;
+        let end = body.source.end;
+
+        Ok((
+            ast::StatementKind::For {
+                pattern,
+                iter,
+                body,
+            },
+            end,
+        ))
+    }
+
     /// Tries to parse a statement. If nothing matches, `None` will be returned.
     ///
     /// # Tokens
@@ -1482,6 +1529,18 @@ impl<
             }) => {
                 let start = source.start;
                 let (kind, end) = self.parse_let_statement_kind()?;
+
+                Span {
+                    value: kind,
+                    source: start..end,
+                }
+            }
+            Some(Span {
+                value: Token::Keyword(Keyword::For),
+                source,
+            }) => {
+                let start = source.start;
+                let (kind, end) = self.parse_for_statement_kind()?;
 
                 Span {
                     value: kind,
