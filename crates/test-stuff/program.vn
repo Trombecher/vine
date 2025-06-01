@@ -1,3 +1,5 @@
-fn main() {
-    doSomething.<T>(2)
+pub(package) enum<T, U> Status {
+    Ok = 1,
+    Meh = double 3
+    Error = double double 4
 }

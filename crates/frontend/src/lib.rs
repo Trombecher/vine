@@ -6,6 +6,7 @@ extern crate alloc;
 
 mod warnings;
 
+mod hir;
 pub mod lex;
 pub mod parse;
 

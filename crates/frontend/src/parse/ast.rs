@@ -84,13 +84,13 @@ pub enum Expression<'source, A: Allocator> {
     If {
         base: If<'source, A>,
         else_ifs: Vec<If<'source, A>, A>,
-        else_body: Option<Span<Vec<Span<StatementOrExpression<'source, A>>, A>>>,
+        else_body: Option<Span<Vec<StatementOrExpression<'source, A>, A>>>,
     },
 
     /// `while condition { body... }`
     While {
         condition: Box<Span<Expression<'source, A>>, A>,
-        body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
+        body: Span<Vec<StatementOrExpression<'source, A>, A>>,
     },
 
     /// `for variable in iter { body... }`
@@ -98,11 +98,11 @@ pub enum Expression<'source, A: Allocator> {
         is_mutable: bool,
         variable: &'source str,
         iter: Box<Expression<'source, A>, A>,
-        body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
+        body: Span<Vec<StatementOrExpression<'source, A>, A>>,
     },
 
     /// `{ ... }`
-    Block(Vec<Span<StatementOrExpression<'source, A>>, A>),
+    Block(Vec<StatementOrExpression<'source, A>, A>),
 
     /// `(p0 = v0, p1 = v1, ...)`
     Object(Vec<ObjectField<'source, A>, A>),
@@ -152,7 +152,7 @@ pub enum Expression<'source, A: Allocator> {
         argument: Box<Span<Expression<'source, A>>, A>,
     },
 
-    /// `target.<const_args...>(args...)`
+    /// `target.<const_args...>`
     Refine {
         target: Box<Span<Expression<'source, A>>, A>,
         const_arguments: Vec<Span<ConstArgument<'source, A>>, A>,
@@ -198,7 +198,7 @@ impl<'source, A: Allocator> ObjectField<'source, A> {
 #[derive_where(Debug, PartialEq)]
 pub struct If<'source, A: Allocator> {
     pub condition: Box<Span<Expression<'source, A>>, A>,
-    pub body: Span<Vec<Span<StatementOrExpression<'source, A>>, A>>,
+    pub body: Span<Vec<StatementOrExpression<'source, A>, A>>,
 }
 
 pub type ConstParameters<'source, A> = Vec<Span<ConstParameter<'source, A>>, A>;
@@ -237,8 +237,8 @@ pub enum StatementKind<'source, A: Allocator> {
     },
     Enum {
         const_parameters: ConstParameters<'source, A>,
-        id: &'source str,
-        variants: Vec<(&'source str, Option<Span<Expression<'source, A>>>), A>,
+        id: Span<&'source str>,
+        variants: Vec<(Span<&'source str>, Option<Span<Expression<'source, A>>>), A>,
     },
     Alias {
         const_parameters: ConstParameters<'source, A>,
@@ -264,7 +264,7 @@ pub enum StatementKind<'source, A: Allocator> {
     Use(Use<'source, A>),
     RootUse(UseChild<'source, A>),
     Module {
-        id: &'source str,
+        id: Span<&'source str>,
         content: Option<ModuleContent<'source, A>>,
     },
     Break,
@@ -294,15 +294,33 @@ pub struct Annotation<'source, A: Allocator> {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct Statement<'source, A: Allocator> {
-    pub annotations: Vec<Annotation<'source, A>, A>,
-    pub statement_kind: StatementKind<'source, A>,
+    pub annotations: Vec<Span<Annotation<'source, A>>, A>,
+    pub statement_kind: Span<StatementKind<'source, A>>,
+}
+
+impl<'source, A: Allocator> Statement<'source, A> {
+    pub fn source(&self) -> Range<Index> {
+        self.annotations
+            .first()
+            .map(|a| a.source.start)
+            .unwrap_or(self.statement_kind.source.start)..self.statement_kind.source.end
+    }
 }
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub enum StatementOrExpression<'source, A: Allocator> {
     Statement(Statement<'source, A>),
-    Expression(Expression<'source, A>),
+    Expression(Span<Expression<'source, A>>),
+}
+
+impl<'source, A: Allocator> StatementOrExpression<'source, A> {
+    pub fn source(&self) -> Range<Index> {
+        match self {
+            Self::Statement(s) => s.source(),
+            Self::Expression(e) => e.source.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -313,7 +331,18 @@ pub struct ModuleContent<'source, A: Allocator>(pub Vec<TopLevelItem<'source, A>
 #[derive_where(Debug, PartialEq)]
 pub struct TopLevelItem<'source, A: Allocator> {
     pub visibility: Visibility,
-    pub statement: Span<Statement<'source, A>>,
+    pub statement: Statement<'source, A>,
+}
+
+impl<'source, A: Allocator> TopLevelItem<'source, A> {
+    pub fn source(&self) -> Range<Index> {
+        let stmt_source = self.statement.source();
+
+        self.visibility
+            .as_ref()
+            .map(|v| v.source.start)
+            .unwrap_or(stmt_source.start)..stmt_source.end
+    }
 }
 
 #[derive(Clone)]

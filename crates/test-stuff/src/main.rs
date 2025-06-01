@@ -11,11 +11,11 @@ fn main() {
     let alloc = Bump::new();
 
     let now = Instant::now();
-    
+
     let module = parse_module(source.as_bytes(), &alloc);
-    
+
     println!("dt: {:?}", now.elapsed());
-    
+
     match module {
         Ok(module) => {
             println!("{:#?}", module);

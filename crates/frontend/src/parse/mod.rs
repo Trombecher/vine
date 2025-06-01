@@ -7,6 +7,7 @@ mod labext;
 mod type_bp;
 
 use crate::lex::{Keyword, Lexer, Symbol, Token};
+use crate::parse::ast::StatementKind;
 use crate::parse::labext::LabExt;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -72,7 +73,7 @@ impl<
     /// Expects `self.iter.peek()?` to be [Some].
     ///
     /// Advances one token and then skips an optional line break. If a line break was encountered,
-    /// it adds the warning with the source of the token of [LookaheadBuffer::peek]
+    /// it adds the warning with the source of [LookaheadBuffer::peek]
     /// before [LookaheadBuffer::skip_lb] was called.
     #[inline]
     fn opt_omit_unnecessary_delimiter_warning(&mut self, warning: Warning) -> Result<(), Error> {
@@ -92,7 +93,7 @@ impl<
         Ok(())
     }
 
-    /// If `peek()` is a '<', then it parses type parameters.
+    /// If `peek()` is a '<', then it parses type parameters. Ends on the token after '>'.
     #[inline]
     fn parse_opt_const_parameters(&mut self) -> Result<ast::ConstParameters<'source, A>, Error> {
         Ok(match self.iter.peek()? {
@@ -115,7 +116,7 @@ impl<
     ///    ^
     /// ```
     ///
-    /// Expects the next token to be marked. Ends on the non-lb token after `>`.
+    /// Expects the next token to be marked. Ends on the token after `>`.
     fn parse_const_parameters(&mut self) -> Result<ast::ConstParameters<'source, A>, Error> {
         let mut params = Vec::new_in(self.alloc.clone());
 
@@ -161,7 +162,6 @@ impl<
         }
 
         self.iter.advance()?;
-        self.iter.skip_lb()?;
 
         Ok(params)
     }
@@ -171,7 +171,7 @@ impl<
     /// Expects `peek()` to be [Symbol::LeftBrace]. Ends on [Symbol::RightBrace].
     fn parse_block(
         &mut self,
-    ) -> Result<Span<Vec<Span<ast::StatementOrExpression<'source, A>>, A>>, Error> {
+    ) -> Result<Span<Vec<ast::StatementOrExpression<'source, A>, A>>, Error> {
         let start = self.iter.peek()?.unwrap().source.start;
 
         self.iter.advance()?;
@@ -198,12 +198,11 @@ impl<
             }
 
             if let Some(statement) = self.try_parse_statement()? {
-                items.push(statement.map(|s| ast::StatementOrExpression::Statement(s)));
+                items.push(ast::StatementOrExpression::Statement(statement));
             } else {
-                items.push(
-                    self.parse_expression(0, false)?
-                        .map(|e| ast::StatementOrExpression::Expression(e)),
-                );
+                items.push(ast::StatementOrExpression::Expression(
+                    self.parse_expression(0, false)?,
+                ));
             }
 
             match self.iter.peek()? {
@@ -229,6 +228,28 @@ impl<
             value: items,
             source: start..end,
         })
+    }
+
+    /// Parses an identifier.
+    ///
+    /// Expects `peek()` to yield [Token::Identifier] and advances one token.
+    fn parse_identifier(&mut self) -> Result<Span<&'source str>, Error> {
+        match self.iter.peek()? {
+            Some(Span {
+                value: Token::Identifier(id),
+                source,
+            }) => {
+                let id = Span {
+                    value: *id,
+                    source: source.clone(),
+                };
+
+                self.iter.advance()?;
+
+                Ok(id)
+            }
+            _ => error!("Expected an identifier"),
+        }
     }
 
     /// Expects the current token to be the first token of the type.
@@ -327,18 +348,8 @@ impl<
                             _ => None,
                         };
 
-                        let id = match self.iter.peek()? {
-                            Some(Span {
-                                value: Token::Identifier(id),
-                                source,
-                            }) => Span {
-                                value: *id,
-                                source: source.clone(),
-                            },
-                            _ => return error!("Expected an identifier"),
-                        };
+                        let id = self.parse_identifier()?;
 
-                        self.iter.advance()?;
                         self.iter.skip_lb()?;
 
                         let ty = self.parse_type(type_bp::MIN)?;
@@ -718,16 +729,12 @@ impl<
         })
     }
 
-    /// Expects [Buffered::peek] to yield [Token::Identifier].
-    /// Ends on the token after the last path segment (greedy).
+    /// Expects [Buffered::peek] to be after the first identifier.
+    /// Ends on the token after the last path segment.
     fn parse_item_path(
         &mut self,
         mut first_id: Span<&'source str>,
     ) -> Result<ast::ItemPath<'source, A>, Error> {
-        let mut source = self.iter.peek()?.unwrap().source.clone();
-
-        self.iter.advance()?;
-
         let parents = if let Some(Span {
             value: Token::Symbol(Symbol::Dot),
             ..
@@ -745,13 +752,10 @@ impl<
                     Some(Span {
                         value: Token::Identifier(id),
                         source: new_source,
-                    }) => {
-                        source.end = new_source.end;
-                        Span {
-                            value: *id,
-                            source: new_source.clone(),
-                        }
-                    }
+                    }) => Span {
+                        value: *id,
+                        source: new_source.clone(),
+                    },
                     _ => return error!("Expected an identifier"),
                 };
 
@@ -858,18 +862,10 @@ impl<
 
         let const_parameters = self.parse_opt_const_parameters()?;
 
-        let id = match self.iter.peek()? {
-            Some(Span {
-                value: Token::Identifier(id),
-                source,
-            }) => Span {
-                source: source.clone(),
-                value: *id,
-            },
-            _ => return error!("Expected an identifier"),
-        };
+        self.iter.skip_lb()?;
 
-        self.iter.advance()?;
+        let id = self.parse_identifier()?;
+
         self.iter.skip_lb()?;
 
         match self.iter.peek()? {
@@ -1005,23 +1001,12 @@ impl<
         self.iter.skip_lb()?;
 
         let const_parameters = self.parse_opt_const_parameters()?;
+        self.iter.skip_lb()?;
 
-        let id = match self.iter.peek()? {
-            Some(Span {
-                value: Token::Identifier(id),
-                source,
-            }) => Span {
-                value: *id,
-                source: source.clone(),
-            },
-            _ => return error!("Expected an identifier"),
-        };
-
-        self.iter.advance()?;
+        let id = self.parse_identifier()?;
         self.iter.skip_lb()?;
 
         let ty_visibility = self.parse_visibility()?;
-
         self.iter.skip_lb()?;
 
         let ty_is_mutable = match self.iter.peek()? {
@@ -1055,7 +1040,92 @@ impl<
     fn parse_enum_statement_kind(
         &mut self,
     ) -> Result<(ast::StatementKind<'source, A>, Index), Error> {
-        todo!()
+        // Skips `enum`.
+        self.iter.advance()?;
+        self.iter.skip_lb()?;
+
+        let const_parameters = self.parse_opt_const_parameters()?;
+        self.iter.skip_lb()?;
+
+        let id = self.parse_identifier()?;
+
+        let mut variants = Vec::new_in(self.alloc.clone());
+
+        let end = match self.iter.peek_n_non_lb(0)?.0 {
+            Some(Span {
+                value: Token::Symbol(Symbol::LeftBrace),
+                ..
+            }) => {
+                self.iter.skip_lb()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                let end = loop {
+                    // TODO: annotations
+
+                    let id = match self.iter.peek()? {
+                        Some(Span {
+                            value: Token::Symbol(Symbol::RightBrace),
+                            source,
+                        }) => break source.end,
+                        _ => self.parse_identifier()?,
+                    };
+
+                    let expr = match self.iter.peek_n_non_lb(0)?.0 {
+                        Some(Span {
+                            value: Token::Symbol(Symbol::Equals),
+                            ..
+                        }) => {
+                            self.iter.skip_lb()?;
+                            self.iter.advance()?;
+                            self.iter.skip_lb()?;
+
+                            Some(self.parse_expression(0, false)?)
+                        }
+                        _ => None,
+                    };
+
+                    variants.push((id, expr));
+
+                    match self.iter.peek_n_non_lb(0)? {
+                        (_, true) => {
+                            self.iter.skip_lb()?;
+                        }
+                        (
+                            Some(Span {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }),
+                            _,
+                        ) => {
+                            self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?
+                        }
+                        (
+                            Some(Span {
+                                value: Token::Symbol(Symbol::RightBrace),
+                                source,
+                            }),
+                            _,
+                        ) => break source.end,
+                        _ => return error!("Expected '}', ',', or a line break."),
+                    }
+                };
+
+                self.iter.advance()?;
+
+                end
+            }
+            _ => id.source.end,
+        };
+
+        Ok((
+            ast::StatementKind::Enum {
+                const_parameters,
+                id,
+                variants,
+            },
+            end,
+        ))
     }
 
     fn parse_mod_statement_kind(
@@ -1064,15 +1134,8 @@ impl<
         self.iter.advance()?;
         self.iter.skip_lb()?;
 
-        let (id, mut end) = match self.iter.peek()? {
-            Some(Span {
-                value: Token::Identifier(id),
-                source,
-            }) => (*id, source.end),
-            _ => return error!("Expected an identifier"),
-        };
-
-        self.iter.advance()?;
+        let id = self.parse_identifier()?;
+        let mut end = id.source.end;
 
         let content: Option<_> = match self.iter.peek_n_non_lb(0)? {
             // Code: mod xyz { ... }
@@ -1119,11 +1182,7 @@ impl<
                 _,
             ) => None, // The caller handles this
             (_, true) => None,
-            _ => {
-                return error!(
-                "Expected module content (starting with '{') or a delimiter (';' or a line break)"
-            )
-            }
+            _ => return error!("Expected '{', ';', or a line break."),
         };
 
         Ok((ast::StatementKind::Module { id, content }, end))
@@ -1132,6 +1191,8 @@ impl<
     fn parse_let_statement_kind(
         &mut self,
     ) -> Result<(ast::StatementKind<'source, A>, Index), Error> {
+        // TODO: introduce patterns
+
         self.iter.advance()?;
         self.iter.skip_lb()?;
 
@@ -1218,139 +1279,131 @@ impl<
     /// - Expects `peek()` to correspond to the first non-lb token of the statement (pre-advance).
     /// - Ends on the token after the statement. The caller must validate that token.
     /// **This may be a [Token::LineBreak]!**
-    fn try_parse_statement(&mut self) -> Result<Option<Span<ast::Statement<'source, A>>>, Error> {
-        let mut source = match self.iter.peek()? {
-            Some(Span { source, .. }) => source.clone(),
-            None => return Ok(None), // TODO: look
+    fn try_parse_statement(&mut self) -> Result<Option<ast::Statement<'source, A>>, Error> {
+        match self.iter.peek()? {
+            None => return Ok(None),
+            _ => {}
         };
 
         let mut annotations = Vec::new_in(self.alloc.clone());
 
         // Collect all available annotations associated with the statement.
         loop {
-            match self.iter.peek()? {
+            let start = match self.iter.peek()? {
                 Some(Span {
                     value: Token::Symbol(Symbol::At),
-                    ..
-                }) => {}
-                _ => {
-                    self.iter.skip_lb()?;
-                    break;
-                }
-            }
+                    source,
+                }) => source.start,
+                _ => break,
+            };
 
             self.iter.advance()?;
             self.iter.skip_lb()?;
 
-            let id = match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Identifier(id),
-                    source,
-                }) => Span {
-                    value: *id,
-                    source: source.clone(),
-                },
-                _ => return error!("Expected an identifier"),
-            };
+            let id = self.parse_identifier()?;
+            self.iter.skip_lb()?;
 
             let path = self.parse_item_path(id)?;
+            self.iter.skip_lb()?;
 
-            annotations.push(ast::Annotation {
-                path,
-                arguments: Vec::new_in(self.alloc.clone()),
+            annotations.push(Span {
+                source: start..path.source().end,
+                value: ast::Annotation {
+                    path,
+                    arguments: Vec::new_in(self.alloc.clone()),
+                },
             });
         }
 
-        let statement_kind: Option<ast::StatementKind<'source, A>> = match self.iter.peek()? {
+        self.iter.skip_lb()?;
+
+        let statement_kind = match self.iter.peek()? {
             Some(Span {
                 value: Token::Keyword(Keyword::Fn),
-                ..
+                source,
             }) => {
+                let start = source.start;
                 let (kind, end) = self.parse_fn_statement_kind()?;
-                source.end = end;
-                Some(kind)
+
+                Span {
+                    value: kind,
+                    source: start..end,
+                }
             }
             Some(Span {
                 value: Token::Keyword(Keyword::Mod),
-                ..
+                source,
             }) => {
+                let start = source.start;
                 let (kind, end) = self.parse_mod_statement_kind()?;
-                source.end = end;
-                Some(kind)
+
+                Span {
+                    value: kind,
+                    source: start..end,
+                }
             }
             Some(Span {
                 value: Token::Keyword(Keyword::Type),
-                ..
+                source,
             }) => {
+                let start = source.start;
                 let (kind, end) = self.parse_type_statement_kind()?;
-                source.end = end;
-                Some(kind)
-            }
 
-            // Schema (brackets denote optionals, angles denote other constructs):
-            //
-            // let [mut] <variable_name>[: <type>] [= <expr>]
+                Span {
+                    value: kind,
+                    source: start..end,
+                }
+            }
+            Some(Span {
+                value: Token::Keyword(Keyword::Enum),
+                source,
+            }) => {
+                let start = source.start;
+                let (kind, end) = self.parse_enum_statement_kind()?;
+
+                Span {
+                    value: kind,
+                    source: start..end,
+                }
+            }
             Some(Span {
                 value: Token::Keyword(Keyword::Let),
-                ..
+                source,
             }) => {
+                let start = source.start;
                 let (kind, end) = self.parse_let_statement_kind()?;
-                source.end = end;
-                Some(kind)
-            }
 
-            // use a
-            // use b.c
-            // use d.*
-            // use d.(x, y, z.*)
+                Span {
+                    value: kind,
+                    source: start..end,
+                }
+            }
             Some(Span {
                 value: Token::Keyword(Keyword::Use),
-                ..
+                source,
             }) => {
+                let start = source.start;
+
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
-                let root_id = match self.iter.peek()? {
-                    Some(Span {
-                        value: Token::Identifier(id),
-                        source,
-                    }) => Span {
-                        value: *id,
-                        source: source.clone(),
-                    },
-                    _ => return error!("Expected an identifier"),
-                };
-
-                self.iter.advance()?;
+                let root_id = self.parse_identifier()?;
+                self.iter.skip_lb()?;
 
                 let u = self.parse_use(root_id)?;
-                source = u.source();
+                let end = u.source().end;
 
-                Some(ast::StatementKind::Use(u))
-            }
-            Some(Span {
-                value: Token::Keyword(Keyword::Break),
-                ..
-            }) => {
-                self.iter.advance()?;
-                self.iter.skip_lb()?;
-                Some(ast::StatementKind::Break)
-            }
-            _ => {
-                if annotations.len() > 0 {
-                    return error!("Annotations are not attached to a statement");
+                Span {
+                    value: StatementKind::Use(u),
+                    source: start..end,
                 }
-
-                None
             }
+            _ => return error!("Annotations are not attached to a statement"),
         };
 
-        Ok(statement_kind.map(|statement_kind| Span {
-            value: ast::Statement {
-                annotations,
-                statement_kind,
-            },
-            source,
+        Ok(Some(ast::Statement {
+            annotations,
+            statement_kind,
         }))
     }
 
@@ -1375,7 +1428,7 @@ impl<
         min_bp: u8,
         calls_across_line_breaks: bool,
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
-        match self.try_parse_expression_first_term(calls_across_line_breaks)? {
+        match self.try_parse_expression_first_term()? {
             Some(first_term) => {
                 let expr = self.parse_expression_remaining_terms(
                     first_term,
@@ -1391,7 +1444,6 @@ impl<
     /// Expects a token.
     fn try_parse_expression_first_term(
         &mut self,
-        calls_across_line_breaks: bool,
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
         Ok(match self.iter.peek()? {
             Some(Span {
@@ -1505,7 +1557,7 @@ impl<
                             value: Token::Symbol(Symbol::RightParenthesis),
                             ..
                         }) => {}
-                        _ => return error!("Expected ')'"),
+                        token => return error!("Expected ')', found: {:?}", token),
                     }
 
                     self.iter.advance()?;
@@ -1866,7 +1918,7 @@ impl<
         }
 
         loop {
-            let (token, skipped_line_break) = self.iter.peek_n_non_lb(0)?; // TODO: marker
+            let (token, skipped_line_break) = self.iter.peek_n_non_lb(0)?;
 
             let (end, value) = match token.map(|token| &token.value) {
                 // Potential assignment operations
@@ -2113,6 +2165,8 @@ impl<
                     if bp::CALL < min_bp || (skipped_line_break && !calls_across_line_breaks) {
                         break;
                     }
+
+                    self.iter.skip_lb()?;
 
                     if let Some(expr) =
                         self.try_parse_expression(bp::CALL, calls_across_line_breaks)?
