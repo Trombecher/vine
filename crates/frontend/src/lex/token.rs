@@ -181,6 +181,7 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
 pub enum Symbol {
     Equals,
     EqualsEquals,
+    EqualsRightAngle,
     ExclamationMark,
     ExclamationMarkEquals,
     LeftAngle,
@@ -273,6 +274,7 @@ impl Symbol {
             | Self::SlashEquals
             | Self::StarStar
             | Self::PercentEquals
+            | Self::EqualsRightAngle
             | Self::PipeEquals
             | Self::AmpersandEquals
             | Self::CaretEquals

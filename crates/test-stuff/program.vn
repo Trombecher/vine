@@ -1,5 +1,3 @@
-pub(package) enum<T, U> Status {
-    Ok = 1,
-    Meh = double 3
-    Error = double double 4
+let main = fn () => {
+    let double = fn<T: Add<T>> t => 
 }

@@ -93,7 +93,7 @@ pub enum Expression<'source, A: Allocator> {
         body: Span<Vec<StatementOrExpression<'source, A>, A>>,
     },
 
-    /// `for variable in iter { body... }`
+    /// `for variable in iter { ... }`
     For {
         is_mutable: bool,
         variable: &'source str,
@@ -113,7 +113,7 @@ pub enum Expression<'source, A: Allocator> {
     /// `target?.property`
     OptionalAccess(Access<'source, A>),
 
-    /// `target[index]`
+    /// `target[index]` TODO
     ArrayAccess {
         target: Box<Span<Expression<'source, A>>, A>,
         index: Box<Span<Expression<'source, A>>, A>,
@@ -142,11 +142,11 @@ pub enum Expression<'source, A: Allocator> {
 
     /// `fn(params...) body`
     Function {
-        // signature: FunctionSignature<'source, A>,
+        // signature: FunctionSignature<'source, A>, TODO
         body: Box<Span<Expression<'source, A>>, A>,
     },
 
-    /// `target(args...)`
+    /// `callee argument`
     Call {
         callee: Box<Span<Expression<'source, A>>, A>,
         argument: Box<Span<Expression<'source, A>>, A>,
@@ -160,9 +160,27 @@ pub enum Expression<'source, A: Allocator> {
 
     /// `expression as ty`
     As {
-        expression: Box<Expression<'source, A>, A>,
+        expression: Box<Span<Expression<'source, A>>, A>,
         ty: Span<Type<'source, A>>,
     },
+    
+    Match {
+        on: Box<Span<Expression<'source, A>>, A>,
+        cases: Vec<MatchCase<'source, A>, A>
+    }
+}
+
+#[derive(Clone)]
+#[derive_where(Debug, PartialEq)]
+pub struct MatchCase<'source, A: Allocator> {
+    pattern: Span<Pattern<'source, A>>,
+    expression: Span<Expression<'source, A>>
+}
+
+impl<'source, A: Allocator> MatchCase<'source, A>  {
+    pub fn source(&self) -> Range<Index> {
+        self.pattern.source.start..self.expression.source.end
+    }
 }
 
 #[derive(Clone)]

@@ -201,7 +201,7 @@ impl<
                 items.push(ast::StatementOrExpression::Statement(statement));
             } else {
                 items.push(ast::StatementOrExpression::Expression(
-                    self.parse_expression(0, false)?,
+                    self.parse_expression(0, false, true)?,
                 ));
             }
 
@@ -817,7 +817,7 @@ impl<
             self.iter.advance()?;
             self.iter.skip_lb()?;
 
-            let value = self.parse_expression(0, false)?;
+            let value = self.parse_expression(0, false, true)?;
 
             fields.push(ast::ObjectField { id, value });
 
@@ -1414,8 +1414,9 @@ impl<
         &mut self,
         min_bp: u8,
         calls_across_line_breaks: bool,
+        appending_blocks: bool,
     ) -> Result<Span<ast::Expression<'source, A>>, Error> {
-        match self.try_parse_expression(min_bp, calls_across_line_breaks)? {
+        match self.try_parse_expression(min_bp, calls_across_line_breaks, appending_blocks)? {
             Some(expr) => Ok(expr),
             None => error!("Invalid start of an expression"),
         }
@@ -1427,13 +1428,15 @@ impl<
         &mut self,
         min_bp: u8,
         calls_across_line_breaks: bool,
+        appending_blocks: bool,
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
-        match self.try_parse_expression_first_term()? {
+        match self.try_parse_expression_first_term(appending_blocks)? {
             Some(first_term) => {
                 let expr = self.parse_expression_remaining_terms(
                     first_term,
                     min_bp,
                     calls_across_line_breaks,
+                    appending_blocks,
                 )?;
                 Ok(Some(expr))
             }
@@ -1444,8 +1447,27 @@ impl<
     /// Expects a token.
     fn try_parse_expression_first_term(
         &mut self,
+        appending_blocks: bool,
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
         Ok(match self.iter.peek()? {
+            Some(Span {
+                value: Token::Keyword(Keyword::Match),
+                source,
+            }) => {
+                let start = source.start;
+                
+                self.iter.advance()?;
+                
+                
+                
+                Some(Span {
+                    value: ast::Expression::Match {
+                        on: Box::new(Span {}),
+                        cases: vec![],
+                    },
+                    source: Default::default(),
+                })
+            }
             Some(Span {
                 value: Token::String(s),
                 source,
@@ -1549,7 +1571,7 @@ impl<
                 } else {
                     // Regular grouped expression
 
-                    let expr = self.parse_expression(0, true)?;
+                    let expr = self.parse_expression(0, true, true)?;
                     self.iter.skip_lb()?;
 
                     match self.iter.peek()? {
@@ -1594,7 +1616,7 @@ impl<
                         _ => {}
                     }
 
-                    items.push(self.parse_expression(0, false)?);
+                    items.push(self.parse_expression(0, false, true)?);
 
                     match self.iter.peek()? {
                         Some(Span {
@@ -1647,7 +1669,7 @@ impl<
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
-                let condition = self.parse_expression(0, true)?;
+                let condition = self.parse_expression(0, true, false)?;
                 self.iter.skip_lb()?;
 
                 match self.iter.peek()? {
@@ -1850,6 +1872,7 @@ impl<
         mut first_term: Span<ast::Expression<'source, A>>,
         min_bp: u8,
         calls_across_line_breaks: bool,
+        appending_blocks: bool,
     ) -> Result<Span<ast::Expression<'source, A>>, Error> {
         let start = first_term.source.start;
 

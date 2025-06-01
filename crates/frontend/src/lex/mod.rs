@@ -415,7 +415,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
 
         // Skip simple line comments, since they are not useful to the compiler.
         // But we have to yield something (recursion or a loop are not viable options),
-        // so we yield a Token::LineBreak and make sure that all immediate following
+        // so we yield a `Token::LineBreak` and make sure that all immediate following
         // line breaks are being skipped.
         if Some(b'/') == self.cursor.peek()
             && Some(b'/') == self.cursor.peek_n(1)
@@ -537,7 +537,19 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 }
                 b'=' => {
                     self.potential_markup = true;
-                    Token::Symbol(opt_eq!(Symbol::Equals, Symbol::EqualsEquals))
+                    unsafe { self.cursor.advance_unchecked() };
+                    
+                    Token::Symbol(match self.cursor.peek() {
+                        Some(b'=') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::EqualsEquals
+                        }
+                        Some(b'>') => {
+                            unsafe { self.cursor.advance_unchecked() };
+                            Symbol::EqualsRightAngle
+                        }
+                        _ => Symbol::Equals,
+                    })
                 }
                 b'+' => {
                     self.potential_markup = true;
