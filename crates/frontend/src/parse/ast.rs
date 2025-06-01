@@ -82,9 +82,9 @@ pub enum Expression<'source, A: Allocator> {
     /// ...
     /// ```
     If {
-        base: If<'source, A>,
-        else_ifs: Vec<If<'source, A>, A>,
-        else_body: Option<Span<Vec<StatementOrExpression<'source, A>, A>>>,
+        condition: Box<Span<Expression<'source, A>>, A>,
+        then_expr: Box<Span<Expression<'source, A>>, A>,
+        else_expr: Option<Box<Span<Expression<'source, A>>, A>>
     },
 
     /// `while condition { body... }`
@@ -163,23 +163,23 @@ pub enum Expression<'source, A: Allocator> {
         expression: Box<Span<Expression<'source, A>>, A>,
         ty: Span<Type<'source, A>>,
     },
-    
+
     Match {
         on: Box<Span<Expression<'source, A>>, A>,
-        cases: Vec<MatchCase<'source, A>, A>
-    }
+        cases: Vec<MatchCase<'source, A>, A>,
+    },
 }
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct MatchCase<'source, A: Allocator> {
-    pattern: Span<Pattern<'source, A>>,
-    expression: Span<Expression<'source, A>>
+    pub pattern: Pattern<'source, A>,
+    pub expression: Span<Expression<'source, A>>,
 }
 
-impl<'source, A: Allocator> MatchCase<'source, A>  {
+impl<'source, A: Allocator> MatchCase<'source, A> {
     pub fn source(&self) -> Range<Index> {
-        self.pattern.source.start..self.expression.source.end
+        self.pattern.source().start..self.expression.source.end
     }
 }
 
@@ -210,13 +210,6 @@ impl<'source, A: Allocator> ObjectField<'source, A> {
     pub fn source(&self) -> Range<Index> {
         self.id.source.start..self.value.source.end
     }
-}
-
-#[derive(Clone)]
-#[derive_where(Debug, PartialEq)]
-pub struct If<'source, A: Allocator> {
-    pub condition: Box<Span<Expression<'source, A>>, A>,
-    pub body: Span<Vec<StatementOrExpression<'source, A>, A>>,
 }
 
 pub type ConstParameters<'source, A> = Vec<Span<ConstParameter<'source, A>>, A>;
@@ -272,12 +265,9 @@ pub enum StatementKind<'source, A: Allocator> {
     Function {
         const_parameters: ConstParameters<'source, A>,
         id: Span<&'source str>,
-        pattern: Option<Pattern<'source, A>>,
-        // TODO: on type
-        this_parameter: Option<ThisParameter>, // TODO
-        input_type: Span<Type<'source, A>>,
+        pattern: Pattern<'source, A>,
         output_type: Span<Type<'source, A>>,
-        body: Box<Span<Expression<'source, A>>, A>,
+        body: Span<Vec<StatementOrExpression<'source, A>, A>>,
     },
     Use(Use<'source, A>),
     RootUse(UseChild<'source, A>),
@@ -525,27 +515,46 @@ impl<'source, A: Allocator> ItemPath<'source, A> {
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
-pub struct ObjectPatternField<'source, A: Allocator> {
-    id: &'source str,
-    ty: Span<Type<'source, A>>,
-    remap: Pattern<'source, A>,
+pub enum PatternUnit<'source, A: Allocator> {
+    Any(Span<()>),
+    Identifier {
+        is_mutable: Option<Span<()>>,
+        id: Span<&'source str>,
+    },
+    Object(Span<Vec<ObjectTypeField<'source, A>, A>>),
+    Array(Span<Vec<Pattern<'source, A>, A>>),
 }
 
-#[derive(Clone)]
-#[derive_where(Debug, PartialEq)]
-pub enum PatternUnit<'source, A: Allocator> {
-    Any,
-    Identifier { id: EcoString, is_mutable: bool },
-    Object(Vec<ObjectTypeField<'source, A>, A>),
-    Array(Vec<Pattern<'source, A>, A>),
+impl<'source, A: Allocator> PatternUnit<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        match self {
+            PatternUnit::Any(s) => s.source.clone(),
+            PatternUnit::Identifier { is_mutable, id } => {
+                is_mutable
+                    .as_ref()
+                    .map(|t| t.source.start)
+                    .unwrap_or(id.source.start)..id.source.end
+            }
+            PatternUnit::Object(object) => object.source.clone(),
+            PatternUnit::Array(array) => array.source.clone(),
+        }
+    }
 }
 
 /// A pattern with a type: `<pattern_unit> <ty>`
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub struct PatternUnitWithType<'source, A: Allocator> {
-    pub unit: Span<PatternUnit<'source, A>>,
+    pub unit: PatternUnit<'source, A>,
     pub ty: Span<Type<'source, A>>,
+}
+
+impl<'source, A: Allocator> PatternUnitWithType<'source, A> {
+    #[inline]
+    pub fn source(&self) -> Range<Index> {
+        self.unit.source().start..self.ty.source.end
+    }
 }
 
 #[derive(Clone)]
@@ -555,6 +564,7 @@ pub enum Pattern<'source, A: Allocator> {
 
     /// Infamous `x @ <pattern>` syntax.
     Attach {
+        is_mutable: Option<Span<()>>,
         id: Span<&'source str>,
         pattern: Box<Pattern<'source, A>, A>,
     },
@@ -564,8 +574,65 @@ impl<'source, A: Allocator> Pattern<'source, A> {
     #[inline]
     pub fn source(&self) -> Range<Index> {
         match self {
-            Pattern::WithType(pt) => pt.unit.source.start..pt.ty.source.end,
-            Pattern::Attach { id, pattern } => id.source.start..pattern.source().end,
+            Pattern::WithType(pt) => pt.source(),
+            Pattern::Attach {
+                id,
+                pattern,
+                is_mutable,
+            } => {
+                is_mutable
+                    .as_ref()
+                    .map(|x| x.source.start)
+                    .unwrap_or_else(|| id.source.start)..pattern.source().end
+            }
+        }
+    }
+
+    /// Splits `x A -> B` into `(x A, B)`.
+    pub fn lift_function_return_type(self) -> (Self, Span<Type<'source, A>>)
+    where
+        A: Clone,
+    {
+        match self {
+            Pattern::WithType(PatternUnitWithType {
+                ty:
+                    Span {
+                        value: Type::Function { input, output },
+                        ..
+                    },
+                unit,
+            }) => (
+                Pattern::WithType(PatternUnitWithType { ty: *input, unit }),
+                *output,
+            ),
+            Pattern::Attach {
+                pattern,
+                id,
+                is_mutable,
+            } => {
+                let alloc = Box::allocator(&pattern).clone();
+                let (pattern, ty) = (*pattern).lift_function_return_type();
+
+                (
+                    Self::Attach {
+                        is_mutable,
+                        id,
+                        pattern: Box::new_in(pattern, alloc),
+                    },
+                    ty,
+                )
+            }
+            pattern => {
+                let end = pattern.source().end;
+
+                (
+                    pattern,
+                    Span {
+                        source: end..end,
+                        value: Type::Inferred,
+                    },
+                )
+            }
         }
     }
 }

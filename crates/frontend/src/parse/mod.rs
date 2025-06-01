@@ -7,7 +7,6 @@ mod labext;
 mod type_bp;
 
 use crate::lex::{Keyword, Lexer, Symbol, Token};
-use crate::parse::ast::StatementKind;
 use crate::parse::labext::LabExt;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -201,7 +200,7 @@ impl<
                 items.push(ast::StatementOrExpression::Statement(statement));
             } else {
                 items.push(ast::StatementOrExpression::Expression(
-                    self.parse_expression(0, false, true)?,
+                    self.parse_expression(0, false)?,
                 ));
             }
 
@@ -256,12 +255,40 @@ impl<
     ///
     /// Ends on past-the-end token.
     fn parse_type(&mut self, min_bp: u8) -> Result<Span<ast::Type<'source, A>>, Error> {
-        let first_term = self.parse_type_first_term()?;
-        Ok(self.parse_type_remaining_terms(first_term, min_bp)?)
+        match self.try_parse_type(min_bp)? {
+            Some(ty) => Ok(ty),
+            None => {
+                error!("Expected a type starting with '!', '(', 'This', '_', or an identifier.")
+            }
+        }
     }
 
-    fn parse_type_first_term(&mut self) -> Result<Span<ast::Type<'source, A>>, Error> {
+    /// Expects the current token to be the first token of the type.
+    ///
+    /// Ends on past-the-end token.
+    fn try_parse_type(&mut self, min_bp: u8) -> Result<Option<Span<ast::Type<'source, A>>>, Error> {
+        let first_term = self.try_parse_type_first_term()?;
+        Ok(match first_term {
+            None => None,
+            Some(first_term) => Some(self.parse_type_remaining_terms(first_term, min_bp)?),
+        })
+    }
+
+    fn try_parse_type_first_term(&mut self) -> Result<Option<Span<ast::Type<'source, A>>>, Error> {
         Ok(match self.iter.peek()? {
+            Some(Span {
+                value: Token::Keyword(Keyword::Underscore),
+                source,
+            }) => {
+                let source = source.clone();
+
+                self.iter.advance()?;
+
+                Some(Span {
+                    value: ast::Type::Inferred,
+                    source,
+                })
+            }
             Some(Span {
                 value: Token::Symbol(Symbol::ExclamationMark),
                 source,
@@ -270,10 +297,10 @@ impl<
 
                 self.iter.advance()?;
 
-                Span {
+                Some(Span {
                     value: ast::Type::Never,
                     source,
-                }
+                })
             }
             Some(Span {
                 value: Token::Keyword(Keyword::CapitalThis),
@@ -283,10 +310,10 @@ impl<
 
                 self.iter.advance()?;
 
-                Span {
+                Some(Span {
                     value: ast::Type::This,
                     source,
-                }
+                })
             }
             Some(Span {
                 value: Token::Symbol(Symbol::LeftParenthesis),
@@ -397,10 +424,10 @@ impl<
                         }
                     };
 
-                    Span {
+                    Some(Span {
                         source: start..end,
                         value: ast::Type::Object(fields),
-                    }
+                    })
                 } else if let Some(Span {
                     value: Token::Symbol(Symbol::RightParenthesis),
                     source,
@@ -410,10 +437,10 @@ impl<
 
                     self.iter.advance()?;
 
-                    Span {
+                    Some(Span {
                         value: ast::Type::Object(Vec::new_in(self.alloc.clone())),
                         source: start..end,
-                    }
+                    })
                 } else {
                     // Grouping
 
@@ -431,7 +458,7 @@ impl<
 
                     self.iter.advance()?;
 
-                    ty
+                    Some(ty)
                 }
             }
             Some(Span {
@@ -444,6 +471,9 @@ impl<
                     value: *id,
                     source: source.clone(),
                 };
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
                 let path = self.parse_item_path(id)?;
 
@@ -510,20 +540,15 @@ impl<
                     }
                 };
 
-                Span {
+                Some(Span {
                     source: source.start..const_parameters.source.end,
                     value: ast::Type::Item(ast::ItemRef {
                         path,
                         const_parameters,
                     }),
-                }
+                })
             }
-            token => {
-                return error!(
-                    "Expected an identifier or '!' (the never type), found: {:?}",
-                    token
-                )
-            }
+            _ => None,
         })
     }
 
@@ -781,6 +806,95 @@ impl<
         })
     }
 
+    /// Peek: first token. Ends on past-the-end.
+    fn parse_pattern(&mut self) -> Result<ast::Pattern<'source, A>, Error> {
+        let unit = match self.iter.peek()? {
+            Some(Span {
+                value: Token::Keyword(Keyword::Mut),
+                source: mut_source,
+            }) => {
+                let mut_source = mut_source.clone();
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                // TODO: maybe custom error message
+                let id = self.parse_identifier()?;
+
+                ast::PatternUnit::Identifier {
+                    is_mutable: Some(Span {
+                        value: (),
+                        source: mut_source,
+                    }),
+                    id,
+                }
+            }
+            Some(Span {
+                value: Token::Identifier(id),
+                source,
+            }) => {
+                let id = Span {
+                    value: *id,
+                    source: source.clone(),
+                };
+
+                self.iter.advance()?;
+
+                ast::PatternUnit::Identifier {
+                    is_mutable: None,
+                    id,
+                }
+            }
+            Some(Span {
+                value: Token::Keyword(Keyword::Underscore),
+                source,
+            }) => {
+                let source = source.clone();
+
+                self.iter.advance()?;
+
+                ast::PatternUnit::Any(Span { value: (), source })
+            }
+            // TODO: impl more
+            _ => return error!("Expected an identifier, 'mut', '_', '(', or '['."),
+        };
+
+        self.iter.skip_lb()?;
+
+        Ok(match self.iter.peek()? {
+            Some(Span {
+                value: Token::Symbol(Symbol::At),
+                ..
+            }) => {
+                let (id, is_mutable) = match unit {
+                    ast::PatternUnit::Identifier { id, is_mutable } => (id, is_mutable),
+                    // TODO
+                    _ => return error!("Cannot attach a pattern to a non-identifier"),
+                };
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                ast::Pattern::Attach {
+                    is_mutable,
+                    id,
+                    pattern: Box::new_in(self.parse_pattern()?, self.alloc.clone()),
+                }
+            }
+            _ => {
+                let end = unit.source().end;
+
+                // Default to '_'.
+                let ty = self.try_parse_type(type_bp::MIN)?.unwrap_or(Span {
+                    value: ast::Type::Inferred,
+                    source: end..end,
+                });
+
+                ast::Pattern::WithType(ast::PatternUnitWithType { unit, ty })
+            }
+        })
+    }
+
     /// Expects `peek()` the token after '('. Ends on ')'. Returns `(fields, end)`.
     fn parse_object_literal(
         &mut self,
@@ -817,7 +931,7 @@ impl<
             self.iter.advance()?;
             self.iter.skip_lb()?;
 
-            let value = self.parse_expression(0, false, true)?;
+            let value = self.parse_expression(0, false)?;
 
             fields.push(ast::ObjectField { id, value });
 
@@ -854,6 +968,12 @@ impl<
         Ok((fields, end))
     }
 
+    /// Function syntax ("[]" indicate optional):
+    ///
+    /// ```plain
+    /// fn[<T, ...>] id InputType [-> OutputType] = binding => body
+    /// fn[<T, ...>] id InputType [-> OutputType] { body } // when ignoring `InputType`
+    /// ```
     fn parse_fn_statement_kind(
         &mut self,
     ) -> Result<(ast::StatementKind<'source, A>, Index), Error> {
@@ -861,11 +981,9 @@ impl<
         self.iter.skip_lb()?;
 
         let const_parameters = self.parse_opt_const_parameters()?;
-
         self.iter.skip_lb()?;
 
         let id = self.parse_identifier()?;
-
         self.iter.skip_lb()?;
 
         match self.iter.peek()? {
@@ -884,51 +1002,31 @@ impl<
             _ => {}
         }
 
-        let ty = self.parse_type(type_bp::MIN)?;
-
+        let pattern = self.parse_pattern()?;
         self.iter.skip_lb()?;
 
-        // Validate that the block starts with `{`
         match self.iter.peek()? {
             Some(Span {
                 value: Token::Symbol(Symbol::LeftBrace),
                 ..
             }) => {}
-            _ => return error!("Expected '{'"),
+            token => return error!("Expected '{{', found: {:?}", token),
         }
 
         let body = self.parse_block()?;
-        let end = body.source.end;
-
         self.iter.advance()?;
 
-        let (input_type, output_type) = match ty {
-            Span {
-                value: ast::Type::Function { input, output },
-                ..
-            } => (*input, *output),
-            input => {
-                let input_source_end = input.source.end;
+        let end = body.source.end;
 
-                (
-                    input,
-                    Span {
-                        value: ast::Type::Inferred,
-                        source: input_source_end..input_source_end,
-                    },
-                )
-            }
-        };
+        let (pattern, output_type) = pattern.lift_function_return_type();
 
         Ok((
             ast::StatementKind::Function {
                 const_parameters,
-                input_type,
                 output_type,
                 id,
-                pattern: None,
-                this_parameter: None,
-                body: Box::new_in(body.map(ast::Expression::Block), self.alloc.clone()),
+                pattern,
+                body,
             },
             end,
         ))
@@ -1022,7 +1120,19 @@ impl<
             _ => false,
         };
 
-        let ty = self.parse_type(type_bp::MIN)?;
+        let ty = match self.try_parse_type(type_bp::MIN)? {
+            Some(ty) => ty,
+            None if let None = ty_visibility
+                && !ty_is_mutable =>
+            {
+                Span {
+                    value: ast::Type::Object(Vec::new_in(self.alloc.clone())),
+                    source: id.source.end..id.source.end,
+                }
+            }
+            None => return error!("Expected a type."),
+        };
+
         let end = ty.source.end;
 
         Ok((
@@ -1394,11 +1504,17 @@ impl<
                 let end = u.source().end;
 
                 Span {
-                    value: StatementKind::Use(u),
+                    value: ast::StatementKind::Use(u),
                     source: start..end,
                 }
             }
-            _ => return error!("Annotations are not attached to a statement"),
+            _ => {
+                if annotations.len() > 0 {
+                    return error!("Annotations are not attached to a statement");
+                }
+
+                return Ok(None);
+            }
         };
 
         Ok(Some(ast::Statement {
@@ -1414,9 +1530,8 @@ impl<
         &mut self,
         min_bp: u8,
         calls_across_line_breaks: bool,
-        appending_blocks: bool,
     ) -> Result<Span<ast::Expression<'source, A>>, Error> {
-        match self.try_parse_expression(min_bp, calls_across_line_breaks, appending_blocks)? {
+        match self.try_parse_expression(min_bp, calls_across_line_breaks)? {
             Some(expr) => Ok(expr),
             None => error!("Invalid start of an expression"),
         }
@@ -1428,15 +1543,13 @@ impl<
         &mut self,
         min_bp: u8,
         calls_across_line_breaks: bool,
-        appending_blocks: bool,
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
-        match self.try_parse_expression_first_term(appending_blocks)? {
+        match self.try_parse_expression_first_term()? {
             Some(first_term) => {
                 let expr = self.parse_expression_remaining_terms(
                     first_term,
                     min_bp,
                     calls_across_line_breaks,
-                    appending_blocks,
                 )?;
                 Ok(Some(expr))
             }
@@ -1447,7 +1560,6 @@ impl<
     /// Expects a token.
     fn try_parse_expression_first_term(
         &mut self,
-        appending_blocks: bool,
     ) -> Result<Option<Span<ast::Expression<'source, A>>>, Error> {
         Ok(match self.iter.peek()? {
             Some(Span {
@@ -1455,17 +1567,110 @@ impl<
                 source,
             }) => {
                 let start = source.start;
-                
+
                 self.iter.advance()?;
-                
-                
-                
+                self.iter.skip_lb()?;
+
+                let on_expr = self.parse_expression(0, true)?;
+                self.iter.skip_lb()?;
+
+                match self.iter.peek()? {
+                    Some(Span {
+                        value: Token::Symbol(Symbol::EqualsRightAngle),
+                        ..
+                    }) => {}
+                    _ => return error!("Expected '=>'."),
+                }
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                match self.iter.peek()? {
+                    Some(Span {
+                        value: Token::Symbol(Symbol::LeftBrace),
+                        ..
+                    }) => {}
+                    _ => return error!("Expected '{'."),
+                }
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                let mut cases = Vec::new_in(self.alloc.clone());
+
+                let end = loop {
+                    match self.iter.peek()? {
+                        Some(Span {
+                            value: Token::Symbol(Symbol::RightBrace),
+                            source,
+                        }) => break source.end,
+                        _ => {}
+                    }
+
+                    let pattern = self.parse_pattern()?;
+                    self.iter.skip_lb()?;
+
+                    match self.iter.peek()? {
+                        Some(Span {
+                            value: Token::Symbol(Symbol::EqualsRightAngle),
+                            ..
+                        }) => {}
+                        _ => return error!("Expected '=>'."),
+                    }
+
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+
+                    let expr = self.parse_expression(0, false)?;
+
+                    cases.push(ast::MatchCase {
+                        pattern,
+                        expression: expr,
+                    });
+
+                    match self.iter.peek_n_non_lb(0)? {
+                        (
+                            Some(Span {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }),
+                            true,
+                        ) => {
+                            // Unique formatting
+                            self.iter.skip_lb()?;
+                            self.iter.advance()?;
+                        }
+                        (_, true) => {
+                            self.iter.skip_lb()?;
+                        }
+                        (
+                            Some(Span {
+                                value: Token::Symbol(Symbol::Comma),
+                                ..
+                            }),
+                            _,
+                        ) => {
+                            self.opt_omit_unnecessary_delimiter_warning(Warning::UnnecessaryComma)?
+                        }
+                        (
+                            Some(Span {
+                                value: Token::Symbol(Symbol::RightBrace),
+                                source,
+                            }),
+                            _,
+                        ) => break source.end,
+                        _ => return error!("Expected '}', ',', or a line break."),
+                    }
+                };
+
+                self.iter.advance()?;
+
                 Some(Span {
                     value: ast::Expression::Match {
-                        on: Box::new(Span {}),
-                        cases: vec![],
+                        on: Box::new_in(on_expr, self.alloc.clone()),
+                        cases,
                     },
-                    source: Default::default(),
+                    source: start..end,
                 })
             }
             Some(Span {
@@ -1571,7 +1776,7 @@ impl<
                 } else {
                     // Regular grouped expression
 
-                    let expr = self.parse_expression(0, true, true)?;
+                    let expr = self.parse_expression(0, true)?;
                     self.iter.skip_lb()?;
 
                     match self.iter.peek()? {
@@ -1616,7 +1821,7 @@ impl<
                         _ => {}
                     }
 
-                    items.push(self.parse_expression(0, false, true)?);
+                    items.push(self.parse_expression(0, false)?);
 
                     match self.iter.peek()? {
                         Some(Span {
@@ -1669,90 +1874,47 @@ impl<
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
-                let condition = self.parse_expression(0, true, false)?;
+                let condition = self.parse_expression(0, true)?;
                 self.iter.skip_lb()?;
 
                 match self.iter.peek()? {
                     Some(Span {
-                        value: Token::Symbol(Symbol::LeftBrace),
+                        value: Token::Symbol(Symbol::EqualsRightAngle),
                         ..
                     }) => {}
-                    _ => return error!("Expected '{'"),
+                    _ => return error!("Expected '=>'"),
                 }
 
-                let body = self.parse_block()?;
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
 
-                let mut else_ifs = Vec::new_in(self.alloc.clone());
+                let then_expr = self.parse_expression(0, false)?;
 
-                let else_body = loop {
-                    self.iter.advance()?;
+                let else_expr = match self.iter.peek_n_non_lb(0)?.0 {
+                    Some(Span {
+                        value: Token::Keyword(Keyword::Else),
+                        ..
+                    }) => {
+                        self.iter.skip_lb()?;
+                        self.iter.advance()?;
+                        self.iter.skip_lb()?;
 
-                    match self.iter.peek_n_non_lb(0)?.0 {
-                        Some(Span {
-                            value: Token::Keyword(Keyword::Else),
-                            ..
-                        }) => {}
-                        _ => break None,
+                        Some(self.parse_expression(0, false)?)
                     }
-
-                    self.iter.advance()?;
-                    self.iter.skip_lb()?;
-
-                    match self.iter.peek()? {
-                        Some(Span {
-                            value: Token::Keyword(Keyword::If),
-                            ..
-                        }) => {}
-                        Some(Span {
-                            value: Token::Symbol(Symbol::LeftBrace),
-                            ..
-                        }) => {
-                            let block = self.parse_block()?;
-                            self.iter.advance()?;
-                            break Some(block);
-                        }
-                        _ => return error!("Expected `if` or '{'"),
-                    }
-
-                    // else-if-branch
-
-                    self.iter.advance()?;
-                    self.iter.skip_lb()?;
-
-                    let condition = self.parse_expression(0, true)?;
-                    self.iter.skip_lb()?;
-
-                    match self.iter.peek()? {
-                        Some(Span {
-                            value: Token::Symbol(Symbol::LeftBrace),
-                            ..
-                        }) => {}
-                        _ => return error!("Expected '{' after 'else if' condition"),
-                    }
-
-                    let body = self.parse_block()?;
-
-                    else_ifs.push(ast::If {
-                        condition: Box::new_in(condition, self.alloc.clone()),
-                        body,
-                    })
+                    _ => None,
                 };
 
-                let end = else_body
+                let end = else_expr
                     .as_ref()
                     .map(|else_body| else_body.source.end)
-                    .or_else(|| else_ifs.last().map(|else_if| else_if.body.source.end))
-                    .unwrap_or_else(|| body.source.end);
+                    .unwrap_or_else(|| then_expr.source.end);
 
                 Some(Span {
                     source: start..end,
                     value: ast::Expression::If {
-                        base: ast::If {
-                            condition: Box::new_in(condition, self.alloc.clone()),
-                            body,
-                        },
-                        else_ifs,
-                        else_body,
+                        condition: Box::new_in(condition, self.alloc.clone()),
+                        then_expr: Box::new_in(then_expr, self.alloc.clone()),
+                        else_expr: else_expr.map(|e| Box::new_in(e, self.alloc.clone())),
                     },
                 })
             }
@@ -1872,7 +2034,6 @@ impl<
         mut first_term: Span<ast::Expression<'source, A>>,
         min_bp: u8,
         calls_across_line_breaks: bool,
-        appending_blocks: bool,
     ) -> Result<Span<ast::Expression<'source, A>>, Error> {
         let start = first_term.source.start;
 

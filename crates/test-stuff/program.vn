@@ -1,3 +1,7 @@
-let main = fn () => {
-    let double = fn<T: Add<T>> t => 
+fn<T> double t T -> T {
+    match t => {
+        a U8 => 0
+        b U16 => 3
+        _ => 1
+    }
 }
