@@ -4,6 +4,7 @@ use phf::phf_map;
 
 #[cfg(test)]
 use span::Index;
+use span::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
@@ -32,8 +33,8 @@ pub enum Token<'a> {
     /// A string literal that indicates that an expression will follow.
     FragmentString(EcoString),
 
-    /// `<tag`
-    MarkupStartTag(&'a str),
+    /// A markup start tag `<something>`. The spanned string is the tag name.
+    MarkupStartTag(Span<&'a str>),
 
     /// `key`
     MarkupKey(&'a str),
@@ -51,7 +52,7 @@ pub enum Token<'a> {
     MarkupText(&'a str),
 
     /// `</tag>`
-    MarkupEndTag(&'a str),
+    MarkupEndTag(Span<&'a str>),
 
     /// A line break (yes, line breaks have semantic meaning).
     LineBreak,
@@ -93,12 +94,12 @@ impl<'a> Token<'a> {
             Self::Keyword(kw) => kw.str().len() as Index,
             Self::String(s) => s.len() as Index + 2,
             Self::FragmentString(f) => f.len() as Index,
-            Self::MarkupStartTag(s) => s.len() as Index + 1,
+            Self::MarkupStartTag(s) => s.value.len() as Index + 2,
             Self::MarkupKey(s) => s.len() as Index,
             Self::MarkupStartTagEnd => 1,
             Self::MarkupClose => 1,
             Self::MarkupText(t) => t.len() as Index,
-            Self::MarkupEndTag(e) => e.len() as Index + 3,
+            Self::MarkupEndTag(e) => e.value.len() as Index + 3,
             Self::LineBreak => 1,
             Self::Annotation(_) => 0,
         }

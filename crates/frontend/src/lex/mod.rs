@@ -13,11 +13,13 @@ use errors::*;
 use fallible_iterator::FallibleIterator;
 use span::{Index, Span};
 
+mod cursor_ext;
 mod tests;
-mod token;
+mod tokens;
 mod unit_tests;
 
-pub use token::*;
+use crate::lex::cursor_ext::CursorExt;
+pub use tokens::*;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Layer {
@@ -25,8 +27,14 @@ pub enum Layer {
     KeyOrStartTagEndOrSelfClose,
     Value,
     TextOrInsert,
+    
+    /// The next byte is '</'.
     EndTag,
+    
+    /// The next byte is AFTER '{'.
     Insert,
+    
+    /// The next byte is '<'.
     StartTag,
 }
 
@@ -169,45 +177,9 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         loop {
             number += match self.cursor.next_lfn() {
                 Some(b'_') => continue,
-                Some(b'0') => {
+                Some(x @ b'0'..=b'9') => {
                     multiplier *= 0.1;
-                    continue;
-                }
-                Some(b'1') => {
-                    multiplier *= 0.1;
-                    1.0
-                }
-                Some(b'2') => {
-                    multiplier *= 0.1;
-                    2.0
-                }
-                Some(b'3') => {
-                    multiplier *= 0.1;
-                    3.0
-                }
-                Some(b'4') => {
-                    multiplier *= 0.1;
-                    4.0
-                }
-                Some(b'5') => {
-                    multiplier *= 0.1;
-                    5.0
-                }
-                Some(b'6') => {
-                    multiplier *= 0.1;
-                    6.0
-                }
-                Some(b'7') => {
-                    multiplier *= 0.1;
-                    7.0
-                }
-                Some(b'8') => {
-                    multiplier *= 0.1;
-                    8.0
-                }
-                Some(b'9') => {
-                    multiplier *= 0.1;
-                    9.0
+                    (x - b'0') as f64
                 }
                 Some(x) if x.is_ascii_alphabetic() => {
                     return error!("Expected a digit in decimal part")
@@ -247,7 +219,9 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         }
     }
 
-    pub(crate) fn parse_id(&mut self) -> Result<&'source str, Error> {
+    #[inline]
+    pub(crate) fn parse_id(&mut self) -> Result<Span<&'source str>, Error> {
+        let start = self.cursor.bytes_consumed() as Index;
         let start_position = self.cursor.position();
 
         loop {
@@ -260,9 +234,12 @@ impl<'source, A: Allocator> Lexer<'source, A> {
             }
         }
 
-        Ok(unsafe {
-            // SAFETY: slice contains UTF-8 because of the loop.
-            from_utf8_unchecked(start_position.slice_to(self.cursor.position()))
+        Ok(Span {
+            source: start..self.cursor.bytes_consumed() as Index,
+            value: unsafe {
+                // SAFETY: slice contains UTF-8 because of the loop.
+                from_utf8_unchecked(start_position.slice_to(self.cursor.position()))
+            },
         })
     }
 
@@ -538,7 +515,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                 b'=' => {
                     self.potential_markup = true;
                     unsafe { self.cursor.advance_unchecked() };
-                    
+
                     Token::Symbol(match self.cursor.peek() {
                         Some(b'=') => {
                             unsafe { self.cursor.advance_unchecked() };
@@ -806,7 +783,7 @@ impl<'source, A: Allocator> Lexer<'source, A> {
                     self.parse_string()?
                 }
                 b'A'..=b'Z' | b'_' | b'a'..=b'z' => {
-                    let str = self.parse_id()?;
+                    let str = self.parse_id()?.value;
 
                     if let Some(kw) = KEYWORDS.get(str) {
                         Token::Keyword(*kw)
@@ -826,50 +803,55 @@ impl<'source, A: Allocator> Lexer<'source, A> {
         }
     }
 
-    /// ```text
-    ///  v
-    /// <tag...
-    /// ```
-    ///
-    /// Assumes that the next byte is the id.
+    /// Assumes that the next byte is '<'. Ends on the byte after the id.
     pub fn parse_start_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
-        let start = self.cursor.bytes_consumed();
-
-        self.skip_whitespace();
+        let start = self.cursor.bytes_consumed() as Index;
+        self.cursor.advance(); // Skip '<'
 
         let identifier = self.parse_id()?;
 
-        if KEYWORDS.contains_key(identifier) {
-            return error!("Cannot use a reserved keyword as a start tag identifier");
+        if KEYWORDS.contains_key(identifier.value) {
+            return error!("Cannot use a reserved keyword as an identifier.");
         }
 
         self.layers.push(Layer::KeyOrStartTagEndOrSelfClose);
 
         Ok(Span {
             value: Token::MarkupStartTag(identifier),
-            source: start as Index..self.cursor.bytes_consumed() as Index,
+            source: start..self.cursor.bytes_consumed() as Index,
         })
     }
 
+    /// Assumes that the next byte is `<`.
     pub fn parse_end_tag(&mut self) -> Result<Span<Token<'source>>, Error> {
-        let start = self.cursor.bytes_consumed();
+        let start = self.cursor.bytes_consumed() as Index;
+
+        self.cursor.advance(); // Skip '<'
+        self.cursor.advance(); // Skip '/'
 
         self.skip_whitespace();
 
         let tag_name = self.parse_id()?;
-        if KEYWORDS.contains_key(tag_name) {
+
+        if KEYWORDS.contains_key(tag_name.value) {
             return error!("Cannot use a reserved keyword as an end tag identifier");
         }
 
         self.skip_whitespace();
 
-        match self.cursor.next_lfn() {
-            Some(b'>') => Ok(Span {
-                value: Token::MarkupEndTag(tag_name),
-                source: start as Index..self.cursor.bytes_consumed() as Index,
-            }),
-            _ => error!("Unterminated end tag"),
+        match self.cursor.peek() {
+            Some(b'>') => {}
+            _ => return error!("Unterminated end tag"),
         }
+
+        unsafe {
+            self.cursor.advance_unchecked();
+        }
+
+        Ok(Span {
+            value: Token::MarkupEndTag(tag_name),
+            source: start..self.cursor.bytes_consumed() as Index,
+        })
     }
 }
 
@@ -887,8 +869,12 @@ impl<'source, A: Allocator> FallibleIterator for Lexer<'source, A> {
                 if self.potential_markup {
                     self.potential_markup = false;
 
-                    if self.cursor.peek() == Some(b'<') {
-                        unsafe { self.cursor.advance_unchecked() }
+                    if self.cursor.peek() == Some(b'<')
+                        && self
+                            .cursor
+                            .peek_n(1)
+                            .is_some_and(|x| x.is_ascii_alphabetic() || x == b'_')
+                    {
                         self.parse_start_tag().map(Some)
                     } else {
                         self.next_token_default()
@@ -904,28 +890,27 @@ impl<'source, A: Allocator> FallibleIterator for Lexer<'source, A> {
 
                 let token = match self.cursor.peek() {
                     Some(b'>') => {
-                        unsafe {
-                            self.cursor.advance_unchecked();
-                        }
+                        unsafe { self.cursor.advance_unchecked(); }
                         self.layers.push(Layer::TextOrInsert);
                         Token::MarkupStartTagEnd
                     }
                     Some(b'/') => {
-                        unsafe {
-                            self.cursor.advance_unchecked();
-                        }
-                        self.skip_whitespace();
+                        unsafe { self.cursor.advance_unchecked(); }
 
-                        match self.cursor.next_lfn() {
-                            Some(b'>') => Token::MarkupClose,
-                            _ => return error!("Unterminated self-closing tag"),
+                        match self.cursor.peek() {
+                            Some(b'>') => {},
+                            _ => return error!("Expected '>'."),
                         }
+
+                        unsafe { self.cursor.advance_unchecked(); }
+                        
+                        Token::MarkupClose
                     }
                     Some(char) if char.is_ascii_alphabetic() || char == b'_' => {
                         self.layers.push(Layer::Value);
-                        Token::MarkupKey(self.parse_id()?)
+                        Token::MarkupKey(self.parse_id()?.value)
                     }
-                    _ => return error!("Expected '>' or '/' or a char"),
+                    _ => return error!("Expected '>' or '/' or an identifier."),
                 };
 
                 Ok(Some(Span {
@@ -1009,13 +994,19 @@ impl<'source, A: Allocator> FallibleIterator for Lexer<'source, A> {
 
                 loop {
                     match self.cursor.peek() {
-                        Some(b'<' | b'{') => break,
+                        Some(b'<')
+                            if let Some(x) = self.cursor.peek_n(1)
+                                && (x == b'/' || x.is_ascii_alphabetic() || x == b'_') =>
+                        {
+                            break
+                        }
+                        Some(b'{') => break,
                         Some(_) => {
                             if let Err(_) = self.cursor.advance_char() {
                                 return error!("UTF-8 error");
                             }
                         }
-                        None => return error!("Markup element is unterminated"),
+                        None => return error!("Markup element is unterminated."),
                     }
                 }
 
@@ -1023,85 +1014,53 @@ impl<'source, A: Allocator> FallibleIterator for Lexer<'source, A> {
 
                 let text = unsafe {
                     // SAFETY: UTF-8 validated in the loop.
-                    from_utf8_unchecked(self.cursor.position().slice_to(first))
+                    from_utf8_unchecked(first.slice_to(self.cursor.position()))
                 };
+
+                // At this point, `peek()` will yield `Some(b'<' | b'{')`.
 
                 if text.len() == 0 {
                     // If there is no text, we have to yield something.
 
-                    match self.cursor.next_lfn() {
-                        // Yield an end tag or a nested element start
-                        Some(b'<') => {
-                            self.skip_whitespace();
-
-                            match self.cursor.peek() {
-                                None => error!("Unterminated start tag"),
-
-                                // End tag
-                                Some(b'/') => {
-                                    unsafe { self.cursor.advance_unchecked() }
-                                    self.parse_end_tag().map(Some)
-                                }
-
-                                // Nested element
-                                Some(_) => {
-                                    self.layers.push(Layer::TextOrInsert);
-                                    self.parse_start_tag().map(Some)
-                                }
-                            }
+                    match (self.cursor.peek(), self.cursor.peek_n(1)) {
+                        (Some(b'<'), Some(b'/')) => self.parse_end_tag().map(Some),
+                        (Some(b'<'), Some(_)) => {
+                            self.layers.push(Layer::TextOrInsert);
+                            self.parse_start_tag().map(Some)
                         }
-
-                        // Yield an insert start
-                        Some(b'{') => {
+                        (Some(b'{'), _) => {
+                            unsafe { self.cursor.advance_unchecked() }
+                            
                             self.layers.push(Layer::TextOrInsert);
                             self.layers.push(Layer::Insert);
                             self.potential_markup = true;
 
-                            let end = self.cursor.bytes_consumed() as Index;
+                            let start = self.cursor.bytes_consumed() as Index;
 
                             Ok(Some(Span {
                                 value: Token::Symbol(Symbol::LeftBrace),
-                                source: end - 1..end,
+                                source: start..start + 1,
                             }))
                         }
-
-                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
                         _ => unreachable!(),
                     }
                 } else {
                     // There is some text, so we yield the text and prepare the next layer state.
 
-                    match self.cursor.peek() {
-                        Some(b'<') => {
-                            unsafe {
-                                self.cursor.advance_unchecked();
-                            }
-
-                            self.skip_whitespace();
-
-                            match self.cursor.peek() {
-                                None => return error!("Expected something"),
-
-                                // End tag
-                                Some(b'/') => {
-                                    unsafe {
-                                        self.cursor.advance_unchecked();
-                                    }
-                                    self.layers.push(Layer::EndTag)
-                                }
-
-                                // Nested element
-                                _ => {
-                                    // Add context
-                                    self.layers.push(Layer::TextOrInsert);
-                                    self.layers.push(Layer::StartTag);
-                                }
-                            }
+                    match (self.cursor.peek(), self.cursor.peek_n(1)) {
+                        (Some(b'<'), Some(b'/')) => self.layers.push(Layer::EndTag),
+                        (Some(b'<'), Some(_)) => {
+                            // Start tag
+                            self.layers.push(Layer::TextOrInsert);
+                            self.layers.push(Layer::StartTag)
                         }
-                        Some(b'{') => self.layers.push(Layer::TextOrInsert),
-
-                        // SAFETY: Unreachable, since `x.skip_until(...)` leaves the next char as None, '<' or '{'.
-                        _ => unreachable!(),
+                        (Some(b'{'), _) => {
+                            unsafe { self.cursor.advance_unchecked() }
+                            self.layers.push(Layer::TextOrInsert)
+                        },
+                        _ => {
+                            unreachable!()
+                        }
                     }
 
                     Ok(Some(Span {

@@ -142,7 +142,8 @@ pub enum Expression<'source, A: Allocator> {
 
     /// `fn(params...) body`
     Function {
-        // signature: FunctionSignature<'source, A>, TODO
+        pattern: Pattern<'source, A>,
+        return_type: Span<Type<'source, A>>,
         body: Box<Span<Expression<'source, A>>, A>,
     },
 
@@ -263,7 +264,7 @@ pub enum StatementKind<'source, A: Allocator> {
     },
     Let {
         pattern: Pattern<'source, A>,
-        value: Option<Box<Span<Expression<'source, A>>, A>>,
+        value: Option<Span<Expression<'source, A>>>,
     },
     Function {
         const_parameters: ConstParameters<'source, A>,
@@ -278,20 +279,24 @@ pub enum StatementKind<'source, A: Allocator> {
         id: Span<&'source str>,
         content: Option<ModuleContent<'source, A>>,
     },
-    Break,
-    Continue,
+    Impl {
+        const_parameters: ConstParameters<'source, A>,
+        what: Span<Type<'source, A>>,
+        for_type: Span<Type<'source, A>>,
+        body: Span<Vec<StatementOrExpression<'source, A>, A>>,
+    }
 }
 
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub enum ConstParameter<'source, A: Allocator> {
     Type {
-        id: &'source str,
-        trait_bounds: Vec<&'source str, A>,
+        id: Span<&'source str>,
+        trait_bounds: Vec<Span<Type<'source, A>>, A>,
     },
     Let {
-        id: &'source str,
-        ty: Type<'source, A>,
+        id: Span<&'source str>,
+        ty: Span<Type<'source, A>>,
     },
 }
 

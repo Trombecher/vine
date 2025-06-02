@@ -12,6 +12,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::ops::Range;
+use ecow::EcoString;
 use errors::*;
 use fallible_iterator::FallibleIterator;
 use labuf::LookaheadBuffer;
@@ -108,57 +109,59 @@ impl<
         })
     }
 
-    /// Parses type declarations like this:
-    ///
-    /// ```text
-    /// fn<A, B>
-    ///    ^
-    /// ```
-    ///
-    /// Expects the next token to be marked. Ends on the token after `>`.
+    /// Expects the next token to be the non-lb token after '<'. Ends on the token after `>`.
     fn parse_const_parameters(&mut self) -> Result<ast::ConstParameters<'source, A>, Error> {
         let mut params = Vec::new_in(self.alloc.clone());
 
-        loop {
-            match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Identifier(id),
-                    source,
-                }) => {
-                    params.push(Span {
-                        value: ast::ConstParameter::Type {
-                            id,
-                            trait_bounds: Vec::new_in(self.alloc.clone()),
-                        },
-                        source: source.clone(),
-                    }); // TODO: Add traits
-                }
-                Some(Span {
-                    value: Token::Symbol(Symbol::RightAngle),
-                    ..
-                }) => break,
-                _ => return error!("Expected type parameter"),
-            }
+        self.meta_parse_list(
+            Token::Symbol(Symbol::RightAngle),
+            Token::Symbol(Symbol::Comma),
+            Warning::UnnecessaryComma,
+            true,
+            |s| {
+                let id = s.parse_identifier()?;
 
-            self.iter.advance()?;
-            self.iter.skip_lb()?;
+                let mut trait_bounds = Vec::new_in(s.alloc.clone());
 
-            // TODO: Add lf for tp separation
-            match self.iter.peek()? {
-                Some(Span {
-                    value: Token::Symbol(Symbol::RightAngle),
-                    ..
-                }) => break,
-                Some(Span {
-                    value: Token::Symbol(Symbol::Comma),
-                    ..
-                }) => {
-                    self.iter.advance()?;
-                    self.iter.skip_lb()?;
+                match s.iter.peek_n_non_lb(0)?.0 {
+                    Some(Span {
+                        value: Token::Keyword(Keyword::Is), // TODO: maybe change to ':'
+                        ..
+                    }) => loop {
+                        s.iter.skip_lb()?;
+                        s.iter.advance()?;
+                        s.iter.skip_lb()?;
+
+                        let ty = s.parse_type(type_bp::MIN)?;
+
+                        trait_bounds.push(ty);
+
+                        match s.iter.peek_n_non_lb(0)?.0 {
+                            Some(Span {
+                                value: Token::Symbol(Symbol::Plus),
+                                ..
+                            }) => {}
+                            _ => break,
+                        }
+                    },
+                    Some(Span {
+                        value: Token::Symbol(Symbol::Colon),
+                        ..
+                    }) => {
+                        s.iter.skip_lb()?;
+                        return error!("You gotta use 'is' instead of ':'.");
+                    }
+                    _ => {}
                 }
-                _ => return error!("Expected ',' or '>'"),
-            }
-        }
+
+                params.push(Span {
+                    source: id.source.clone(),
+                    value: ast::ConstParameter::Type { id, trait_bounds },
+                });
+
+                Ok(())
+            },
+        )?;
 
         self.iter.advance()?;
 
@@ -193,7 +196,7 @@ impl<
                 }
 
                 Ok(())
-            }
+            },
         )?;
 
         Ok(Span {
@@ -726,10 +729,10 @@ impl<
             match self.iter.peek_n_non_lb(0)? {
                 (Some(Span { value, .. }), true) if value == &delimiter_token => {
                     // Ominous syntax
-                    
+
                     // Skip line break.
                     self.iter.advance()?;
-                    
+
                     self.emit_single_token_warning(delimiter_warning)?;
                     self.iter.advance()?;
                 }
@@ -1300,13 +1303,7 @@ impl<
             .map(|value| value.source.end)
             .unwrap_or_else(|| pattern.source().end);
 
-        Ok((
-            ast::StatementKind::Let {
-                pattern,
-                value: value.map(|v| Box::new_in(v, self.alloc.clone())),
-            },
-            end,
-        ))
+        Ok((ast::StatementKind::Let { pattern, value }, end))
     }
 
     fn parse_for_statement_kind(
@@ -1541,6 +1538,153 @@ impl<
             }
             None => Ok(None),
         }
+    }
+
+    fn parse_markup_element(
+        &mut self,
+        tag_name: Span<&'source str>,
+    ) -> Result<(ast::Expression<'source, A>, Index), Error> {
+        let params_start = tag_name.source.end;
+        let mut params = Vec::new_in(self.alloc.clone());
+        
+        let (params_end, end) = loop {
+            let id = match self.iter.peek()? {
+                Some(Span {
+                    value: Token::MarkupClose,
+                    source,
+                }) => break (source.start, source.end),
+                Some(Span {
+                    value: Token::MarkupKey(key),
+                    source,
+                }) => Span {
+                    value: *key,
+                    source: source.clone(),
+                },
+                Some(Span {
+                    value: Token::MarkupStartTagEnd,
+                    source
+                }) => {
+                    // Parse children
+
+                    let children_start = source.end;
+
+                    self.iter.advance()?;
+
+                    let mut children = Vec::new_in(self.alloc.clone());
+                    let mut children_end = children_start;
+
+                    let (end_tag_name, end) = loop {
+                        match self.iter.peek()? {
+                            Some(Span {
+                                value: Token::MarkupStartTag(tag_name),
+                                source
+                            }) => {
+                                let tag_name = tag_name.clone();
+                                let element_start = source.start;
+
+                                self.iter.advance()?;
+                                
+                                let (expr, element_end) = self.parse_markup_element(tag_name)?;
+                                children_end = element_end;
+
+                                children.push(Span {
+                                    value: expr,
+                                    source: element_start..element_end,
+                                });
+                            }
+                            Some(Span {
+                                value: Token::MarkupEndTag(end_tag_name),
+                                source
+                            }) => break (end_tag_name.clone(), source.end),
+                            Some(Span {
+                                value: Token::MarkupText(text),
+                                source,
+                            }) => {
+                                let text = *text;
+                                let source = source.clone();
+
+                                self.iter.advance()?;
+
+                                children_end = source.end;
+
+                                children.push(Span {
+                                    source,
+                                    value: ast::Expression::String(EcoString::from(text)),
+                                })
+                            }
+                            Some(Span { value: Token::Symbol(Symbol::LeftBrace), .. }) => {
+                                todo!()
+                            }
+                            _ => unreachable!(),
+                        }
+                    };
+
+                    if end_tag_name.value != tag_name.value {
+                        return error!("Start and end tag do not equal.");
+                    }
+
+                    if children.len() > 0 {
+                        params.push(ast::ObjectField {
+                            id: Span {
+                                value: "children",
+                                source: children_start..children_end,
+                            },
+                            value: Span {
+                                value: ast::Expression::Array(children),
+                                source: children_start..children_end,
+                            },
+                        });
+                    }
+
+                    break (children_end, end);
+                }
+                token => unreachable!("{:?}", token),
+            };
+
+            self.iter.advance()?;
+
+            let value = match self.iter.peek()? {
+                Some(Span {
+                    value: Token::String(str),
+                    source,
+                }) => Span {
+                    value: ast::Expression::String(str.clone()),
+                    source: source.clone(),
+                },
+                Some(Span {
+                    value: Token::Symbol(Symbol::LeftBrace),
+                    ..
+                }) => {
+                    self.iter.advance()?;
+                    self.iter.skip_lb()?;
+                    self.parse_expression(0, true)?
+                }
+                _ => unreachable!(),
+            };
+
+            params.push(ast::ObjectField { id, value });
+
+            self.iter.advance()?;
+        };
+
+        self.iter.advance()?;
+
+        Ok((
+            ast::Expression::Call {
+                callee: Box::new_in(
+                    tag_name.map(ast::Expression::Identifier),
+                    self.alloc.clone(),
+                ),
+                argument: Box::new_in(
+                    Span {
+                        value: ast::Expression::Object(params),
+                        source: params_start..params_end,
+                    },
+                    self.alloc.clone(),
+                ),
+            },
+            end,
+        ))
     }
 
     /// Expects a token.
@@ -1789,9 +1933,39 @@ impl<
             }
             Some(Span {
                 value: Token::Keyword(Keyword::Fn),
-                ..
+                source,
             }) => {
-                todo!()
+                let start = source.start;
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                let pattern = self.parse_pattern()?;
+                self.iter.skip_lb()?;
+
+                let (pattern, return_type) = pattern.lift_function_return_type();
+
+                match self.iter.peek()? {
+                    Some(Span {
+                        value: Token::Symbol(Symbol::EqualsRightAngle),
+                        ..
+                    }) => {}
+                    _ => return error!("Expected '=>'."),
+                }
+
+                self.iter.advance()?;
+                self.iter.skip_lb()?;
+
+                let body = self.parse_expression(0, false)?;
+
+                Some(Span {
+                    source: start..body.source.end,
+                    value: ast::Expression::Function {
+                        pattern,
+                        return_type,
+                        body: Box::new_in(body, self.alloc.clone()),
+                    },
+                })
             }
             Some(Span {
                 value: Token::Keyword(Keyword::If),
@@ -1865,7 +2039,7 @@ impl<
                     }) => {}
                     _ => return error!("Expected '='."),
                 }
-                
+
                 self.iter.advance()?;
                 self.iter.skip_lb()?;
 
@@ -1883,75 +2057,16 @@ impl<
                 value: Token::MarkupStartTag(tag_name),
                 source,
             }) => {
-                let tag_name = *tag_name;
-                let source = source.clone();
-
-                let mut params = Vec::new_in(self.alloc.clone());
-
-                let end = loop {
-                    self.iter.advance()?;
-
-                    let id = match self.iter.peek()? {
-                        Some(Span {
-                            value: Token::MarkupClose,
-                            source,
-                        }) => break source.end,
-                        Some(Span {
-                            value: Token::MarkupKey(key),
-                            source,
-                        }) => Span {
-                            value: *key,
-                            source: source.clone(),
-                        },
-                        _ => todo!("markup children"),
-                    };
-
-                    self.iter.advance()?;
-
-                    let value = match self.iter.peek()? {
-                        Some(Span {
-                            value: Token::String(str),
-                            source,
-                        }) => Span {
-                            value: ast::Expression::String(str.clone()),
-                            source: source.clone(),
-                        },
-                        Some(Span {
-                            value: Token::Symbol(Symbol::LeftBrace),
-                            ..
-                        }) => {
-                            self.iter.advance()?;
-                            self.iter.skip_lb()?;
-                            self.parse_expression(0, true)?
-                        }
-                        _ => unreachable!(),
-                    };
-
-                    // TODO: revisit this part
-
-                    params.push(ast::ObjectField { id, value });
-                };
-
+                let tag_name = tag_name.clone();
+                let start = source.start;
+                
                 self.iter.advance()?;
+                
+                let (expr, end) = self.parse_markup_element(tag_name)?;
 
                 Some(Span {
-                    source: source.start..end,
-                    value: ast::Expression::Call {
-                        callee: Box::new_in(
-                            Span {
-                                value: ast::Expression::Identifier(tag_name),
-                                source: source.clone(),
-                            },
-                            self.alloc.clone(),
-                        ),
-                        argument: Box::new_in(
-                            Span {
-                                value: ast::Expression::Object(params),
-                                source: source.end..end, // TODO: range error
-                            },
-                            self.alloc.clone(),
-                        ),
-                    },
+                    value: expr,
+                    source: start..end,
                 })
             }
             _ => None,
@@ -2182,7 +2297,7 @@ impl<
                     }) = self.iter.peek()?
                     {
                         // Refine
-                        
+
                         // TODO: expressions in const parameters
 
                         self.iter.advance()?; // Skip '<'
@@ -2284,7 +2399,7 @@ impl<
     /// Ends on `}` or [Token::EndOfInput].
     fn parse_module_content(&mut self) -> Result<ast::ModuleContent<'source, A>, Error> {
         let mut items = Vec::new_in(self.alloc.clone());
-        
+
         loop {
             let visibility = match self.iter.peek()? {
                 // Ignore semicolons
