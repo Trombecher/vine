@@ -1,0 +1,20 @@
+pub let this_is_a_scope be (
+    let x be fn Integer, i => i * 2
+)
+
+pub let Option be fn Type, T |-> {
+    pub let None
+    pub let Some
+
+    None or Some T
+}
+
+/// A unicode character.
+pub let Character (0..=0x10FFFF & 0xD800..=0xDFFF)
+
+@Entry
+let main be fn |-> (
+    let args be (std.os.args ())
+
+    println Args
+)

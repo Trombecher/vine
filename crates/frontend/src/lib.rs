@@ -1,7 +1,5 @@
 #![no_std]
 #![feature(allocator_api)]
-#![feature(let_chains)]
-#![feature(if_let_guard)]
 extern crate alloc;
 
 mod warnings;

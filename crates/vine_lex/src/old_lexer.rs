@@ -17,6 +17,9 @@ mod cursor_ext;
 mod tests;
 mod tokens;
 mod unit_tests;
+mod lexer;
+mod chars;
+mod error;
 
 use crate::lex::cursor_ext::CursorExt;
 pub use tokens::*;

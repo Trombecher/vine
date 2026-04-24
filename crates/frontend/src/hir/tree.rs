@@ -7,11 +7,6 @@ use span::Span;
 
 pub enum Type {
     Derived(Arc<DerivedType>),
-    BuiltIn(BuiltinType)
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum BuiltinType {
     U8,
     U16,
     U32,
@@ -23,7 +18,9 @@ pub enum BuiltinType {
     I64,
     I128,
     F32,
-    F64
+    F64,
+    Ref(Box<Type>),
+    RefMut(Box<Type>)
 }
 
 pub struct DerivedType {
@@ -37,14 +34,6 @@ pub struct Function {
 #[derive(Clone)]
 #[derive_where(Debug, PartialEq)]
 pub enum Expression<'source, A: Allocator> {
-    If {
-        base: If<'source, A>
-    }
-}
-
-#[derive(Clone)]
-#[derive_where(Debug, PartialEq)]
-pub struct If<'source, A: Allocator> {
-    pub condition: Box<Span<Expression<'source, A>>>,
-    pub body: Span<Vec<Span<StatementOrExpression<'source, A>>>>
+    Number(f64),
+    
 }
