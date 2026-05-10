@@ -2,6 +2,8 @@ use parser_tools::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression<'source> {
+    Number(u64),
+
     /// An identifier.
     Identifier(&'source str),
 
@@ -11,7 +13,7 @@ pub enum Expression<'source> {
     /// <UOP> <EXPR>
     /// ```
     Unary {
-        operator: UnaryOperator,
+        operation: UnaryOperation,
         inner: Box<Expression<'source>>,
     },
 
@@ -22,7 +24,7 @@ pub enum Expression<'source> {
     /// ```
     Binary {
         left: Box<Span<Expression<'source>>>,
-        operator: BinaryOperator,
+        operation: BinaryOperation,
         right: Box<Span<Expression<'source>>>,
     },
 
@@ -59,7 +61,7 @@ pub enum Expression<'source> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum UnaryOperator {
+pub enum UnaryOperation {
     /// `-`
     Negate,
 
@@ -68,18 +70,18 @@ pub enum UnaryOperator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum BinaryOperator {
+pub enum BinaryOperation {
     /// `+`
-    Plus,
+    Add,
 
     /// `-`
-    Minus,
+    Subtract,
 
     /// `*`
-    Star,
+    Multiply,
 
     /// `/`
-    Slash,
+    Divide,
 }
 
 /// A pattern.

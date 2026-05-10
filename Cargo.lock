@@ -696,10 +696,8 @@ dependencies = [
 name = "test-stuff"
 version = "0.1.0"
 dependencies = [
- "bumpalo",
- "byte_reader",
- "errors",
- "frontend",
+ "vine_lex",
+ "vine_parse",
 ]
 
 [[package]]

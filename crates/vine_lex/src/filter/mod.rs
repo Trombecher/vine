@@ -119,6 +119,28 @@ impl<'source, Tokens: Iterator<Item = Token<'source>>> Iterator for TokenFilter<
                     range: first_range,
                 },
             },
+            Span {
+                value: Token::Slash,
+                range: first_range,
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Equals,
+                    range: second_range,
+                }) => {
+                    let end = second_range.end;
+
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredToken::SlashEquals,
+                        range: first_range.start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredToken::Slash,
+                    range: first_range,
+                },
+            },
             _ => unreachable!(),
         })
     }

@@ -69,13 +69,16 @@ pub enum FilteredToken<'source> {
     Plus,
 
     /// `-`
-    Hypen,
+    Minus,
 
     /// `*`
     Star,
 
     /// `/`
     Slash,
+
+    /// `/=`
+    SlashEquals,
 
     /// `|`
     Bar,
@@ -137,7 +140,7 @@ impl<'source> FilteredToken<'source> {
             Token::OpeningBracket => Some(Self::OpeningBracket),
             Token::ClosingBracket => Some(Self::ClosingBracket),
             Token::Plus => Some(Self::Plus),
-            Token::Hypen => Some(Self::Hypen),
+            Token::Hypen => Some(Self::Minus),
             Token::Star => Some(Self::Star),
             Token::Bar => Some(Self::Bar),
             Token::Period => Some(Self::Period),
