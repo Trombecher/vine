@@ -1,0 +1,8 @@
+[package]
+name = "vine_parse"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vine_lex = { path = "../vine_lex" }
+parser_tools = { git = "https://codeberg.org/Trombecher/parser_tools.git" }

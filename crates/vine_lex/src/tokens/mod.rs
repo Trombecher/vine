@@ -1,5 +1,11 @@
+use core::hint::unreachable_unchecked;
+
+use parser_tools::TokenLength;
+
 #[cfg(test)]
 mod tests;
+
+// TODO: add comments
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token<'source> {
@@ -7,7 +13,7 @@ pub enum Token<'source> {
     Whitespace(WhitespaceSource<'source>),
 
     /// An identifer or a keyword.
-    IdentifierOrKeyword(IdentifierOrKeywordSource<'source>),
+    IdentifierOrKeyword(&'source str),
 
     /// A number
     Number(NumberSource<'source>),
@@ -84,16 +90,15 @@ pub enum Token<'source> {
     ExclamationMark,
 }
 
-impl<'source> Token<'source> {
-    /// Returns the length in bytes of this token.
-    pub fn length(&self) -> usize {
+impl TokenLength for Token<'_> {
+    fn length(&self) -> u32 {
         match self {
-            Self::Whitespace(source) => source.as_str().len(),
-            Self::IdentifierOrKeyword(source) => source.as_str().len(),
-            Self::Number(source) => source.as_str().len(),
-            Self::Invalid(source) => source.len(),
-            Self::Character(source) => source.as_str().len(),
-            Self::String(source) => source.as_str().len(),
+            Self::Whitespace(source) => source.as_str().len() as u32,
+            Self::IdentifierOrKeyword(source) => source.len() as u32,
+            Self::Number(source) => source.as_str().len() as u32,
+            Self::Invalid(source) => source.len() as u32,
+            Self::Character(source) => source.as_str().len() as u32,
+            Self::String(source) => source.as_str().len() as u32,
             Self::ExclamationMark
             | Self::Semicolon
             | Self::OpeningBracket
@@ -134,14 +139,37 @@ macro_rules! impl_source_for {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct IdentifierOrKeywordSource<'source>(&'source str);
-
-impl_source_for!(IdentifierOrKeywordSource);
-
-#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct NumberSource<'source>(&'source str);
 
 impl_source_for!(NumberSource);
+
+impl NumberSource<'_> {
+    pub fn parse(self) -> u64 {
+        let mut bytes = self.as_str().bytes();
+
+        let mut number = match bytes.next() {
+            Some(start @ b'0'..=b'9') => (start - b'0') as u64,
+            _ => unsafe { unreachable_unchecked() },
+        };
+
+        loop {
+            match bytes.next() {
+                Some(n @ b'0'..=b'9') => {
+                    // TODO: refine this.
+
+                    number = number
+                        .checked_add((n - b'0') as u64)
+                        .expect("number to big")
+                }
+                Some(b'_') => {}
+                Some(b'.') => todo!("decimals not implemented"),
+                _ => break,
+            }
+        }
+
+        number
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CharacterSource<'source>(&'source str);

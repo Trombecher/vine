@@ -5,7 +5,7 @@ use core::str;
 
 use parser_tools::PeekableChars;
 
-use crate::{IdentifierOrKeywordSource, NumberSource, Token, WhitespaceSource};
+use crate::{NumberSource, Token, WhitespaceSource};
 
 fn is_identifier_start(c: char) -> bool {
     c.is_alphabetic() || c == '_'
@@ -102,9 +102,7 @@ impl<'source> Iterator for Lexer<'source> {
                     self.chars.next();
                 }
 
-                Token::IdentifierOrKeyword(unsafe {
-                    IdentifierOrKeywordSource::new_unchecked(span!())
-                })
+                Token::IdentifierOrKeyword(unsafe { span!() })
             }
             c if c.is_whitespace() => {
                 // Skip whitespace

@@ -765,6 +765,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vine_parse"
+version = "0.1.0"
+dependencies = [
+ "parser_tools",
+ "vine_lex",
+]
+
+[[package]]
 name = "vm"
 version = "0.1.0"
 
