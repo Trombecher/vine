@@ -1,0 +1,30 @@
+abstract Zero
+abstract One
+
+ZeroOrOne = set {Zero, One}
+
+@merge
+add = function lr is (
+    left = ZeroOrOne
+    right = ZeroOrOne
+) => match lr
+    case (left = Zero, right = Zero) or (left = One, right = One) => Zero
+    case (left = One, right = Zero) or (left = Zero, right = One) => One
+
+@merge
+multiply = function lr is (
+    left = ZeroOrOne
+    right = ZeroOrOne
+) => if lr == (left = One, right = One)
+    then One
+    else Zero
+
+@merge
+additive_inverse = function value is ZeroOrOne => match value
+    case Zero => One
+    case One => Zero
+
+@merge
+multiplicative_inverse = function One => One
+
+x = -One

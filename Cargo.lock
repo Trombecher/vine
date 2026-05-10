@@ -506,6 +506,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "parser_tools"
+version = "0.1.1"
+source = "git+https://codeberg.org/Trombecher/parser_tools.git#647c0ab7eefa30306623f59fcb72f2f556735b91"
+
+[[package]]
 name = "petgraph"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -755,6 +760,9 @@ checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 [[package]]
 name = "vine_lex"
 version = "0.1.0"
+dependencies = [
+ "parser_tools",
+]
 
 [[package]]
 name = "vm"

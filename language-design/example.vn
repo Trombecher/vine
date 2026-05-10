@@ -1,20 +1,26 @@
-pub let this_is_a_scope be (
-    let x be fn Integer, i => i * 2
-)
+BinarySearchTree.Leaf = function Item => Self Item
+BinarySearchTree.Node = function Item => function props is (
+    left = BinarySearchTree Item
+    item = Item
+    right = BinarySearchTree Item
+) => Self props
 
-pub let Option be fn Type, T |-> {
-    pub let None
-    pub let Some
+BinarySearchTree = function Item => Self.Leaf Item or (Self.Node Item) _
 
-    None or Some T
+BinarySearchTree.insert = function Item => function (
+    self = Self Item
+    item = Item
+) => match self
+    case Self.Leaf leaf_item => {
+        Self.Node (
+            left = Self.Leaf item
+            right = Self.Leaf leaf_item,
+        )
+    }
+    case (Self.Node Item) (left, item, right) => {
+        if
+    }
+
+main = function () => {
+    println "Hello, World"
 }
-
-/// A unicode character.
-pub let Character (0..=0x10FFFF & 0xD800..=0xDFFF)
-
-@Entry
-let main be fn |-> (
-    let args be (std.os.args ())
-
-    println Args
-)

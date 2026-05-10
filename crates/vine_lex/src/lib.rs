@@ -1,12 +1,8 @@
 #![no_std]
+#![feature(str_from_raw_parts)]
 
-mod chars;
-mod error;
 mod lexer;
 mod tokens;
-#[cfg(test)]
-mod unit_tests;
 
-pub use error::*;
 pub use lexer::*;
 pub use tokens::*;

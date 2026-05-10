@@ -2,3 +2,6 @@
 name = "vine_lex"
 version = "0.1.0"
 edition = "2024"
+
+[dependencies]
+parser_tools = { git = "https://codeberg.org/Trombecher/parser_tools.git" }
