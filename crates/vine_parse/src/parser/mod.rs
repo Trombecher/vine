@@ -3,18 +3,17 @@ mod error;
 
 pub use error::*;
 
-use std::iter::Peekable;
-
 use parser_tools::Span;
 use vine_lex::FilteredToken;
 
 use crate::{
     ast::{BinaryOperation, Expression},
     parser::bp::BindingPrecedence,
+    peekable::ArbitrarilyPeekable,
 };
 
 pub struct Parser<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> {
-    tokens: Peekable<Tokens>,
+    tokens: ArbitrarilyPeekable<Tokens>,
 }
 
 macro_rules! bail {
@@ -27,16 +26,16 @@ macro_rules! bail {
 }
 
 impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'source, Tokens> {
-    pub fn new(tokens: Tokens) -> Self {
+    pub const fn new(tokens: Tokens) -> Self {
         Self {
-            tokens: tokens.peekable(),
+            tokens: ArbitrarilyPeekable::new(tokens),
         }
     }
 
     pub fn parse_root_expression(&mut self) -> Result<Span<Expression<'source>>, Error<'source>> {
         let expression = self.parse_expression(BindingPrecedence::Lowest)?;
 
-        match self.tokens.next() {
+        match self.tokens.next_no_linebreak() {
             None => Ok(expression),
             token => bail!(token, "no token"),
         }
@@ -50,7 +49,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
 
         macro_rules! binary_operator {
             ($bp_right:expr, $operation:expr) => {{
-                self.tokens.next();
+                self.tokens.next_no_linebreak();
 
                 let right = self.parse_expression($bp_right)?;
                 let range = left.range.start..right.range.end;
@@ -67,7 +66,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
         }
 
         loop {
-            left = match self.tokens.peek() {
+            left = match self.tokens.peek_no_linebreak_n(0) {
                 Some(Span {
                     value: FilteredToken::Plus,
                     ..
@@ -131,7 +130,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
     }
 
     fn parse_expression_start(&mut self) -> Result<Span<Expression<'source>>, Error<'source>> {
-        Ok(match self.tokens.next() {
+        Ok(match self.tokens.next_no_linebreak() {
             Some(Span {
                 value: FilteredToken::Number(n),
                 range,
@@ -152,7 +151,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
             }) => {
                 let inner = self.parse_expression(BindingPrecedence::Lowest)?;
 
-                match self.tokens.next() {
+                match self.tokens.next_no_linebreak() {
                     Some(Span {
                         value: FilteredToken::ClosingParenthesis,
                         ..

@@ -30,7 +30,7 @@ impl<Iter: Iterator> ArbitrarilyPeekable<Iter> {
 
     pub fn peek_n(&mut self, n: usize) -> Option<&Iter::Item> {
         while self.queue.len() <= n {
-            let item = self.next()?;
+            let item = self.iter.next()?;
             self.queue.push_back(item);
         }
 
@@ -47,18 +47,18 @@ impl<Iter: Iterator> Iterator for ArbitrarilyPeekable<Iter> {
 }
 
 impl<'source, Iter: Iterator<Item = Span<FilteredToken<'source>>>> ArbitrarilyPeekable<Iter> {
-    fn next_no_linebreak(&mut self) -> Option<Iter::Item> {
+    pub fn next_no_linebreak(&mut self) -> Option<Iter::Item> {
         match self.next() {
             Some(Span {
                 value: FilteredToken::LineBreak,
                 ..
-            }) => self.iter.next(),
+            }) => self.next(),
             token => token,
         }
     }
 
     /// Returns the nth non-line break item in the queue, filling it if needed.
-    fn peek_no_linebreak_n(&mut self, mut n: usize) -> Option<&Iter::Item> {
+    pub fn peek_no_linebreak_n(&mut self, mut n: usize) -> Option<&Iter::Item> {
         let mut index = 0;
 
         loop {
