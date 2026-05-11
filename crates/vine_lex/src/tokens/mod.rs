@@ -181,6 +181,12 @@ pub struct WhitespaceSource<'source>(&'source str);
 
 impl_source_for!(WhitespaceSource);
 
+impl WhitespaceSource<'_> {
+    pub fn contains_a_line_break(self) -> bool {
+        self.0.contains(|c| c == '\n' || c == '\r')
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct StringSource<'source>(&'source str);
 

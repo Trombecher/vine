@@ -22,13 +22,24 @@ impl<'source, Tokens: Iterator<Item = Token<'source>>> Iterator for TokenFilter<
     fn next(&mut self) -> Option<Self::Item> {
         let span = match self.tokens.next()? {
             Span {
-                value: Token::Whitespace(_),
+                value: Token::Whitespace(whitespace),
                 ..
-            } => self.tokens.next()?,
+            } if !whitespace.contains_a_line_break() => self.tokens.next()?,
             span => span,
         };
 
         Some(match span {
+            Span {
+                value: Token::Whitespace(_),
+                range,
+            } => {
+                // Whitespace is a line break.
+
+                Span {
+                    value: FilteredToken::LineBreak,
+                    range,
+                }
+            }
             Span {
                 value: token,
                 range,

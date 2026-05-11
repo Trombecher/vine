@@ -1,5 +1,6 @@
 pub mod ast;
 mod parser;
+mod peekable;
 
 pub use parser::*;
 use parser_tools::Span;

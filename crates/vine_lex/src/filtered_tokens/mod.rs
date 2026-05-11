@@ -14,6 +14,9 @@ pub enum FilteredToken<'source> {
     // TODO: change that to fraction
     Number(u64),
 
+    /// A line break, may be used as a delimiter
+    LineBreak,
+
     /// `;`
     Semicolon,
 
@@ -155,6 +158,7 @@ impl<'source> FilteredToken<'source> {
             Token::IdentifierOrKeyword("then") => Some(Self::Then),
             Token::IdentifierOrKeyword("else") => Some(Self::Else),
             Token::IdentifierOrKeyword("match") => Some(Self::Match),
+            Token::IdentifierOrKeyword(identifier) => Some(Self::Identifier(identifier)),
             Token::Number(n) => Some(Self::Number(n.parse())),
             _ => None,
         }

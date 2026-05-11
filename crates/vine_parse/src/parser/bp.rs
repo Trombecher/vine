@@ -6,4 +6,5 @@ pub enum BindingPrecedence {
     AdditiveRight,
     MultiplicativeLeft,
     MultiplicativeRight,
+    Call,
 }

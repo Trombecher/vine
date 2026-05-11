@@ -98,6 +98,31 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                         BinaryOperation::Divide
                     )
                 }
+                Some(Span {
+                    value:
+                        FilteredToken::Number(_)
+                        | FilteredToken::Function
+                        | FilteredToken::If
+                        | FilteredToken::Identifier(_)
+                        | FilteredToken::OpeningParenthesis
+                        | FilteredToken::Ampersand
+                        | FilteredToken::OpeningBracket
+                        | FilteredToken::OpeningBrace,
+                    range,
+                }) => {
+                    // This is the start of a new token.
+
+                    let start = range.start;
+                    let argument = self.parse_expression(BindingPrecedence::Call)?;
+
+                    Span {
+                        range: start..argument.range.end,
+                        value: Expression::Call {
+                            function: Box::new(left),
+                            argument: Box::new(argument),
+                        },
+                    }
+                }
                 _ => break,
             };
         }
@@ -115,6 +140,13 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                 range,
             },
             Some(Span {
+                value: FilteredToken::Identifier(identifier),
+                range,
+            }) => Span {
+                value: Expression::Identifier(identifier),
+                range,
+            },
+            Some(Span {
                 value: FilteredToken::OpeningParenthesis,
                 ..
             }) => {
@@ -125,7 +157,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                         value: FilteredToken::ClosingParenthesis,
                         ..
                     }) => {}
-                    token => bail!(token, ":("),
+                    token => bail!(token, "expected ')'"),
                 }
 
                 inner

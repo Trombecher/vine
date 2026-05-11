@@ -58,6 +58,11 @@ pub enum Expression<'source> {
         first_case: Span<MatchCase<'source>>,
         other_cases: Vec<Span<MatchCase<'source>>>,
     },
+
+    Call {
+        function: Box<Span<Expression<'source>>>,
+        argument: Box<Span<Expression<'source>>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
