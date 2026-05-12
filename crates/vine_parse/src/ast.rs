@@ -7,6 +7,13 @@ pub enum Expression<'source> {
     /// An identifier.
     Identifier(&'source str),
 
+    /// A parenthesized expression
+    Parenthesized(Box<Span<Expression<'source>>>),
+
+    Structure {
+        fields: Vec<StructureField<'source>>,
+    },
+
     /// A unary Expression<'source>:
     ///
     /// ```plain
@@ -111,6 +118,36 @@ pub enum BinaryOperation {
 
     /// `.`
     Access,
+
+    /// `==`
+    Equal,
+
+    /// `!=`
+    NotEqual,
+
+    /// `<`
+    LessThan,
+
+    /// `<=`
+    LessThanOrEqual,
+
+    /// `>`
+    GreaterThan,
+
+    /// `>=`
+    GreaterThanOrEqual,
+
+    /// `..`
+    RangeExclusive,
+
+    /// `..=`
+    RangeInclusive,
+
+    /// `or`
+    Or,
+
+    /// `and`
+    And,
 }
 
 /// A match case:
@@ -130,4 +167,15 @@ pub struct MatchCase<'source> {
 
     /// `=>`
     pub maps_to: Box<Span<Expression<'source>>>,
+}
+
+/// A structure field:
+///
+/// ```plain
+/// <IDENTIFIER> = <EXPRESSION>
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructureField<'source> {
+    pub identifier: &'source str,
+    pub value: Box<Span<Expression<'source>>>,
 }
