@@ -2,9 +2,13 @@
 pub enum BindingPrecedence {
     #[default]
     Lowest,
+    AssignmentRight,
+    AssignmentLeft,
     AdditiveLeft,
     AdditiveRight,
     MultiplicativeLeft,
     MultiplicativeRight,
+    AccessLeft,
+    AccessRight,
     Call,
 }

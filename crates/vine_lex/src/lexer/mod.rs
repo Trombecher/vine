@@ -97,6 +97,7 @@ impl<'source> Iterator for Lexer<'source> {
             '^' => Token::Caret,
             '@' => Token::At,
             ';' => Token::Semicolon,
+            '=' => Token::Equals,
             c if is_identifier_start(c) => {
                 while self.chars.peek().is_some_and(is_identifier_continuation) {
                     self.chars.next();

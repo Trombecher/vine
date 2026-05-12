@@ -59,9 +59,25 @@ pub enum Expression<'source> {
         other_cases: Vec<Span<MatchCase<'source>>>,
     },
 
+    /// A call expression:
+    ///
+    /// ```plain
+    /// <EXPRESSION> <EXPRESSION>
+    /// ```
     Call {
         function: Box<Span<Expression<'source>>>,
         argument: Box<Span<Expression<'source>>>,
+    },
+
+    /// A function expression:
+    ///
+    /// ```plain
+    /// function <EXPRESSION> is|in <EXPRESSION> => <EXPRESSION>
+    /// ```
+    Function {
+        parameter_pattern: Box<Span<Expression<'source>>>,
+        parameter_domain: Box<Span<Expression<'source>>>,
+        body: Box<Span<Expression<'source>>>,
     },
 }
 
@@ -74,6 +90,8 @@ pub enum UnaryOperation {
     Not,
 }
 
+/// An operation that is used as an infix between
+/// two expression.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOperation {
     /// `+`
@@ -87,34 +105,25 @@ pub enum BinaryOperation {
 
     /// `/`
     Divide,
-}
 
-/// A pattern.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Pattern<'source> {
-    /// An identifier.
-    Identifier(&'source str),
+    /// `=`
+    Definition,
 
-    /// An application:
-    ///
-    /// ```plain
-    /// <EXPRESSION> <PATTERN>
-    /// ```
-    Application {
-        function: Box<Span<Expression<'source>>>,
-        argument: Box<Span<Pattern<'source>>>,
-    },
+    /// `.`
+    Access,
 }
 
 /// A match case:
 ///
 /// ```plain
-/// case <PATTERN> [is|in <EXPRESSION>] => <EXPRESSION>
+/// case <EXPRESSION> [is|in <EXPRESSION>] => <EXPRESSION>
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchCase<'source> {
-    /// The pattern to match against.
-    pub pattern: Span<Pattern<'source>>,
+    /// The pattern to match against. (This is really an
+    /// expression but will be checked if it is a pattern
+    /// in the next source tree.)
+    pub pattern: Box<Span<Expression<'source>>>,
 
     /// Optionally, a set to denote the domain of the pattern.
     pub in_set: Option<Box<Span<Expression<'source>>>>,

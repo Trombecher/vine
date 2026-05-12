@@ -1,7 +1,16 @@
 use crate::Token;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilteredToken<'source> {
+    /// The kind.
+    pub kind: FilteredTokenKind<'source>,
+
+    /// If this token has a line break preceding it.
+    pub line_break_before: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum FilteredToken<'source> {
+pub enum FilteredTokenKind<'source> {
     /// An identifer or a keyword.
     Identifier(&'source str),
 
@@ -13,9 +22,6 @@ pub enum FilteredToken<'source> {
 
     // TODO: change that to fraction
     Number(u64),
-
-    /// A line break, may be used as a delimiter
-    LineBreak,
 
     /// `;`
     Semicolon,
@@ -127,9 +133,19 @@ pub enum FilteredToken<'source> {
 
     /// Keyword `public`
     Public,
+
+    /// Keyword `is`
+    Is,
+
+    /// Keyword `in`
+    In,
 }
 
-impl<'source> FilteredToken<'source> {
+impl<'source> FilteredTokenKind<'source> {
+    /// Tries to convert a _trivial_ [`Token`] into a [`FilteredTokenKind`].
+    ///
+    /// Trivial tokens are those, that do not compose other filtered tokens
+    /// with other tokens.
     pub fn try_from_trivial(token: &Token<'source>) -> Option<Self> {
         match token {
             Token::Ampersand => Some(Self::Ampersand),
@@ -158,6 +174,9 @@ impl<'source> FilteredToken<'source> {
             Token::IdentifierOrKeyword("then") => Some(Self::Then),
             Token::IdentifierOrKeyword("else") => Some(Self::Else),
             Token::IdentifierOrKeyword("match") => Some(Self::Match),
+            Token::IdentifierOrKeyword("enum") => Some(Self::Match),
+            Token::IdentifierOrKeyword("is") => Some(Self::Is),
+            Token::IdentifierOrKeyword("in") => Some(Self::In),
             Token::IdentifierOrKeyword(identifier) => Some(Self::Identifier(identifier)),
             Token::Number(n) => Some(Self::Number(n.parse())),
             _ => None,

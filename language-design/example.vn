@@ -1,26 +1,3 @@
-BinarySearchTree.Leaf = function Item => Self Item
-BinarySearchTree.Node = function Item => function props is (
-    left = BinarySearchTree Item
-    item = Item
-    right = BinarySearchTree Item
-) => Self props
-
-BinarySearchTree = function Item => Self.Leaf Item or (Self.Node Item) _
-
-BinarySearchTree.insert = function Item => function (
-    self = Self Item
-    item = Item
-) => match self
-    case Self.Leaf leaf_item => {
-        Self.Node (
-            left = Self.Leaf item
-            right = Self.Leaf leaf_item,
-        )
-    }
-    case (Self.Node Item) (left, item, right) => {
-        if
-    }
-
 main = function () => {
-    println "Hello, World"
+
 }

@@ -1,5 +1,5 @@
 use vine_parse::parse_expression;
 
 fn main() {
-    println!("{:#?}", parse_expression("1 * (1 + 54)"))
+    println!("{:#?}", parse_expression("function a is b => c * 2"))
 }

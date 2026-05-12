@@ -24,6 +24,9 @@ pub enum Token<'source> {
     /// A unicode character `'x'`.
     Character(CharacterSource<'source>),
 
+    /// A line comment or a block comment.
+    Comment(&'source str),
+
     String(StringSource<'source>),
 
     /// `;`
@@ -99,6 +102,7 @@ impl TokenLength for Token<'_> {
             Self::Invalid(source) => source.len() as u32,
             Self::Character(source) => source.as_str().len() as u32,
             Self::String(source) => source.as_str().len() as u32,
+            Self::Comment(source) => source.len() as u32,
             Self::ExclamationMark
             | Self::Semicolon
             | Self::OpeningBracket

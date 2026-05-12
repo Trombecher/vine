@@ -1,19 +1,20 @@
 mod bp;
 mod error;
 
+use std::iter::Peekable;
+
 pub use error::*;
 
 use parser_tools::Span;
-use vine_lex::FilteredToken;
+use vine_lex::{FilteredToken, FilteredTokenKind};
 
 use crate::{
     ast::{BinaryOperation, Expression},
     parser::bp::BindingPrecedence,
-    peekable::ArbitrarilyPeekable,
 };
 
 pub struct Parser<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> {
-    tokens: ArbitrarilyPeekable<Tokens>,
+    tokens: Peekable<Tokens>,
 }
 
 macro_rules! bail {
@@ -26,16 +27,16 @@ macro_rules! bail {
 }
 
 impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'source, Tokens> {
-    pub const fn new(tokens: Tokens) -> Self {
+    pub fn new(tokens: Tokens) -> Self {
         Self {
-            tokens: ArbitrarilyPeekable::new(tokens),
+            tokens: tokens.peekable(),
         }
     }
 
     pub fn parse_root_expression(&mut self) -> Result<Span<Expression<'source>>, Error<'source>> {
         let expression = self.parse_expression(BindingPrecedence::Lowest)?;
 
-        match self.tokens.next_no_linebreak() {
+        match self.tokens.next() {
             None => Ok(expression),
             token => bail!(token, "no token"),
         }
@@ -49,7 +50,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
 
         macro_rules! binary_operator {
             ($bp_right:expr, $operation:expr) => {{
-                self.tokens.next_no_linebreak();
+                self.tokens.next();
 
                 let right = self.parse_expression($bp_right)?;
                 let range = left.range.start..right.range.end;
@@ -66,21 +67,56 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
         }
 
         loop {
-            left = match self.tokens.peek_no_linebreak_n(0) {
+            left = match self.tokens.peek() {
                 Some(Span {
-                    value: FilteredToken::Plus,
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Equals,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::AssignmentLeft => {
+                    binary_operator!(
+                        BindingPrecedence::AssignmentRight,
+                        BinaryOperation::Definition
+                    )
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Period,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::AccessLeft => {
+                    binary_operator!(BindingPrecedence::AccessRight, BinaryOperation::Access)
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Plus,
+                            ..
+                        },
                     ..
                 }) if min_bp <= BindingPrecedence::AdditiveLeft => {
                     binary_operator!(BindingPrecedence::AdditiveRight, BinaryOperation::Add)
                 }
                 Some(Span {
-                    value: FilteredToken::Minus,
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Minus,
+                            ..
+                        },
                     ..
                 }) if min_bp <= BindingPrecedence::AdditiveLeft => {
                     binary_operator!(BindingPrecedence::AdditiveRight, BinaryOperation::Subtract)
                 }
                 Some(Span {
-                    value: FilteredToken::Star,
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Star,
+                            ..
+                        },
                     ..
                 }) if min_bp <= BindingPrecedence::MultiplicativeLeft => {
                     binary_operator!(
@@ -89,7 +125,11 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                     )
                 }
                 Some(Span {
-                    value: FilteredToken::Slash,
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Slash,
+                            ..
+                        },
                     ..
                 }) if min_bp <= BindingPrecedence::MultiplicativeLeft => {
                     binary_operator!(
@@ -99,14 +139,18 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                 }
                 Some(Span {
                     value:
-                        FilteredToken::Number(_)
-                        | FilteredToken::Function
-                        | FilteredToken::If
-                        | FilteredToken::Identifier(_)
-                        | FilteredToken::OpeningParenthesis
-                        | FilteredToken::Ampersand
-                        | FilteredToken::OpeningBracket
-                        | FilteredToken::OpeningBrace,
+                        FilteredToken {
+                            kind:
+                                FilteredTokenKind::Number(_)
+                                | FilteredTokenKind::Function
+                                | FilteredTokenKind::If
+                                | FilteredTokenKind::Identifier(_)
+                                | FilteredTokenKind::OpeningParenthesis
+                                | FilteredTokenKind::Ampersand
+                                | FilteredTokenKind::OpeningBracket
+                                | FilteredTokenKind::OpeningBrace,
+                            ..
+                        },
                     range,
                 }) => {
                     // This is the start of a new token.
@@ -130,30 +174,104 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
     }
 
     fn parse_expression_start(&mut self) -> Result<Span<Expression<'source>>, Error<'source>> {
-        Ok(match self.tokens.next_no_linebreak() {
+        Ok(match self.tokens.next() {
             Some(Span {
-                value: FilteredToken::Number(n),
+                value:
+                    FilteredToken {
+                        kind: FilteredTokenKind::Number(n),
+                        ..
+                    },
                 range,
             }) => Span {
                 value: Expression::Number(n),
                 range,
             },
             Some(Span {
-                value: FilteredToken::Identifier(identifier),
+                value:
+                    FilteredToken {
+                        kind: FilteredTokenKind::Identifier(identifier),
+                        ..
+                    },
                 range,
             }) => Span {
                 value: Expression::Identifier(identifier),
                 range,
             },
             Some(Span {
-                value: FilteredToken::OpeningParenthesis,
+                value:
+                    FilteredToken {
+                        kind: FilteredTokenKind::Function,
+                        ..
+                    },
+                range,
+            }) => {
+                let parameter_pattern = self.parse_expression(BindingPrecedence::Lowest)?;
+
+                match self.tokens.next() {
+                    Some(Span {
+                        value:
+                            FilteredToken {
+                                kind: FilteredTokenKind::Is | FilteredTokenKind::In,
+                                ..
+                            },
+                        ..
+                    }) => {}
+                    token => bail!(token, "expected 'is' or 'in'"),
+                }
+
+                let domain = self.parse_expression(BindingPrecedence::Lowest)?;
+
+                match self.tokens.next() {
+                    Some(Span {
+                        value:
+                            FilteredToken {
+                                kind: FilteredTokenKind::EqualsGreaterThan,
+                                ..
+                            },
+                        ..
+                    }) => {}
+                    token @ Some(Span {
+                        value:
+                            FilteredToken {
+                                kind: FilteredTokenKind::Then,
+                                ..
+                            },
+                        ..
+                    }) => bail!(
+                        token,
+                        "expected '=>'. functions don't use 'then' they use '=>'"
+                    ),
+                    token => bail!(token, "expected '=>'"),
+                }
+
+                let body = self.parse_expression(BindingPrecedence::Lowest)?;
+
+                Span {
+                    range: range.start..body.range.end,
+                    value: Expression::Function {
+                        parameter_pattern: Box::new(parameter_pattern),
+                        parameter_domain: Box::new(domain),
+                        body: Box::new(body),
+                    },
+                }
+            }
+            Some(Span {
+                value:
+                    FilteredToken {
+                        kind: FilteredTokenKind::OpeningParenthesis,
+                        ..
+                    },
                 ..
             }) => {
                 let inner = self.parse_expression(BindingPrecedence::Lowest)?;
 
-                match self.tokens.next_no_linebreak() {
+                match self.tokens.next() {
                     Some(Span {
-                        value: FilteredToken::ClosingParenthesis,
+                        value:
+                            FilteredToken {
+                                kind: FilteredTokenKind::ClosingParenthesis,
+                                ..
+                            },
                         ..
                     }) => {}
                     token => bail!(token, "expected ')'"),
