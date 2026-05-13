@@ -5,8 +5,6 @@ use parser_tools::TokenLength;
 #[cfg(test)]
 mod tests;
 
-// TODO: add comments
-
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token<'source> {
     /// Some whitespace.
@@ -91,6 +89,30 @@ pub enum Token<'source> {
 
     /// `!`
     ExclamationMark,
+
+    /// `$`
+    DollarSign,
+
+    /// `%`
+    Percent,
+
+    /// `§`
+    Paragraph,
+
+    /// `?`
+    QuestionMark,
+
+    /// `#`
+    Hashtag,
+
+    /// `~`
+    Tilde,
+
+    /// ` ` `
+    Backtick,
+
+    /// `:`
+    Colon,
 }
 
 impl TokenLength for Token<'_> {
@@ -105,6 +127,14 @@ impl TokenLength for Token<'_> {
             Self::Comment(source) => source.len() as u32,
             Self::ExclamationMark
             | Self::Semicolon
+            | Self::DollarSign
+            | Self::Percent
+            | Self::Paragraph
+            | Self::Colon
+            | Self::QuestionMark
+            | Self::Tilde
+            | Self::Hashtag
+            | Self::Backtick
             | Self::OpeningBracket
             | Self::ClosingBracket
             | Self::OpeningBrace

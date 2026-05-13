@@ -6,7 +6,7 @@ fn main() {
         parse_expression(
             "(
                 a = 10
-                b = 20
+                    + 20
             )"
         )
     )

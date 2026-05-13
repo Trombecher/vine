@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod lower;
 mod parser;
 
 pub use parser::*;

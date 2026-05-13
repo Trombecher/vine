@@ -5,7 +5,7 @@ use core::str;
 
 use parser_tools::PeekableChars;
 
-use crate::{NumberSource, Token, WhitespaceSource};
+use crate::{CharacterSource, NumberSource, Token, WhitespaceSource};
 
 fn is_identifier_start(c: char) -> bool {
     c.is_alphabetic() || c == '_'
@@ -20,7 +20,15 @@ fn is_token_start(c: Option<char>) -> bool {
         Some(c) if is_identifier_start(c) => true,
         Some(c) if c.is_whitespace() => true,
         Some(
-            '+'
+            '$'
+            | '%'
+            | '§'
+            | '?'
+            | '#'
+            | '~'
+            | '`'
+            | ':'
+            | '+'
             | '-'
             | '*'
             | '/'
@@ -40,6 +48,9 @@ fn is_token_start(c: Option<char>) -> bool {
             | '^'
             | '@'
             | ';'
+            | '='
+            | '"'
+            | '\''
             | '0'..='9',
         )
         | None => true,
@@ -77,6 +88,14 @@ impl<'source> Iterator for Lexer<'source> {
         }
 
         Some(match self.chars.next()? {
+            '$' => Token::DollarSign,
+            '%' => Token::Percent,
+            '§' => Token::Paragraph,
+            '?' => Token::QuestionMark,
+            '#' => Token::Hashtag,
+            '~' => Token::Tilde,
+            '`' => Token::Backtick,
+            ':' => Token::Colon,
             '+' => Token::Plus,
             '-' => Token::Hypen,
             '*' => Token::Star,
@@ -98,6 +117,21 @@ impl<'source> Iterator for Lexer<'source> {
             '@' => Token::At,
             ';' => Token::Semicolon,
             '=' => Token::Equals,
+            '\'' => {
+                match self.chars.next() {
+                    Some('\\') => todo!("escape in char literal"),
+                    Some('\'') | None => return Some(Token::Invalid(unsafe { span!() })),
+                    Some(_) => {}
+                };
+
+                match self.chars.next() {
+                    Some('\'') => {
+                        Token::Character(unsafe { CharacterSource::new_unchecked(span!()) })
+                    }
+                    // TODO: maybe capture everything in '...'
+                    _ => return Some(Token::Invalid(unsafe { span!() })),
+                }
+            }
             c if is_identifier_start(c) => {
                 while self.chars.peek().is_some_and(is_identifier_continuation) {
                     self.chars.next();
