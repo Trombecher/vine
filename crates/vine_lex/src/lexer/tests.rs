@@ -7,8 +7,6 @@ mod Lexer {
 
     #[test]
     fn next() {
-        // TODO: add more
-
         let mut lexer =
             Lexer::new(" \n\r\t iäß_a347 123_456_789__\0'ß';@^,=<>(){}[]+-*/|.&!$%§?~`:");
 
@@ -38,7 +36,7 @@ mod Lexer {
                 CharacterSource::new_unchecked("'ß'")
             }))
         );
-        // TODO: test & implement comment & string
+        // TODO: test string
         assert_eq!(lexer.next(), Some(Token::Semicolon));
         assert_eq!(lexer.next(), Some(Token::At));
         assert_eq!(lexer.next(), Some(Token::Caret));
@@ -113,5 +111,26 @@ mod Lexer {
             lexer.next(),
             Some(Token::Comment("/* a * / / * // /* nested ****/ * / */"))
         );
+    }
+
+    #[test]
+    fn next_python_style_comment() {
+        let mut lexer = Lexer::new("#######\n#ä##\r");
+
+        assert_eq!(lexer.next(), Some(Token::Comment("#######")));
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Whitespace(unsafe {
+                WhitespaceSource::new_unchecked("\n")
+            }))
+        );
+        assert_eq!(lexer.next(), Some(Token::Comment("#ä##")));
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Whitespace(unsafe {
+                WhitespaceSource::new_unchecked("\r")
+            }))
+        );
+        assert_eq!(lexer.next(), None);
     }
 }

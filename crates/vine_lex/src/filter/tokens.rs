@@ -256,6 +256,12 @@ pub enum FilteredTokenKind<'source> {
 
     /// Keyword `while`
     While,
+
+    /// Keyword `or`
+    Or,
+
+    /// Keyword `and`
+    And,
 }
 
 impl<'source> FilteredTokenKind<'source> {
@@ -287,6 +293,8 @@ impl<'source> FilteredTokenKind<'source> {
             Token::IdentifierOrKeyword("for") => Some(Self::For),
             Token::IdentifierOrKeyword("loop") => Some(Self::Loop),
             Token::IdentifierOrKeyword("while") => Some(Self::While),
+            Token::IdentifierOrKeyword("or") => Some(Self::Or),
+            Token::IdentifierOrKeyword("and") => Some(Self::And),
             Token::IdentifierOrKeyword(identifier) => Some(Self::Identifier(identifier)),
             Token::Invalid(invalid) => Some(Self::Invalid(invalid)),
             Token::Character(source) => Some(Self::Character(source.parse())),

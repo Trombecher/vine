@@ -229,6 +229,26 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                 Some(Span {
                     value:
                         FilteredToken {
+                            kind: FilteredTokenKind::Or,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::OrLeft => {
+                    binary_operator!(BindingPrecedence::OrRight, BinaryOperation::Or)
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::And,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::AndLeft => {
+                    binary_operator!(BindingPrecedence::AndRight, BinaryOperation::And)
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
                             kind,
                             line_break_before,
                         },
