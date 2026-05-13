@@ -9,7 +9,7 @@ use parser_tools::Span;
 use vine_lex::filter::{FilteredToken, FilteredTokenKind};
 
 use crate::{
-    ast::{BinaryOperation, Expression, MatchCase},
+    ast::{BinaryOperation, Expression, MatchCase, UnaryOperation},
     parser::bp::BindingPrecedence,
 };
 
@@ -18,10 +18,10 @@ pub struct Parser<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>
 }
 
 macro_rules! bail {
-    ($found:expr, $message:literal) => {
+    ($found:expr, $expected:literal) => {
         return Err(Box::new(ErrorInfo {
             found: $found,
-            message: $message,
+            expected: $expected,
         }))
     };
 }
@@ -287,7 +287,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                     },
                 ..
             }) => {}
-            token => bail!(token, "expected 'is', 'in', or '=>'"),
+            token => bail!(token, "'is', 'in', or '=>'"),
         }
 
         let case_to_expression =
@@ -322,6 +322,25 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
             Some(Span {
                 value:
                     FilteredToken {
+                        kind: FilteredTokenKind::Minus,
+                        ..
+                    },
+                range: Range { start, .. },
+            }) => {
+                let inner =
+                    self.parse_expression(BindingPrecedence::Negate, line_break_as_delimiter)?;
+
+                Span {
+                    range: start..inner.range.end,
+                    value: Expression::Unary {
+                        operation: UnaryOperation::Negate,
+                        inner: Box::new(inner),
+                    },
+                }
+            }
+            Some(Span {
+                value:
+                    FilteredToken {
                         kind: FilteredTokenKind::Identifier(identifier),
                         ..
                     },
@@ -352,7 +371,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                     }) => range.start,
                     token => bail!(
                         token,
-                        "expected 'case'; match expressions must always have at least one case"
+                        "'case'; match expressions must always have at least one case"
                     ),
                 };
 
@@ -407,7 +426,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                             },
                         ..
                     }) => {}
-                    token => bail!(token, "expected 'is' or 'in'"),
+                    token => bail!(token, "'is' or 'in'"),
                 }
 
                 let domain = self.parse_expression(BindingPrecedence::Lowest, false)?;
@@ -428,11 +447,8 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                                 ..
                             },
                         ..
-                    }) => bail!(
-                        token,
-                        "expected '=>'. functions don't use 'then' they use '=>'"
-                    ),
-                    token => bail!(token, "expected '=>'"),
+                    }) => bail!(token, "'=>'. functions don't use 'then' they use '=>'"),
+                    token => bail!(token, "'=>'"),
                 }
 
                 let body = self.parse_expression(BindingPrecedence::Lowest, false)?;
@@ -456,7 +472,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
             }) => self.parse_structure(start)?,
             token => bail!(
                 token,
-                "expected '(', '!', '-', a number, a string, a character, '{', 'function', or '('"
+                "'(', '!', '-', a number, a string, a character, '{', 'function', or '('"
             ),
         })
     }
@@ -598,7 +614,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                                     // A ')' will be handled in the next iteration.
                                 }
                                 token => {
-                                    bail!(token.cloned(), "expected a line break, ',', or ')'")
+                                    bail!(token.cloned(), "a line break, ',', or ')'")
                                 }
                             }
                         }
@@ -611,10 +627,7 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                             value: Expression::Structure { fields: fields },
                         }
                     }
-                    token => bail!(
-                        token.cloned(),
-                        "expected ')', ',', a line break, or an expression"
-                    ),
+                    token => bail!(token.cloned(), "')', ',', a line break, or an expression"),
                 }
             }
         })

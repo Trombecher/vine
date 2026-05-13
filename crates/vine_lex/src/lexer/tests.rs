@@ -53,7 +53,7 @@ mod Lexer {
         assert_eq!(lexer.next(), Some(Token::OpeningBracket));
         assert_eq!(lexer.next(), Some(Token::ClosingBracket));
         assert_eq!(lexer.next(), Some(Token::Plus));
-        assert_eq!(lexer.next(), Some(Token::Hypen));
+        assert_eq!(lexer.next(), Some(Token::Minus));
         assert_eq!(lexer.next(), Some(Token::Star));
         assert_eq!(lexer.next(), Some(Token::Slash));
         assert_eq!(lexer.next(), Some(Token::Bar));

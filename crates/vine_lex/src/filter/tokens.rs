@@ -41,6 +41,9 @@ pub enum FilteredTokenKind<'source> {
     /// `==`
     EqualsEquals,
 
+    /// `===`
+    EqualsEqualsEquals,
+
     /// `=>`
     EqualsGreaterThan,
 
@@ -49,6 +52,9 @@ pub enum FilteredTokenKind<'source> {
 
     /// `<=`
     LessThanEquals,
+
+    /// `<-`
+    LessThanMinus,
 
     /// `>`
     GreaterThan,
@@ -184,6 +190,33 @@ pub enum FilteredTokenKind<'source> {
 
     /// Keyword `in`
     In,
+
+    /// Keyword `enum`
+    Enum,
+
+    /// Keyword `type`
+    Type,
+
+    /// Keyword `alias`
+    Alias,
+
+    /// Keyword `Self`
+    BigSelf,
+
+    /// Keyword `private`
+    Private,
+
+    /// Keyword `module`
+    Module,
+
+    /// Keyword `for`
+    For,
+
+    /// Keyword `loop`
+    Loop,
+
+    /// Keyword `while`
+    While,
 }
 
 impl<'source> FilteredTokenKind<'source> {
@@ -194,19 +227,27 @@ impl<'source> FilteredTokenKind<'source> {
     pub fn try_from_trivial(token: &Token<'source>) -> Option<Self> {
         match token {
             Token::IdentifierOrKeyword("function") => Some(Self::Function),
-            Token::IdentifierOrKeyword("block") => Some(Self::Block),
-            Token::IdentifierOrKeyword("set") => Some(Self::Set),
-            Token::IdentifierOrKeyword("return") => Some(Self::Return),
-            Token::IdentifierOrKeyword("leave") => Some(Self::Leave),
-            Token::IdentifierOrKeyword("public") => Some(Self::Public),
+            Token::IdentifierOrKeyword("match") => Some(Self::Match),
+            Token::IdentifierOrKeyword("case") => Some(Self::Case),
             Token::IdentifierOrKeyword("if") => Some(Self::If),
             Token::IdentifierOrKeyword("then") => Some(Self::Then),
             Token::IdentifierOrKeyword("else") => Some(Self::Else),
-            Token::IdentifierOrKeyword("match") => Some(Self::Match),
-            Token::IdentifierOrKeyword("case") => Some(Self::Case),
-            Token::IdentifierOrKeyword("enum") => Some(Self::Match),
+            Token::IdentifierOrKeyword("return") => Some(Self::Return),
+            Token::IdentifierOrKeyword("set") => Some(Self::Set),
+            Token::IdentifierOrKeyword("block") => Some(Self::Block),
+            Token::IdentifierOrKeyword("leave") => Some(Self::Leave),
+            Token::IdentifierOrKeyword("public") => Some(Self::Public),
             Token::IdentifierOrKeyword("is") => Some(Self::Is),
             Token::IdentifierOrKeyword("in") => Some(Self::In),
+            Token::IdentifierOrKeyword("enum") => Some(Self::Enum),
+            Token::IdentifierOrKeyword("type") => Some(Self::Type),
+            Token::IdentifierOrKeyword("alias") => Some(Self::Alias),
+            Token::IdentifierOrKeyword("Self") => Some(Self::BigSelf),
+            Token::IdentifierOrKeyword("private") => Some(Self::Private),
+            Token::IdentifierOrKeyword("module") => Some(Self::Module),
+            Token::IdentifierOrKeyword("for") => Some(Self::For),
+            Token::IdentifierOrKeyword("loop") => Some(Self::Loop),
+            Token::IdentifierOrKeyword("while") => Some(Self::While),
             Token::IdentifierOrKeyword(identifier) => Some(Self::Identifier(identifier)),
             Token::Invalid(invalid) => Some(Self::Invalid(invalid)),
             Token::Character(source) => Some(Self::Character(source.parse())),

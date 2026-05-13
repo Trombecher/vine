@@ -15,4 +15,5 @@ pub enum BindingPrecedence {
     AccessLeft,
     AccessRight,
     Call,
+    Negate,
 }

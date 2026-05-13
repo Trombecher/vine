@@ -2,7 +2,7 @@ mod tokens;
 
 pub use tokens::*;
 
-use core::iter::Peekable;
+use core::{iter::Peekable, ops::Range};
 
 use parser_tools::{Span, Spanify};
 
@@ -55,107 +55,256 @@ impl<'source, Tokens: Iterator<Item = Token<'source>>> Iterator for TokenFilter<
             },
             Span {
                 value: Token::Equals,
-                range: first_range,
-            } => {
-                // `=`, `=>`, or `==`.
-
-                match self.tokens.peek() {
-                    Some(Span {
-                        value: Token::Equals,
-                        range: second_range,
-                    }) => {
-                        let second_range = second_range.clone();
-                        self.tokens.next();
-
-                        Span {
-                            value: FilteredTokenKind::EqualsEquals,
-                            range: first_range.start..second_range.end,
-                        }
-                    }
-                    Some(Span {
-                        value: Token::GreaterThan,
-                        range: second_range,
-                    }) => {
-                        let second_range = second_range.clone();
-                        self.tokens.next();
-
-                        Span {
-                            value: FilteredTokenKind::EqualsGreaterThan,
-                            range: first_range.start..second_range.end,
-                        }
-                    }
-                    _ => Span {
-                        value: FilteredTokenKind::Equals,
-                        range: first_range,
-                    },
-                }
-            }
-            Span {
-                value: Token::LessThan,
-                range: first_range,
-            } => {
-                // `<` or `<=`.
-
-                match self.tokens.peek() {
-                    Some(Span {
-                        value: Token::Equals,
-                        range: second_range,
-                    }) => {
-                        let second_range = second_range.clone();
-                        self.tokens.next();
-
-                        Span {
-                            value: FilteredTokenKind::LessThanEquals,
-                            range: first_range.start..second_range.end,
-                        }
-                    }
-                    _ => Span {
-                        value: FilteredTokenKind::LessThan,
-                        range: first_range,
-                    },
-                }
-            }
-            Span {
-                value: Token::ExclamationMark,
-                range: first_range,
+                range: Range { start, end },
             } => match self.tokens.peek() {
                 Some(Span {
                     value: Token::Equals,
-                    range: second_range,
+                    range: Range { end, .. },
                 }) => {
-                    let end = second_range.end;
+                    let end = *end;
+                    self.tokens.next();
+
+                    match self.tokens.peek() {
+                        Some(Span {
+                            value: Token::Equals,
+                            range: Range { end, .. },
+                        }) => {
+                            let end = *end;
+                            self.tokens.next();
+
+                            Span {
+                                value: FilteredTokenKind::EqualsEqualsEquals,
+                                range: start..end,
+                            }
+                        }
+                        _ => Span {
+                            value: FilteredTokenKind::EqualsEquals,
+                            range: start..end,
+                        },
+                    }
+                }
+                Some(Span {
+                    value: Token::GreaterThan,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::EqualsGreaterThan,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Equals,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::LessThan,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::LessThanEquals,
+                        range: start..end,
+                    }
+                }
+                Some(Span {
+                    value: Token::Minus,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::LessThanMinus,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::LessThan,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::GreaterThan,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::GreaterThanEquals,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::GreaterThan,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::ExclamationMark,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
                     self.tokens.next();
 
                     Span {
                         value: FilteredTokenKind::ExclamationMarkEquals,
-                        range: first_range.start..end,
+                        range: start..end,
                     }
                 }
                 _ => Span {
                     value: FilteredTokenKind::ExclamationMark,
-                    range: first_range,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Plus,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Plus,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::PlusPlus,
+                        range: start..end,
+                    }
+                }
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::PlusEquals,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Plus,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Minus,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Minus,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::MinusMinus,
+                        range: start..end,
+                    }
+                }
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::MinusEquals,
+                        range: start..end,
+                    }
+                }
+                Some(Span {
+                    value: Token::GreaterThan,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::MinusGreaterThan,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Minus,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Star,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Star,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::StarStar,
+                        range: start..end,
+                    }
+                }
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::StarEquals,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Star,
+                    range: start..end,
                 },
             },
             Span {
                 value: Token::Slash,
-                range: first_range,
+                range: Range { start, end },
             } => match self.tokens.peek() {
                 Some(Span {
                     value: Token::Equals,
-                    range: second_range,
+                    range: Range { end, .. },
                 }) => {
-                    let end = second_range.end;
-
+                    let end = *end;
                     self.tokens.next();
 
                     Span {
                         value: FilteredTokenKind::SlashEquals,
-                        range: first_range.start..end,
+                        range: start..end,
                     }
                 }
                 _ => Span {
                     value: FilteredTokenKind::Slash,
-                    range: first_range,
+                    range: start..end,
                 },
             },
             token => unreachable!("{token:?} is not filterable"),

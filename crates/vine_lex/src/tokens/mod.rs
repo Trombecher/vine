@@ -70,7 +70,7 @@ pub enum Token<'source> {
     Plus,
 
     /// `-`
-    Hypen,
+    Minus,
 
     /// `*`
     Star,
@@ -153,7 +153,7 @@ impl TokenLength for Token<'_> {
             | Self::Slash
             | Self::Star
             | Self::Plus
-            | Self::Hypen => 1,
+            | Self::Minus => 1,
         }
     }
 }

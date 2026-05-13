@@ -24,7 +24,7 @@ pub enum Expression<'source> {
     /// ```
     Unary {
         operation: UnaryOperation,
-        inner: Box<Expression<'source>>,
+        inner: Box<Span<Expression<'source>>>,
     },
 
     /// A binary Expression<'source>:

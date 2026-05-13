@@ -6,5 +6,5 @@ pub type Error<'source> = Box<ErrorInfo<'source>>;
 #[derive(Debug, Clone)]
 pub struct ErrorInfo<'source> {
     pub found: Option<Span<FilteredToken<'source>>>,
-    pub message: &'static str,
+    pub expected: &'static str,
 }

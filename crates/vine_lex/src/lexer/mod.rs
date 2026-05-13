@@ -97,7 +97,7 @@ impl<'source> Iterator for Lexer<'source> {
             '`' => Token::Backtick,
             ':' => Token::Colon,
             '+' => Token::Plus,
-            '-' => Token::Hypen,
+            '-' => Token::Minus,
             '*' => Token::Star,
             '/' => Token::Slash,
             '!' => Token::ExclamationMark,
