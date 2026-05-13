@@ -165,9 +165,23 @@ impl<'source, Tokens: Iterator<Item = Token<'source>>> Iterator for TokenFilter<
                     let end = *end;
                     self.tokens.next();
 
-                    Span {
-                        value: FilteredTokenKind::ExclamationMarkEquals,
-                        range: start..end,
+                    match self.tokens.peek() {
+                        Some(Span {
+                            value: Token::Equals,
+                            range: Range { end, .. },
+                        }) => {
+                            let end = *end;
+                            self.tokens.next();
+
+                            Span {
+                                value: FilteredTokenKind::ExclamationMarkEqualsEquals,
+                                range: start..end,
+                            }
+                        }
+                        _ => Span {
+                            value: FilteredTokenKind::ExclamationMarkEqualsEquals,
+                            range: start..end,
+                        },
                     }
                 }
                 _ => Span {
@@ -304,6 +318,189 @@ impl<'source, Tokens: Iterator<Item = Token<'source>>> Iterator for TokenFilter<
                 }
                 _ => Span {
                     value: FilteredTokenKind::Slash,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Bar,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Bar,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    match self.tokens.peek() {
+                        Some(Span {
+                            value: Token::Equals,
+                            range: Range { end, .. },
+                        }) => {
+                            let end = *end;
+                            self.tokens.next();
+
+                            Span {
+                                value: FilteredTokenKind::BarBarEquals,
+                                range: start..end,
+                            }
+                        }
+                        _ => Span {
+                            value: FilteredTokenKind::BarBar,
+                            range: start..end,
+                        },
+                    }
+                }
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::BarEquals,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Bar,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Period,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Period,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    match self.tokens.peek() {
+                        Some(Span {
+                            value: Token::Equals,
+                            range: Range { end, .. },
+                        }) => {
+                            let end = *end;
+                            self.tokens.next();
+
+                            Span {
+                                value: FilteredTokenKind::PeriodPeriodEquals,
+                                range: start..end,
+                            }
+                        }
+                        _ => Span {
+                            value: FilteredTokenKind::PeriodPeriod,
+                            range: start..end,
+                        },
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Period,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Ampersand,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Ampersand,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    match self.tokens.peek() {
+                        Some(Span {
+                            value: Token::Equals,
+                            range: Range { end, .. },
+                        }) => {
+                            let end = *end;
+                            self.tokens.next();
+
+                            Span {
+                                value: FilteredTokenKind::AmpersandAmpersandEquals,
+                                range: start..end,
+                            }
+                        }
+                        _ => Span {
+                            value: FilteredTokenKind::AmpersandAmpersand,
+                            range: start..end,
+                        },
+                    }
+                }
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::AmpersandAmpersandEquals,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Ampersand,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Colon,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::ColonEquals,
+                        range: start..end,
+                    }
+                }
+                Some(Span {
+                    value: Token::Colon,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::ColonColon,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Colon,
+                    range: start..end,
+                },
+            },
+            Span {
+                value: Token::Caret,
+                range: Range { start, end },
+            } => match self.tokens.peek() {
+                Some(Span {
+                    value: Token::Equals,
+                    range: Range { end, .. },
+                }) => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    Span {
+                        value: FilteredTokenKind::CaretEquals,
+                        range: start..end,
+                    }
+                }
+                _ => Span {
+                    value: FilteredTokenKind::Caret,
                     range: start..end,
                 },
             },

@@ -102,9 +102,6 @@ pub enum Token<'source> {
     /// `?`
     QuestionMark,
 
-    /// `#`
-    Hashtag,
-
     /// `~`
     Tilde,
 
@@ -133,7 +130,6 @@ impl TokenLength for Token<'_> {
             | Self::Colon
             | Self::QuestionMark
             | Self::Tilde
-            | Self::Hashtag
             | Self::Backtick
             | Self::OpeningBracket
             | Self::ClosingBracket

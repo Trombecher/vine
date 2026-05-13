@@ -10,7 +10,7 @@ mod Lexer {
         // TODO: add more
 
         let mut lexer =
-            Lexer::new(" \n\r\t iäß_a347 123_456_789__\0'ß';@^,=<>(){}[]+-*/|.&!$%§?#~`:");
+            Lexer::new(" \n\r\t iäß_a347 123_456_789__\0'ß';@^,=<>(){}[]+-*/|.&!$%§?~`:");
 
         assert_eq!(
             lexer.next(),
@@ -64,11 +64,54 @@ mod Lexer {
         assert_eq!(lexer.next(), Some(Token::Percent));
         assert_eq!(lexer.next(), Some(Token::Paragraph));
         assert_eq!(lexer.next(), Some(Token::QuestionMark));
-        assert_eq!(lexer.next(), Some(Token::Hashtag));
         assert_eq!(lexer.next(), Some(Token::Tilde));
         assert_eq!(lexer.next(), Some(Token::Backtick));
         assert_eq!(lexer.next(), Some(Token::Colon));
         assert_eq!(lexer.next(), None);
         assert_eq!(lexer.next(), None);
+    }
+
+    #[test]
+    fn next_line_comment() {
+        let mut lexer = Lexer::new("// this is ä line comment\r//another one\n");
+
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Comment("// this is ä line comment"))
+        );
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Whitespace(unsafe {
+                WhitespaceSource::new_unchecked("\r")
+            }))
+        );
+        assert_eq!(lexer.next(), Some(Token::Comment("//another one")));
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Whitespace(unsafe {
+                WhitespaceSource::new_unchecked("\n")
+            }))
+        );
+        assert_eq!(lexer.next(), None);
+    }
+
+    #[test]
+    fn next_block_comment_no_nesting() {
+        let mut lexer = Lexer::new("/* a * / / * // block comment */");
+
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Comment("/* a * / / * // block comment */"))
+        );
+        assert_eq!(lexer.next(), None);
+    }
+
+    #[test]
+    fn next_block_comment_nesting() {
+        let mut lexer = Lexer::new("/* a * / / * // /* nested ****/ * / */");
+        assert_eq!(
+            lexer.next(),
+            Some(Token::Comment("/* a * / / * // /* nested ****/ * / */"))
+        );
     }
 }

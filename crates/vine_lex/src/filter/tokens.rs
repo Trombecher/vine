@@ -32,6 +32,9 @@ pub enum FilteredTokenKind<'source> {
     /// `^`
     Caret,
 
+    /// `^=`
+    CaretEquals,
+
     /// `,`
     Comma,
 
@@ -134,6 +137,9 @@ pub enum FilteredTokenKind<'source> {
     /// `..`
     PeriodPeriod,
 
+    /// `..=`
+    PeriodPeriodEquals,
+
     /// `&`
     Ampersand,
 
@@ -151,6 +157,39 @@ pub enum FilteredTokenKind<'source> {
 
     /// `!=`
     ExclamationMarkEquals,
+
+    /// `!==`
+    ExclamationMarkEqualsEquals,
+
+    /// `$`
+    DollarSign,
+
+    /// `%`
+    Percent,
+
+    /// `%=`
+    PercentEquals,
+
+    /// `§`
+    Paragraph,
+
+    /// `?`
+    QuestionMark,
+
+    /// `~`
+    Tilde,
+
+    /// ` ` `
+    Backtick,
+
+    /// `:`
+    Colon,
+
+    /// `:=`
+    ColonEquals,
+
+    /// `::`
+    ColonColon,
 
     /// Keyword `function`
     Function,
@@ -254,7 +293,6 @@ impl<'source> FilteredTokenKind<'source> {
             Token::Number(n) => Some(Self::Number(n.parse())),
             Token::Semicolon => Some(Self::Semicolon),
             Token::At => Some(Self::At),
-            Token::Caret => Some(Self::Caret),
             Token::Comma => Some(Self::Comma),
             Token::OpeningParenthesis => Some(Self::OpeningParenthesis),
             Token::ClosingParenthesis => Some(Self::ClosingParenthesis),
@@ -262,6 +300,10 @@ impl<'source> FilteredTokenKind<'source> {
             Token::ClosingBrace => Some(Self::ClosingBrace),
             Token::OpeningBracket => Some(Self::OpeningBracket),
             Token::ClosingBracket => Some(Self::ClosingBracket),
+            Token::Paragraph => Some(Self::Paragraph),
+            Token::QuestionMark => Some(Self::QuestionMark),
+            Token::Tilde => Some(Self::Tilde),
+            Token::Backtick => Some(Self::Backtick),
             _ => None,
         }
     }

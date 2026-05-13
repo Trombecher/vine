@@ -24,7 +24,6 @@ fn is_token_start(c: Option<char>) -> bool {
             | '%'
             | '§'
             | '?'
-            | '#'
             | '~'
             | '`'
             | ':'
@@ -92,14 +91,12 @@ impl<'source> Iterator for Lexer<'source> {
             '%' => Token::Percent,
             '§' => Token::Paragraph,
             '?' => Token::QuestionMark,
-            '#' => Token::Hashtag,
             '~' => Token::Tilde,
             '`' => Token::Backtick,
             ':' => Token::Colon,
             '+' => Token::Plus,
             '-' => Token::Minus,
             '*' => Token::Star,
-            '/' => Token::Slash,
             '!' => Token::ExclamationMark,
             '.' => Token::Period,
             ',' => Token::Comma,
@@ -117,6 +114,71 @@ impl<'source> Iterator for Lexer<'source> {
             '@' => Token::At,
             ';' => Token::Semicolon,
             '=' => Token::Equals,
+            '/' => {
+                match self.chars.peek() {
+                    Some('/') => {
+                        // Line comment
+                        self.chars.next();
+
+                        // Skip until line break.
+                        loop {
+                            match self.chars.peek() {
+                                Some('\r' | '\n') => break Token::Comment(unsafe { span!() }),
+                                None => break Token::Invalid(unsafe { span!() }),
+                                _ => {
+                                    self.chars.next();
+                                }
+                            }
+                        }
+                    }
+                    Some('*') => {
+                        // block comment
+                        self.chars.next();
+
+                        let mut depth = 0_u64;
+
+                        loop {
+                            match self.chars.next() {
+                                Some('/') if let Some('*') = self.chars.peek() => {
+                                    self.chars.next();
+
+                                    if let Some(higher_depth) = depth.checked_add(1) {
+                                        depth = higher_depth;
+                                    } else {
+                                        unreachable!("maximum depth reached")
+                                    }
+                                }
+                                Some('*') if let Some('/') = self.chars.peek() => {
+                                    self.chars.next();
+
+                                    if let Some(lower_depth) = depth.checked_sub(1) {
+                                        depth = lower_depth;
+                                    } else {
+                                        break Token::Comment(unsafe { span!() });
+                                    }
+                                }
+                                None => break Token::Invalid(unsafe { span!() }),
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => Token::Slash,
+                }
+            }
+            '#' => {
+                // Python-style comment
+
+                loop {
+                    match self.chars.peek() {
+                        Some('\n' | '\r') => break,
+                        _ => {
+                            self.chars.next();
+                        }
+                    }
+                }
+
+                Token::Comment(unsafe { span!() })
+            }
             '\'' => {
                 match self.chars.next() {
                     Some('\\') => todo!("escape in char literal"),
