@@ -1,5 +1,5 @@
 use parser_tools::Span;
-use vine_lex::FilteredToken;
+use vine_lex::filter::FilteredToken;
 
 pub type Error<'source> = Box<ErrorInfo<'source>>;
 

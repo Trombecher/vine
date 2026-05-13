@@ -1,8 +1,12 @@
+mod tokens;
+
+pub use tokens::*;
+
 use core::iter::Peekable;
 
 use parser_tools::{Span, Spanify};
 
-use crate::{FilteredToken, FilteredTokenKind, Token};
+use crate::tokens::Token;
 
 pub struct TokenFilter<'source, Tokens: Iterator<Item = Token<'source>>> {
     tokens: Peekable<Spanify<Token<'source>, Tokens>>,

@@ -6,7 +6,7 @@ use std::{iter::Peekable, ops::Range};
 pub use error::*;
 
 use parser_tools::Span;
-use vine_lex::{FilteredToken, FilteredTokenKind};
+use vine_lex::filter::{FilteredToken, FilteredTokenKind};
 
 use crate::{
     ast::{BinaryOperation, Expression, MatchCase},
@@ -85,6 +85,78 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
 
         loop {
             left = match self.tokens.peek() {
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::EqualsEquals,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::EqualityLeft => {
+                    binary_operator!(BindingPrecedence::EqualityRight, BinaryOperation::Equal)
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::ExclamationMarkEquals,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::EqualityLeft => {
+                    binary_operator!(BindingPrecedence::EqualityRight, BinaryOperation::NotEqual)
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::LessThan,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::ComparisonLeft => {
+                    binary_operator!(
+                        BindingPrecedence::ComparisonRight,
+                        BinaryOperation::LessThan
+                    )
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::LessThanEquals,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::ComparisonLeft => {
+                    binary_operator!(
+                        BindingPrecedence::ComparisonRight,
+                        BinaryOperation::LessThanOrEqual
+                    )
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::GreaterThan,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::ComparisonLeft => {
+                    binary_operator!(
+                        BindingPrecedence::ComparisonRight,
+                        BinaryOperation::GreaterThan
+                    )
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::GreaterThanEquals,
+                            ..
+                        },
+                    ..
+                }) if min_bp <= BindingPrecedence::ComparisonLeft => {
+                    binary_operator!(
+                        BindingPrecedence::ComparisonRight,
+                        BinaryOperation::GreaterThanOrEqual
+                    )
+                }
                 Some(Span {
                     value:
                         FilteredToken {

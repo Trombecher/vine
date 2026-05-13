@@ -210,6 +210,12 @@ pub struct CharacterSource<'source>(&'source str);
 
 impl_source_for!(CharacterSource);
 
+impl CharacterSource<'_> {
+    pub fn parse(&self) -> char {
+        todo!("parse characters")
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct WhitespaceSource<'source>(&'source str);
 

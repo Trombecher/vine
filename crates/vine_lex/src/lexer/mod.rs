@@ -5,7 +5,7 @@ use core::str;
 
 use parser_tools::PeekableChars;
 
-use crate::{CharacterSource, NumberSource, Token, WhitespaceSource};
+use crate::tokens::{CharacterSource, NumberSource, Token, WhitespaceSource};
 
 fn is_identifier_start(c: char) -> bool {
     c.is_alphabetic() || c == '_'

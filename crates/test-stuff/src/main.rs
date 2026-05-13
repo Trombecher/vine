@@ -1,13 +1,5 @@
 use vine_parse::parse_expression;
 
 fn main() {
-    println!(
-        "{:#?}",
-        parse_expression(
-            "(
-                a = 10
-                    + 20
-            )"
-        )
-    )
+    println!("{:#?}", parse_expression("1 < 3 == 3 >= 20"))
 }

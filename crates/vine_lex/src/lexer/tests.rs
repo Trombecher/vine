@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 mod Lexer {
-    use crate::CharacterSource;
+    use crate::tokens::CharacterSource;
 
     use super::super::*;
 
