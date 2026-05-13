@@ -7,6 +7,7 @@ use vine_lex::lex;
 
 use crate::ast::Expression;
 
+/// Parses an expression, ensuring that there are no more tokens after the expression.
 pub fn parse_expression<'source>(
     input: &'source str,
 ) -> Result<Span<Expression<'source>>, Error<'source>> {

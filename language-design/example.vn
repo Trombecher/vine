@@ -1,3 +1,4 @@
-scope = {
-
-}
+[
+    match 10 case x => y
+    10
+]

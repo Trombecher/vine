@@ -11,7 +11,10 @@ pub enum Expression<'source> {
     Parenthesized(Box<Span<Expression<'source>>>),
 
     Structure {
-        fields: Vec<StructureField<'source>>,
+        /// The fields of the structure. They should be of the form
+        /// `identifier = expression`. This will be validated when
+        /// lowering.
+        fields: Vec<Span<Expression<'source>>>,
     },
 
     /// A unary Expression<'source>:
@@ -163,19 +166,8 @@ pub struct MatchCase<'source> {
     pub pattern: Box<Span<Expression<'source>>>,
 
     /// Optionally, a set to denote the domain of the pattern.
-    pub in_set: Option<Box<Span<Expression<'source>>>>,
+    pub domain: Option<Box<Span<Expression<'source>>>>,
 
     /// `=>`
     pub maps_to: Box<Span<Expression<'source>>>,
-}
-
-/// A structure field:
-///
-/// ```plain
-/// <IDENTIFIER> = <EXPRESSION>
-/// ```
-#[derive(Debug, Clone, PartialEq)]
-pub struct StructureField<'source> {
-    pub identifier: &'source str,
-    pub value: Box<Span<Expression<'source>>>,
 }

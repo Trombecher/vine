@@ -110,6 +110,9 @@ pub enum FilteredTokenKind<'source> {
     /// Keyword `match`
     Match,
 
+    /// Keyword `case`
+    Case,
+
     /// Keyword `if`
     If,
 
@@ -174,6 +177,7 @@ impl<'source> FilteredTokenKind<'source> {
             Token::IdentifierOrKeyword("then") => Some(Self::Then),
             Token::IdentifierOrKeyword("else") => Some(Self::Else),
             Token::IdentifierOrKeyword("match") => Some(Self::Match),
+            Token::IdentifierOrKeyword("case") => Some(Self::Case),
             Token::IdentifierOrKeyword("enum") => Some(Self::Match),
             Token::IdentifierOrKeyword("is") => Some(Self::Is),
             Token::IdentifierOrKeyword("in") => Some(Self::In),
