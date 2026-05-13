@@ -16,8 +16,9 @@ pub enum BindingPrecedence {
     AdditiveRight,
     MultiplicativeLeft,
     MultiplicativeRight,
+    CallLeft,
+    CallRight,
+    Unary,
     AccessLeft,
     AccessRight,
-    Call,
-    Negate,
 }

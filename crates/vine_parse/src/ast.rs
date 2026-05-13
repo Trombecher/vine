@@ -7,14 +7,9 @@ pub enum Expression<'source> {
     /// An identifier.
     Identifier(&'source str),
 
-    /// A parenthesized expression
-    Parenthesized(Box<Span<Expression<'source>>>),
-
-    Structure {
-        /// The fields of the structure. They should be of the form
-        /// `identifier = expression`. This will be validated when
-        /// lowering.
-        fields: Vec<Span<Expression<'source>>>,
+    Grouped {
+        kind: GroupKind,
+        expression: Vec<Span<Expression<'source>>>,
     },
 
     /// A unary Expression<'source>:
@@ -91,7 +86,22 @@ pub enum Expression<'source> {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
+pub enum GroupKind {
+    /// `(...)`
+    Parenthesized,
+
+    /// `[...]`
+    Bracketed,
+
+    /// `{...}`
+    Braced,
+
+    /// `set {...}`
+    Set,
+}
+
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub enum UnaryOperation {
     /// `-`
     Negate,
@@ -102,7 +112,7 @@ pub enum UnaryOperation {
 
 /// An operation that is used as an infix between
 /// two expression.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub enum BinaryOperation {
     /// `+`
     Add,

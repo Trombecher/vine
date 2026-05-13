@@ -23,6 +23,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vine_mir"
+version = "0.1.0"
+
+[[package]]
 name = "vine_parse"
 version = "0.1.0"
 dependencies = [

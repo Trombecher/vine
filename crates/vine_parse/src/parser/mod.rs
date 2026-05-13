@@ -9,7 +9,7 @@ use parser_tools::Span;
 use vine_lex::filter::{FilteredToken, FilteredTokenKind};
 
 use crate::{
-    ast::{BinaryOperation, Expression, MatchCase, UnaryOperation},
+    ast::{BinaryOperation, Expression, GroupKind, MatchCase, UnaryOperation},
     parser::bp::BindingPrecedence,
 };
 
@@ -253,11 +253,12 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
                             line_break_before,
                         },
                     range,
-                }) if (!*line_break_before || !line_break_as_delimiter)
+                }) if min_bp <= BindingPrecedence::CallLeft
+                    && (!*line_break_before || !line_break_as_delimiter)
                     && token_kind_can_start_expression(kind) =>
                 {
                     let start = range.start;
-                    let argument = self.parse_expression(BindingPrecedence::Call, false)?;
+                    let argument = self.parse_expression(BindingPrecedence::CallRight, false)?;
 
                     Span {
                         range: start..argument.range.end,
@@ -323,11 +324,125 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
         })
     }
 
+    fn parse_grouped(
+        &mut self,
+        terminate_on: FilteredTokenKind,
+        start: u32,
+    ) -> Result<Span<Vec<Span<Expression<'source>>>>, Error<'source>> {
+        let mut expressions = Vec::new();
+
+        loop {
+            match self.tokens.peek() {
+                Some(Span {
+                    value: FilteredToken { kind, .. },
+                    range: Range { end, .. },
+                }) if kind == &terminate_on => {
+                    let end = *end;
+                    self.tokens.next();
+
+                    break Ok(Span {
+                        value: expressions,
+                        range: start..end,
+                    });
+                }
+                _ => {}
+            }
+
+            expressions.push(self.parse_expression(BindingPrecedence::Lowest, true)?);
+
+            match self.tokens.peek() {
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            kind: FilteredTokenKind::Comma,
+                            ..
+                        },
+                    ..
+                }) => {
+                    self.tokens.next();
+                }
+                Some(Span {
+                    value:
+                        FilteredToken {
+                            line_break_before: true,
+                            ..
+                        },
+                    ..
+                }) => {}
+                Some(Span {
+                    value: FilteredToken { kind, .. },
+                    ..
+                }) if kind == &terminate_on => {}
+                token => {
+                    bail!(token.cloned(), "a line break, ',', or ')'")
+                }
+            }
+        }
+    }
+
     fn parse_expression_start(
         &mut self,
         line_break_as_delimiter: bool,
     ) -> Result<Span<Expression<'source>>, Error<'source>> {
         Ok(match self.tokens.next() {
+            Some(Span {
+                value:
+                    FilteredToken {
+                        kind: FilteredTokenKind::If,
+                        ..
+                    },
+                range: Range { start, .. },
+            }) => {
+                let condition = self.parse_expression(BindingPrecedence::Lowest, false)?;
+
+                match self.tokens.next() {
+                    Some(Span {
+                        value:
+                            FilteredToken {
+                                kind: FilteredTokenKind::Then,
+                                ..
+                            },
+                        ..
+                    }) => {}
+                    token => bail!(token, "'then'"),
+                }
+
+                let then =
+                    self.parse_expression(BindingPrecedence::Lowest, line_break_as_delimiter)?;
+
+                let otherwise =
+                    match self.tokens.peek() {
+                        Some(Span {
+                            value:
+                                FilteredToken {
+                                    kind: FilteredTokenKind::Else,
+                                    ..
+                                },
+                            ..
+                        }) => {
+                            self.tokens.next();
+
+                            Some(self.parse_expression(
+                                BindingPrecedence::Lowest,
+                                line_break_as_delimiter,
+                            )?)
+                        }
+                        _ => None,
+                    };
+
+                Span {
+                    range: start..if let Some(otherwise) = &otherwise {
+                        otherwise.range.end
+                    } else {
+                        then.range.end
+                    },
+                    value: Expression::If {
+                        condition: Box::new(condition),
+                        then: Box::new(then),
+                        otherwise: otherwise.map(Box::new),
+                    },
+                }
+            }
             Some(Span {
                 value:
                     FilteredToken {
@@ -342,13 +457,32 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
             Some(Span {
                 value:
                     FilteredToken {
+                        kind: FilteredTokenKind::ExclamationMark,
+                        ..
+                    },
+                range: Range { start, .. },
+            }) => {
+                let inner =
+                    self.parse_expression(BindingPrecedence::Unary, line_break_as_delimiter)?;
+
+                Span {
+                    range: start..inner.range.end,
+                    value: Expression::Unary {
+                        operation: UnaryOperation::Not,
+                        inner: Box::new(inner),
+                    },
+                }
+            }
+            Some(Span {
+                value:
+                    FilteredToken {
                         kind: FilteredTokenKind::Minus,
                         ..
                     },
                 range: Range { start, .. },
             }) => {
                 let inner =
-                    self.parse_expression(BindingPrecedence::Negate, line_break_as_delimiter)?;
+                    self.parse_expression(BindingPrecedence::Unary, line_break_as_delimiter)?;
 
                 Span {
                     range: start..inner.range.end,
@@ -485,171 +619,73 @@ impl<'source, Tokens: Iterator<Item = Span<FilteredToken<'source>>>> Parser<'sou
             Some(Span {
                 value:
                     FilteredToken {
-                        kind: FilteredTokenKind::OpeningParenthesis,
+                        kind: FilteredTokenKind::Set,
                         ..
                     },
                 range: Range { start, .. },
-            }) => self.parse_structure(start)?,
+            }) => {
+                match self.tokens.next() {
+                    Some(Span {
+                        value:
+                            FilteredToken {
+                                kind: FilteredTokenKind::OpeningBrace,
+                                ..
+                            },
+                        ..
+                    }) => {}
+                    token => bail!(token, "'{'"),
+                }
+
+                let Span { value, range } =
+                    self.parse_grouped(FilteredTokenKind::ClosingBrace, start)?;
+
+                Span {
+                    value: Expression::Grouped {
+                        kind: GroupKind::Set,
+                        expression: value,
+                    },
+                    range,
+                }
+            }
+            Some(Span {
+                value:
+                    FilteredToken {
+                        kind:
+                            opening @ (FilteredTokenKind::OpeningParenthesis
+                            | FilteredTokenKind::OpeningBracket
+                            | FilteredTokenKind::OpeningBrace),
+                        ..
+                    },
+                range: Range { start, .. },
+            }) => {
+                let (closing, kind) = match opening {
+                    FilteredTokenKind::OpeningParenthesis => (
+                        FilteredTokenKind::ClosingParenthesis,
+                        GroupKind::Parenthesized,
+                    ),
+                    FilteredTokenKind::OpeningBracket => {
+                        (FilteredTokenKind::ClosingBracket, GroupKind::Bracketed)
+                    }
+                    FilteredTokenKind::OpeningBrace => {
+                        (FilteredTokenKind::ClosingBrace, GroupKind::Braced)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let Span { value, range } = self.parse_grouped(closing, start)?;
+
+                Span {
+                    value: Expression::Grouped {
+                        kind,
+                        expression: value,
+                    },
+                    range,
+                }
+            }
             token => bail!(
                 token,
                 "'(', '!', '-', a number, a string, a character, '{', 'function', or '('"
             ),
-        })
-    }
-
-    fn parse_structure(&mut self, start: u32) -> Result<Span<Expression<'source>>, Error<'source>> {
-        Ok(match self.tokens.peek() {
-            Some(Span {
-                value:
-                    FilteredToken {
-                        kind: FilteredTokenKind::ClosingParenthesis,
-                        ..
-                    },
-                range,
-            }) => {
-                // ()
-
-                let end = range.end;
-                self.tokens.next(); // Skip ')'
-
-                Span {
-                    value: Expression::Structure { fields: Vec::new() },
-                    range: start..end,
-                }
-            }
-            _ => {
-                let first = self.parse_expression(BindingPrecedence::Lowest, true)?;
-
-                match self.tokens.peek() {
-                    Some(Span {
-                        value:
-                            FilteredToken {
-                                kind: FilteredTokenKind::ClosingParenthesis,
-                                ..
-                            },
-                        range: Range { end, .. },
-                    }) => {
-                        // (expression)
-                        let end = *end;
-
-                        self.tokens.next(); // Skip ')'
-
-                        match first {
-                            Span {
-                                value:
-                                    Expression::Binary {
-                                        ref left,
-                                        operation: BinaryOperation::Definition,
-                                        ..
-                                    },
-                                ..
-                            } if let Span {
-                                value: Expression::Identifier(_),
-                                ..
-                            } = left.as_ref() =>
-                            {
-                                // (identifier = expression)
-
-                                Span {
-                                    value: Expression::Structure {
-                                        fields: vec![first],
-                                    },
-                                    range: start..end,
-                                }
-                            }
-                            first => Span {
-                                value: Expression::Parenthesized(Box::new(first)),
-                                range: start..end,
-                            },
-                        }
-                    }
-                    Some(Span {
-                        value:
-                            FilteredToken {
-                                line_break_before: true,
-                                ..
-                            }
-                            | FilteredToken {
-                                kind: FilteredTokenKind::Comma,
-                                ..
-                            },
-                        ..
-                    }) => {
-                        // We're expecting more fields.
-
-                        if let Some(Span {
-                            value:
-                                FilteredToken {
-                                    kind: FilteredTokenKind::Comma,
-                                    ..
-                                },
-                            ..
-                        }) = self.tokens.peek()
-                        {
-                            // Skip ','
-                            self.tokens.next();
-                        }
-
-                        let mut fields = vec![first];
-
-                        loop {
-                            match self.tokens.peek() {
-                                Some(Span {
-                                    value:
-                                        FilteredToken {
-                                            kind: FilteredTokenKind::ClosingParenthesis,
-                                            ..
-                                        },
-                                    ..
-                                }) => break,
-                                _ => {}
-                            }
-
-                            fields.push(self.parse_expression(BindingPrecedence::Lowest, true)?);
-
-                            match self.tokens.peek() {
-                                Some(Span {
-                                    value:
-                                        FilteredToken {
-                                            kind: FilteredTokenKind::Comma,
-                                            ..
-                                        },
-                                    ..
-                                }) => {
-                                    self.tokens.next();
-                                }
-                                Some(Span {
-                                    value:
-                                        FilteredToken {
-                                            line_break_before: true,
-                                            ..
-                                        }
-                                        | FilteredToken {
-                                            kind: FilteredTokenKind::ClosingParenthesis,
-                                            ..
-                                        },
-                                    ..
-                                }) => {
-                                    // Expression terminated because of line break.
-                                    // A ')' will be handled in the next iteration.
-                                }
-                                token => {
-                                    bail!(token.cloned(), "a line break, ',', or ')'")
-                                }
-                            }
-                        }
-
-                        // Skip ')'
-                        self.tokens.next();
-
-                        Span {
-                            range: start..fields.last().unwrap().range.end,
-                            value: Expression::Structure { fields: fields },
-                        }
-                    }
-                    token => bail!(token.cloned(), "')', ',', a line break, or an expression"),
-                }
-            }
         })
     }
 }

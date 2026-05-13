@@ -123,8 +123,9 @@ impl<'source> Iterator for Lexer<'source> {
                         // Skip until line break.
                         loop {
                             match self.chars.peek() {
-                                Some('\r' | '\n') => break Token::Comment(unsafe { span!() }),
-                                None => break Token::Invalid(unsafe { span!() }),
+                                Some('\r' | '\n') | None => {
+                                    break Token::Comment(unsafe { span!() });
+                                }
                                 _ => {
                                     self.chars.next();
                                 }
@@ -170,7 +171,7 @@ impl<'source> Iterator for Lexer<'source> {
 
                 loop {
                     match self.chars.peek() {
-                        Some('\n' | '\r') => break,
+                        Some('\n' | '\r') | None => break,
                         _ => {
                             self.chars.next();
                         }
